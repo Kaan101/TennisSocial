@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsup src/index.ts --format esm --target node22 --out-dir dist --clean --external @prisma/client --external argon2 --no-external @club/shared --no-external @club/types",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint -c ../../eslint.config.mjs src test prisma/seed.ts --max-warnings 0",
     "test": "vitest run",
