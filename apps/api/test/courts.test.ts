@@ -609,3 +609,76 @@ test("day grid marks pending and approved hours dolu without changing the Takvim
   expect(boardCell("Kort 2", "21:00")?.state).toBe("free");
   expect(boardCell("Kort 9", "12:00")?.state).toBe("free");
 });
+
+test("maç without an opponent is stored, and iptal frees the hour", async () => {
+  await ensureClubCourts();
+  const admin = await asAdmin();
+  const member = await registerUser(app, { firstName: "Mac", lastName: "Yok" });
+  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(member.token) });
+  const courts = listed.json().data as { id: string; name: string }[];
+  const kort = courts.find((court) => court.name === "Kort 3");
+  expect(kort).toBeTruthy();
+  const day = "2026-11-09";
+  expect(weekdayOfDate(day)).toBe(1);
+  const pending = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(member.token),
+    payload: {
+      courtId: kort!.id,
+      purpose: "MATCH",
+      startDate: day,
+      endDate: day,
+      weekdays: [1],
+      startTime: "10:00",
+      endTime: "11:00",
+      partnerId: null,
+    },
+  });
+  expect(pending.statusCode).toBe(201);
+  expect(pending.json().status).toBe("PENDING");
+  expect(pending.json().partner).toBeNull();
+  expect(pending.json().purposeLabel).toBe("maç");
+
+  const approved = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: {
+      courtId: kort!.id,
+      purpose: "MATCH",
+      startDate: day,
+      endDate: day,
+      weekdays: [1],
+      startTime: "11:00",
+      endTime: "12:00",
+    },
+  });
+  expect(approved.statusCode).toBe(201);
+  expect(approved.json().status).toBe("APPROVED");
+  expect(approved.json().partner).toBeNull();
+
+  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(member.token) });
+  const beforeCells = before.json().cells as { courtId: string; startTime: string; state: string }[];
+  expect(beforeCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")?.state).toBe("busy");
+
+  const stranger = await registerUser(app);
+  const denied = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${pending.json().id}/cancel`,
+    headers: auth(stranger.token),
+  });
+  expect(denied.statusCode).toBe(403);
+
+  const cancelled = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${pending.json().id}/cancel`,
+    headers: auth(member.token),
+  });
+  expect(cancelled.statusCode).toBe(200);
+  expect(cancelled.json().status).toBe("REJECTED");
+  const after = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(member.token) });
+  const afterCells = after.json().cells as { courtId: string; startTime: string; state: string; reservation: { status: string } | null }[];
+  expect(afterCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")).toMatchObject({ state: "free", reservation: null });
+  expect(afterCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "11:00")?.reservation?.status).toBe("APPROVED");
+});

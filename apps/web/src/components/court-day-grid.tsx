@@ -3,8 +3,7 @@
 import type { CourtPurpose } from "@club/shared";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
-import { type CourtRow, type Person, type Reservation, addHour, fullName, shiftDate } from "@/components/court-ui";
-import { Label, Select } from "@/components/ui/input";
+import { type CourtRow, type Person, type Reservation, addHour, shiftDate } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 
 export type DayReservation = {
@@ -40,11 +39,11 @@ export type DayGrid = {
 
 export type DaySlot = { courtId: string; startTime: string };
 
-const PURPOSE_OPTIONS: { purpose: CourtPurpose; label: string; text: string; bg: string; chip: string }[] = [
-  { purpose: "MATCH", label: "Maç", text: "text-[#1d4ed8]", bg: "bg-[#e7f0ff]", chip: "bg-[#dbeafe] text-[#1d4ed8]" },
-  { purpose: "TRAINING", label: "Antrenman", text: "text-[#047857]", bg: "bg-[#d8f5e6]", chip: "bg-[#d1fae5] text-[#047857]" },
-  { purpose: "TOURNAMENT", label: "Turnuva", text: "text-[#6d28d9]", bg: "bg-[#f3e8ff]", chip: "bg-[#ede9fe] text-[#6d28d9]" },
-  { purpose: "MAINTENANCE", label: "Bakım", text: "text-[#c2410c]", bg: "bg-[#ffedd5]", chip: "bg-[#ffedd5] text-[#c2410c]" },
+const PURPOSE_OPTIONS: { purpose: CourtPurpose; label: string; text: string; bg: string; idle: string; on: string }[] = [
+  { purpose: "MATCH", label: "Maç", text: "text-[#1d4ed8]", bg: "bg-[#e7f0ff]", idle: "bg-[#dbeafe] text-[#1d4ed8]", on: "bg-[#1d4ed8] text-white" },
+  { purpose: "TRAINING", label: "Antrenman", text: "text-[#047857]", bg: "bg-[#d8f5e6]", idle: "bg-[#d1fae5] text-[#047857]", on: "bg-[#047857] text-white" },
+  { purpose: "TOURNAMENT", label: "Turnuva", text: "text-[#6d28d9]", bg: "bg-[#f3e8ff]", idle: "bg-[#ede9fe] text-[#6d28d9]", on: "bg-[#6d28d9] text-white" },
+  { purpose: "MAINTENANCE", label: "Bakım", text: "text-[#c2410c]", bg: "bg-[#ffedd5]", idle: "bg-[#ffedd5] text-[#c2410c]", on: "bg-[#c2410c] text-white" },
 ];
 
 function purposeOption(purpose: CourtPurpose) {
@@ -57,6 +56,14 @@ export function purposeWord(purpose: CourtPurpose): string {
 
 function cellKey(courtId: string, startTime: string): string {
   return `${courtId}|${startTime}`;
+}
+
+function shortCourtLabel(name: string): string {
+  const indoor = name.match(/^Kapalı\s+(\d+)$/u);
+  if (indoor?.[1]) return `K${indoor[1]}`;
+  const outdoor = name.match(/^Kort\s+(\d+)$/u);
+  if (outdoor?.[1]) return outdoor[1];
+  return name;
 }
 
 function hoursUntil(startTime: string, endTime: string): string[] {
@@ -127,6 +134,12 @@ export function paintDayGrid(grid: DayGrid, created: Reservation): DayGrid {
   };
 }
 
+function headerTone(balloon: boolean): string {
+  return balloon
+    ? "border-[#1d4ed8] bg-[#60a5fa] text-[#172554]"
+    : "border-[#047857] bg-[#34d399] text-[#064e3b]";
+}
+
 export function CourtDayGrid({
   date,
   onDate,
@@ -134,9 +147,9 @@ export function CourtDayGrid({
   loading,
   error,
   onRetry,
-  people,
   busy,
   onApply,
+  onCancel,
   onCheckIn,
 }: {
   date: string;
@@ -145,46 +158,37 @@ export function CourtDayGrid({
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  people: Person[];
   busy: boolean;
-  onApply: (input: { purpose: CourtPurpose; slots: DaySlot[]; partnerId: string | null }) => Promise<boolean>;
-  onCheckIn: (reservationId: string, date: string, startTime: string) => Promise<boolean>;
+  onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
+  onCancel: (reservationIds: string[]) => Promise<void>;
+  onCheckIn: (slots: { reservationId: string; date: string; startTime: string }[]) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [purpose, setPurpose] = useState<CourtPurpose | null>(null);
   const [openCourtId, setOpenCourtId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ courtId: string; startTime: string } | null>(null);
-  const [partnerId, setPartnerId] = useState("");
-  const [askPartner, setAskPartner] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(new Set());
-    setDetail(null);
-    setAskPartner(false);
     setOpenCourtId(null);
+    setActionError(null);
   }, [date]);
 
-  useEffect(() => {
-    if (!grid) return;
-    setSelected((current) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const key of current) {
-        const [courtId, startTime] = key.split("|");
-        const cell = grid.cells.find((item) => item.courtId === courtId && item.startTime === startTime);
-        if (cell?.state === "free") next.add(key);
-        else changed = true;
-      }
-      return changed ? next : current;
-    });
-  }, [grid]);
-
   const cells = new Map((grid?.cells ?? []).map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
-  const detailCell = detail ? cells.get(`${detail.courtId}-${detail.startTime}`) : undefined;
-  const detailCourt = grid?.courts.find((court) => court.id === detail?.courtId) ?? null;
-  const detailReservation = detailCell?.state === "busy" ? detailCell.reservation : null;
+  const picked = [...selected].flatMap((key) => {
+    const [courtId, startTime] = key.split("|");
+    if (!courtId || !startTime) return [];
+    const cell = cells.get(`${courtId}-${startTime}`);
+    if (!cell) return [];
+    return [{ courtId, startTime, cell }];
+  });
+  const freeSlots = picked.filter((item) => item.cell.state !== "busy").map(({ courtId, startTime }) => ({ courtId, startTime }));
+  const reservedSlots = picked.filter((item) => item.cell.state === "busy" && item.cell.reservation);
+  const reservedOnly = picked.length > 0 && freeSlots.length === 0;
 
   function toggleSlot(courtId: string, startTime: string) {
     const key = cellKey(courtId, startTime);
+    setActionError(null);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -213,139 +217,160 @@ export function CourtDayGrid({
 
   function onCell(court: CourtRow, hour: string) {
     const cell = cells.get(`${court.id}-${hour}`);
-    if (cell?.state === "busy" && cell.reservation) {
-      setDetail((current) => current?.courtId === court.id && current.startTime === hour ? null : { courtId: court.id, startTime: hour });
-      return;
-    }
-    if (!court.active) return;
+    if (cell?.state !== "busy" && !court.active) return;
     toggleSlot(court.id, hour);
   }
 
-  async function apply(purpose: CourtPurpose) {
-    if (purpose === "MATCH" && !partnerId) {
-      setAskPartner(true);
-      return;
-    }
-    const slots = [...selected].flatMap((key) => {
-      const [courtId, startTime] = key.split("|");
-      if (!courtId || !startTime) return [];
-      if (cells.get(`${courtId}-${startTime}`)?.state === "busy") return [];
-      return [{ courtId, startTime }];
-    });
-    if (slots.length === 0) return;
-    const ok = await onApply({
-      purpose,
-      slots,
-      partnerId: purpose === "MATCH" ? partnerId : null,
-    });
-    if (ok) {
+  async function rezerv() {
+    if (!purpose || freeSlots.length === 0) return;
+    setActionError(null);
+    try {
+      await onApply({ purpose, slots: freeSlots });
       setSelected(new Set());
-      setAskPartner(false);
-      setPartnerId("");
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
     }
   }
 
+  async function cancelSelected() {
+    const ids = [...new Set(reservedSlots.flatMap((item) => item.cell.reservation ? [item.cell.reservation.id] : []))];
+    if (ids.length === 0) return;
+    setActionError(null);
+    try {
+      await onCancel(ids);
+      setSelected(new Set());
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
+    }
+  }
+
+  async function checkInSelected() {
+    const slots = reservedSlots.flatMap((item) => item.cell.reservation
+      ? [{ reservationId: item.cell.reservation.id, date, startTime: item.startTime }]
+      : []);
+    if (slots.length === 0) return;
+    setActionError(null);
+    try {
+      await onCheckIn(slots);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
+    }
+  }
+
+  const openCourt = grid?.courts.find((court) => court.id === openCourtId) ?? null;
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end gap-2">
+    <div className="w-full min-w-0 space-y-2">
+      <div className="flex min-w-0 items-center gap-1">
         <button
           type="button"
           aria-label="Önceki gün"
           onClick={() => onDate(shiftDate(date, -1))}
-          className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div>
-          <Label htmlFor="kort-gun">Gün</Label>
-          <input
-            id="kort-gun"
-            type="date"
-            value={date}
-            onChange={(event) => {
-              if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) onDate(event.target.value);
-            }}
-            className="h-9 w-[11.5rem] rounded-2xl border border-line bg-surface px-3 text-sm"
-          />
-        </div>
+        <input
+          aria-label="Gün"
+          type="date"
+          value={date}
+          onChange={(event) => {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) onDate(event.target.value);
+          }}
+          className="h-8 min-w-0 flex-1 rounded-xl border border-line bg-surface px-2 text-sm"
+        />
         <button
           type="button"
           aria-label="Sonraki gün"
           onClick={() => onDate(shiftDate(date, 1))}
-          className="grid h-9 w-9 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        {grid ? <p className="pb-2 text-sm font-semibold">{grid.label}</p> : null}
+        {grid ? <span className="min-w-0 truncate text-sm font-semibold">{grid.label}</span> : null}
       </div>
 
-      {selected.size > 0 ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Amaç">
-            {PURPOSE_OPTIONS.map((option) => (
-              <button
-                key={option.purpose}
-                type="button"
-                disabled={busy}
-                onClick={() => void apply(option.purpose)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold hover:brightness-95 disabled:opacity-50 ${option.chip}`}
-              >
-                {option.label}
-              </button>
-            ))}
+      <div className="grid grid-cols-4 gap-1" role="group" aria-label="Amaç">
+        {PURPOSE_OPTIONS.map((option) => {
+          const on = purpose === option.purpose;
+          return (
+            <button
+              key={option.purpose}
+              type="button"
+              aria-pressed={on}
+              disabled={busy}
+              onClick={() => { setPurpose(option.purpose); setActionError(null); }}
+              className={`min-w-0 truncate rounded-full px-1 py-1.5 text-[11px] font-semibold sm:text-xs ${on ? option.on : option.idle}`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="pt-1">
+        {reservedOnly ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled={busy} onClick={() => void cancelSelected()} className="rounded-full border border-line bg-surface px-3 py-2 text-sm font-semibold disabled:opacity-50">
+              İptal
+            </button>
+            <button type="button" disabled={busy} onClick={() => void checkInSelected()} className="rounded-full bg-court px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              Check-in
+            </button>
           </div>
-          {askPartner ? (
-            <div>
-              <Label htmlFor="day-partner">Rakip</Label>
-              <Select id="day-partner" value={partnerId} onChange={(event) => setPartnerId(event.target.value)}>
-                <option value="">Oyuncu seç</option>
-                {people.map((person) => <option key={person.id} value={person.id}>{fullName(person)}</option>)}
-              </Select>
-              <p className="mt-1 text-sm text-muted">Maç için rakip seç, sonra Maç’a tekrar dokun.</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !purpose || freeSlots.length === 0}
+            onClick={() => void rezerv()}
+            className="w-full rounded-full bg-court px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Rezerv
+          </button>
+        )}
+        {actionError ? <p className="mt-1 text-xs text-ink" role="alert">{actionError}</p> : null}
+      </div>
 
       {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
       {!loading && error ? <ErrorState message={error} onRetry={onRetry} /> : null}
 
       {grid && !loading && !error ? (
         <>
-          <div className="space-y-2 md:hidden">
-            {grid.courts.map((court) => {
-              const open = openCourtId === court.id;
-              const balloon = court.kind === "BALLOON";
-              return (
-                <section key={court.id} className="overflow-hidden rounded-2xl border border-line bg-surface">
+          <div className="md:hidden">
+            <h1 className="mb-2 text-lg font-semibold">Kortlar</h1>
+            <div className="flex flex-wrap gap-1">
+              {grid.courts.map((court) => {
+                const open = openCourtId === court.id;
+                const balloon = court.kind === "BALLOON";
+                return (
                   <button
+                    key={court.id}
                     type="button"
-                    aria-expanded={open}
+                    aria-pressed={open}
                     onClick={() => setOpenCourtId(open ? null : court.id)}
-                    className={`flex w-full items-center justify-between px-3 py-3 text-left hover:bg-paper ${balloon ? "border-l-4 border-l-[#2563eb]" : "border-l-4 border-l-court"}`}
+                    className={`rounded-lg px-2 py-1 text-sm font-semibold ${balloon ? (open ? "bg-[#1d4ed8] text-white" : "bg-[#60a5fa] text-[#172554]") : (open ? "bg-[#047857] text-white" : "bg-[#34d399] text-[#064e3b]")}`}
                   >
-                    <span className="font-semibold">{court.name}</span>
-                    <span className="text-xs text-muted">{open ? "Gizle" : "Saatler"}</span>
+                    {shortCourtLabel(court.name)}
                   </button>
-                  {open ? (
-                    <div className="grid gap-[2px] px-2 pb-2">
-                      {grid.hours.map((hour) => (
-                        <div key={hour} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-stretch gap-[2px]">
-                          <span className="self-center text-right text-[11px] text-muted">{hour}</span>
-                          <SlotButton
-                            court={court}
-                            hour={hour}
-                            cell={cells.get(`${court.id}-${hour}`)}
-                            selected={selected.has(cellKey(court.id, hour))}
-                            onClick={() => onCell(court, hour)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
+                );
+              })}
+            </div>
+            {openCourt ? (
+              <div className="mt-2 grid gap-[2px]">
+                {grid.hours.map((hour) => (
+                  <div key={hour} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-stretch gap-[2px]">
+                    <span className="self-center text-right text-[11px] text-muted">{hour}</span>
+                    <SlotButton
+                      court={openCourt}
+                      hour={hour}
+                      cell={cells.get(`${openCourt.id}-${hour}`)}
+                      selected={selected.has(cellKey(openCourt.id, hour))}
+                      onClick={() => onCell(openCourt, hour)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="hidden overflow-x-auto md:block">
@@ -354,20 +379,17 @@ export function CourtDayGrid({
               <thead>
                 <tr>
                   <th className="w-14" />
-                  {grid.courts.map((court) => {
-                    const balloon = court.kind === "BALLOON";
-                    return (
-                      <th
-                        key={court.id}
-                        scope="col"
-                        className={`min-w-[5.25rem] border-2 px-1 py-1 text-center text-[11px] font-semibold leading-tight whitespace-nowrap hover:brightness-95 ${balloon ? "border-[#2563eb] bg-[#eff6ff]" : "border-court bg-court/10"}`}
-                      >
-                        <button type="button" className="w-full" onClick={() => toggleCourt(court.id)}>
-                          {court.name}
-                        </button>
-                      </th>
-                    );
-                  })}
+                  {grid.courts.map((court) => (
+                    <th
+                      key={court.id}
+                      scope="col"
+                      className={`min-w-[5.25rem] border-2 px-1 py-1 text-center text-[11px] font-semibold leading-tight whitespace-nowrap ${headerTone(court.kind === "BALLOON")}`}
+                    >
+                      <button type="button" className="w-full" onClick={() => toggleCourt(court.id)}>
+                        {court.name}
+                      </button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -390,34 +412,6 @@ export function CourtDayGrid({
               </tbody>
             </table>
           </div>
-
-          {detail && detailCourt && detailReservation ? (
-            <section className="space-y-2 rounded-3xl border border-line bg-surface p-4 text-sm">
-              <h2 className="font-semibold">{detailCourt.name} · {date} {detail.startTime}</h2>
-              <p className={purposeOption(detailReservation.purpose).text}>{purposeWord(detailReservation.purpose)}</p>
-              <p>{detailReservation.status === "APPROVED" ? "Onaylı" : "Onay bekliyor"}</p>
-              {detailReservation.players && detailReservation.players.length > 0 ? (
-                <p>{detailReservation.players.map(fullName).join(" · ")}</p>
-              ) : null}
-              {detailReservation.checkedIn ? <p>Check-in yapıldı</p> : null}
-              {detailReservation.checkInHint ? <p className="text-muted">{detailReservation.checkInHint}</p> : null}
-              <div className="flex gap-2">
-                {detailReservation.canCheckIn ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-full bg-court px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-                    onClick={() => void onCheckIn(detailReservation.id, date, detail.startTime)}
-                  >
-                    Check-in
-                  </button>
-                ) : null}
-                <button type="button" className="rounded-full border border-line bg-surface px-3 py-2 text-xs font-semibold" onClick={() => setDetail(null)}>
-                  Kapat
-                </button>
-              </div>
-            </section>
-          ) : null}
         </>
       ) : null}
     </div>
@@ -443,17 +437,17 @@ function SlotButton({
     ? `${court.name} ${hour} ${option?.label ?? ""}`.trim()
     : `${court.name} ${hour}${selected ? " seçili" : " boş"}`;
   const tone = reservation
-    ? `${option?.bg ?? ""} ${option?.text ?? ""} font-semibold hover:brightness-95`
+    ? `${option?.bg ?? ""} ${option?.text ?? ""} font-semibold ${selected ? "brightness-90" : ""}`
     : selected
-      ? "bg-[#8fcea6] text-court-deep hover:bg-[#7fc49a]"
-      : "bg-[#c8efd4] text-court-deep hover:bg-[#b7e4c8]";
+      ? "bg-[#16a34a] text-white"
+      : "bg-[#e4e2dc] hover:bg-[#22c55e] focus:bg-[#22c55e] focus-visible:bg-[#22c55e] focus-visible:outline-none";
   return (
     <button
       type="button"
       aria-label={label}
-      aria-pressed={reservation ? undefined : selected}
+      aria-pressed={selected}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-[3px] px-1 py-1 text-center text-[11px] leading-tight ${tone}`}
+      className={`min-h-9 w-full rounded-[3px] px-1 py-1 text-center text-[11px] leading-tight focus-visible:outline-none ${tone}`}
     >
       {option ? option.label : null}
     </button>

@@ -253,10 +253,10 @@ export async function createReservation(
   };
   assertSpan(span);
   const partnerId = input.partnerId ?? null;
-  if (input.purpose === "MATCH") {
-    if (!partnerId) throw new AppError(400, "VALIDATION_ERROR", "Maç rezervasyonunda iki oyuncu olmalı");
-    if (partnerId === viewer.id) throw new AppError(400, "VALIDATION_ERROR", "Kendinle maç rezervasyonu açamazsın");
-  } else if (partnerId) {
+  if (partnerId && input.purpose === "MATCH" && partnerId === viewer.id) {
+    throw new AppError(400, "VALIDATION_ERROR", "Kendinle maç rezervasyonu açamazsın");
+  }
+  if (partnerId && input.purpose !== "MATCH") {
     throw new AppError(400, "VALIDATION_ERROR", "Rakip yalnızca maç rezervasyonunda seçilir");
   }
   const court = await prisma.court.findFirst({ where: { id: input.courtId, deletedAt: null, active: true } });
@@ -347,6 +347,20 @@ export async function approveReservation(viewer: CourtViewer, id: string) {
       }),
     ),
   );
+  return presentReservation(updated);
+}
+
+export async function cancelReservation(viewer: CourtViewer, id: string) {
+  const row = await prisma.courtReservation.findFirst({ where: { id, deletedAt: null } });
+  if (!row) throw notFound("Rezervasyon bulunamadı");
+  if (row.status === "REJECTED") throw new AppError(409, "CONFLICT", "Bu rezervasyon zaten iptal");
+  const allowed = viewer.role === "ADMIN" || viewer.id === row.holderId || viewer.id === row.partnerId;
+  if (!allowed) throw forbidden("Bu rezervasyonu iptal edemezsin");
+  const updated = await prisma.courtReservation.update({
+    where: { id },
+    data: { status: "REJECTED", decidedById: viewer.id, decidedAt: new Date() },
+    include: reservationInclude,
+  });
   return presentReservation(updated);
 }
 

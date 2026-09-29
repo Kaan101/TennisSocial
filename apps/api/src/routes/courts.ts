@@ -20,6 +20,7 @@ import {
   acceptSlotOffer,
   approveReservation,
   boardFor,
+  cancelReservation,
   checkInReservation,
   courtWeekFor,
   createCourt,
@@ -99,6 +100,12 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const { id } = req.params as { id: string };
     return approveReservation(viewer, id);
+  });
+
+  app.post("/api/reservations/:id/cancel", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    return cancelReservation(viewer, id);
   });
 
   app.post("/api/reservations/:id/reject", async (req) => {
