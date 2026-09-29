@@ -1,0 +1,20 @@
+{
+  "name": "@club/types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint -c ../../eslint.config.mjs src --max-warnings 0"
+  },
+  "dependencies": {
+    "@club/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tennis
+          POSTGRES_PASSWORD: tennis
+          POSTGRES_DB: tennisclub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tennis -d tennisclub_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://tennis:tennis@localhost:5432/tennisclub_test
+      DATABASE_URL: postgresql://tennis:tennis@localhost:5432/tennisclub_test
+      ACCESS_TOKEN_SECRET: ci-access-secret-which-is-long-enough
+      WEB_ORIGIN: http://localhost:43123
+      API_INTERNAL_URL: http://127.0.0.1:43124
+      API_PUBLIC_URL: http://127.0.0.1:43124
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @club/api exec prisma generate
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm --filter @club/api exec prisma migrate deploy
+      - run: pnpm test
+      - run: pnpm build

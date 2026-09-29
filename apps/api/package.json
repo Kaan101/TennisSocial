@@ -1,0 +1,46 @@
+{
+  "name": "@club/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsup src/index.ts --format esm --target node22 --out-dir dist --clean --external @prisma/client --external argon2",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint -c ../../eslint.config.mjs src test prisma/seed.ts --max-warnings 0",
+    "test": "vitest run",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@club/shared": "workspace:*",
+    "@club/types": "workspace:*",
+    "@fastify/cookie": "11.1.2",
+    "@fastify/cors": "11.3.0",
+    "@fastify/helmet": "13.1.1",
+    "@fastify/multipart": "10.1.2",
+    "@fastify/rate-limit": "11.2.0",
+    "@fastify/static": "10.1.5",
+    "@prisma/client": "6.19.3",
+    "argon2": "0.45.1",
+    "cloudinary": "2.11.0",
+    "dotenv": "18.0.4",
+    "fastify": "5.12.5",
+    "jose": "6.2.12",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "prisma": "6.19.3",
+    "tsup": "8.5.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}

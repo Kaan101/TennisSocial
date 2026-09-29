@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --color-paper: #f3f0e7;
+  --color-paper-2: #e6dfd0;
+  --color-ink: #14241c;
+  --color-muted: #5d6b63;
+  --color-line: #e0d8c8;
+  --color-court: #0f6e49;
+  --color-court-deep: #0b3d2c;
+  --color-clay: #c45c2e;
+  --color-surface: #fffdf8;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-court);
+  outline-offset: 2px;
+}
+
+.court-hero {
+  background:
+    radial-gradient(900px 220px at 100% -20%, rgba(255, 255, 255, 0.14), transparent 55%),
+    linear-gradient(165deg, #0b3d2c 0%, #114e36 58%, #0f6e49 100%);
+}
