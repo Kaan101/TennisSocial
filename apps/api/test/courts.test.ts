@@ -500,3 +500,112 @@ test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async (
   expect(freeNames).toContain("Kort 2");
   expect(freeNames).toHaveLength(CLUB_COURTS.length - 1);
 });
+
+test("day grid marks pending and approved hours dolu without changing the Takvim board", async () => {
+  await ensureClubCourts();
+  const admin = await asAdmin();
+  const member = await registerUser(app, { firstName: "Gun", lastName: "Izgara" });
+  const partner = await registerUser(app, { firstName: "Rakip", lastName: "Gun" });
+  const tournament = await registerUser(app, { firstName: "Turnuva", lastName: "Gun" });
+  await prisma.user.update({ where: { id: tournament.user.id }, data: { role: "TOURNAMENT_MANAGER" } });
+  const stranger = await registerUser(app, { firstName: "Baska", lastName: "Uye" });
+  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(member.token) });
+  const courts = listed.json().data as { id: string; name: string }[];
+  const id = (name: string) => {
+    const court = courts.find((item) => item.name === name);
+    expect(court).toBeTruthy();
+    return court!.id;
+  };
+  const day = "2026-11-02";
+  expect(weekdayOfDate(day)).toBe(1);
+
+  async function reserve(courtId: string, startTime: string, endTime: string, purpose: string, token: string, partnerId?: string) {
+    return app.inject({
+      method: "POST",
+      url: "/api/reservations",
+      headers: auth(token),
+      payload: {
+        courtId,
+        purpose,
+        startDate: day,
+        endDate: day,
+        weekdays: [1],
+        startTime,
+        endTime,
+        ...(partnerId ? { partnerId } : {}),
+      },
+    });
+  }
+
+  const pendingTraining = await reserve(id("Kapalı 1"), "10:00", "11:00", "TRAINING", member.token);
+  expect(pendingTraining.statusCode).toBe(201);
+  expect(pendingTraining.json().status).toBe("PENDING");
+  const pendingMatch = await reserve(id("Kapalı 3"), "09:00", "10:00", "MATCH", member.token, partner.user.id);
+  expect(pendingMatch.statusCode).toBe(201);
+  expect(pendingMatch.json().status).toBe("PENDING");
+  const pendingTournament = await reserve(id("Kort 5"), "11:00", "12:00", "TOURNAMENT", tournament.token);
+  expect(pendingTournament.statusCode).toBe(201);
+  expect(pendingTournament.json().status).toBe("PENDING");
+  const maintenance = await reserve(id("Kapalı 2"), "15:00", "16:00", "MAINTENANCE", admin.token);
+  expect(maintenance.statusCode).toBe(201);
+  expect(maintenance.json().status).toBe("APPROVED");
+  const range = await reserve(id("Kort 2"), "18:00", "21:00", "TRAINING", admin.token);
+  expect(range.statusCode).toBe(201);
+  expect(range.json().status).toBe("APPROVED");
+  const rejected = await reserve(id("Kort 9"), "12:00", "13:00", "TRAINING", member.token);
+  expect(rejected.statusCode).toBe(201);
+  const reject = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${rejected.json().id}/reject`,
+    headers: auth(admin.token),
+  });
+  expect(reject.statusCode).toBe(200);
+
+  const res = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(stranger.token) });
+  expect(res.statusCode).toBe(200);
+  const body = res.json() as {
+    date: string;
+    label: string;
+    hours: string[];
+    courts: { id: string; name: string; kind: string }[];
+    cells: { courtId: string; startTime: string; state: string; reservation: { status: string; purposeLabel: string } | null }[];
+  };
+  expect(body.date).toBe(day);
+  expect(body.label).toBe("Pazartesi");
+  expect(body.hours).toEqual([...COURT_HOURS]);
+  expect(body.hours[0]).toBe("08:00");
+  expect(body.hours[body.hours.length - 1]).toBe("22:00");
+  expect(body.courts.map((court) => court.name)).toEqual(CLUB_COURTS.map((court) => court.name));
+  expect(body.courts.slice(0, 3).every((court) => court.kind === "BALLOON")).toBe(true);
+  expect(body.courts.slice(3).every((court) => court.kind === "OUTDOOR")).toBe(true);
+  expect(body.cells).toHaveLength(CLUB_COURTS.length * COURT_HOURS.length);
+
+  const cell = (name: string, startTime: string) => {
+    const courtId = body.courts.find((court) => court.name === name)?.id;
+    return body.cells.find((item) => item.courtId === courtId && item.startTime === startTime);
+  };
+  expect(cell("Kapalı 1", "10:00")).toMatchObject({ state: "busy", reservation: { status: "PENDING", purposeLabel: "antrenman" } });
+  expect(cell("Kapalı 1", "11:00")?.state).toBe("free");
+  expect(cell("Kapalı 3", "09:00")?.reservation).toMatchObject({ status: "PENDING", purposeLabel: "maç" });
+  expect(cell("Kort 5", "11:00")?.reservation).toMatchObject({ status: "PENDING", purposeLabel: "turnuva" });
+  expect(cell("Kapalı 2", "15:00")?.reservation).toMatchObject({ status: "APPROVED", purposeLabel: "bakım" });
+  expect(cell("Kort 2", "18:00")?.state).toBe("busy");
+  expect(cell("Kort 2", "19:00")?.reservation?.purposeLabel).toBe("antrenman");
+  expect(cell("Kort 2", "20:00")?.state).toBe("busy");
+  expect(cell("Kort 2", "21:00")?.state).toBe("free");
+  expect(cell("Kort 9", "12:00")?.state).toBe("free");
+  expect(cell("Kort 1", "08:00")).toMatchObject({ state: "free", reservation: null });
+  expect(cell("Kort 9", "22:00")?.state).toBe("free");
+
+  const board = await app.inject({ method: "GET", url: `/api/courts/board?week=${day}`, headers: auth(stranger.token) });
+  expect(board.statusCode).toBe(200);
+  const slots = board.json().slots as { date: string; startTime: string; courts: { name: string; state: string }[] }[];
+  const boardCell = (name: string, startTime: string) =>
+    slots.find((item) => item.date === day && item.startTime === startTime)?.courts.find((court) => court.name === name);
+  expect(boardCell("Kapalı 1", "10:00")?.state).toBe("free");
+  expect(boardCell("Kapalı 3", "09:00")?.state).toBe("free");
+  expect(boardCell("Kapalı 2", "15:00")?.state).toBe("reserved");
+  expect(boardCell("Kort 2", "18:00")?.state).toBe("reserved");
+  expect(boardCell("Kort 2", "21:00")?.state).toBe("free");
+  expect(boardCell("Kort 9", "12:00")?.state).toBe("free");
+});

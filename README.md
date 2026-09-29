@@ -105,7 +105,7 @@ Diğer seed hesapları da aynı parolayı kullanır ve `@tennisclub.local` adres
 
 `/takvim` oyuncu müsaitliğidir: günler × 08:00–22:00. Yeşil saat, en az iki görünen oyuncu ve aralarında seviye farkı en fazla 1 olan bir çift demektir. Bir saate dokununca panel açılır; aynı günde bitiş saati hariç bir aralık seçilebilir (18:00–21:00, 18, 19 ve 20’yi kapsar). Aralıkta bir kort ancak her saatte boşsa boş sayılır.
 
-`/kortlar` on iki kortun listesidir. Korta girince o kortun haftası görünür: boş saat talep açar, dolu saat Takvim paneline gider. Takvimdeki kort adı da o kortun haftasına gider.
+`/kortlar` on iki kortu kutular halinde üstte tutar. Kapalı 1–3 mavi, Kort 1–9 yeşil çerçevelidir. Bir korta dokunmak sayfayı değiştirmez; o sütunu vurgular. Altta bir gün seçilir ve o günün tek tablosu açılır: sütunlar aynı sıra (Kapalı 1–3, Kort 1–9), satırlar 08:00–22:00. Boş hücre açık yeşildir. Boş saate dokununca talep açılır; üye talebi onay bekler, yöneticinin kaydı hemen onaylıdır. Bekleyen ve onaylı saatler koyu yeşilde dolu görünür; amaç belliyse maç, antrenman, turnuva veya bakım yazılır. Dolu saatin ayrıntısı aynı sayfada kalır. `/kortlar/[id]` haftası Takvim bağlantıları için durur. Takvimdeki kort adı da o kortun haftasına gider.
 
 Kulüp kortları migration ile gelir, seed ile değil: Kapalı 1–3 balon korttur (kapalı), Kort 1–9 açık korttur. Ekran sırası budur. Üyeler maç ve antrenman talebi açar; turnuva sorumlusu turnuva talebi açar; yönetici bakım dahil her amacı açar. Yönetici kaydı onaylıdır, diğerleri ADMIN onaylar. Çakışma reddedilir. Check-in, `checkInLeadHours` (varsayılan 3) saat kala açılır ve kort saati başlayınca kapanır.
 

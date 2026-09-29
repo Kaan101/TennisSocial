@@ -340,6 +340,10 @@ export const courtRangeSchema = z.object({
   end: hourSchema,
 });
 
+export const courtDaySchema = z.object({
+  date: dateSchema.optional(),
+});
+
 export const boardVisibilitySchema = z.object({
   visible: z.boolean(),
 });

@@ -1,5 +1,5 @@
 import type { CourtKind, CourtPurpose, OverallLevel, Role } from "@club/shared";
-import { CLUB_COURTS, COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, levelIndex, purposesForRole } from "@club/shared";
+import { CLUB_COURTS, COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
 import type { Prisma } from "@prisma/client";
 import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
@@ -624,6 +624,88 @@ export async function courtWeekFor(viewer: CourtViewer, courtId: string, weekInp
         reservation: cell?.state === "reserved" ? cell.reservation : null,
       };
     }),
+  };
+}
+
+export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
+  const date = dateInput ?? istanbulNowParts().day;
+  const weekday = weekdayOfDate(date);
+  const known = WEEKDAYS.find((day) => day.value === weekday);
+  const showAll = viewer.role === "ADMIN";
+  const [courts, reservations, lead] = await Promise.all([
+    prisma.court.findMany({
+      where: { deletedAt: null, ...(showAll ? {} : { active: true }) },
+      orderBy: courtOrder,
+    }),
+    prisma.courtReservation.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ["PENDING", "APPROVED"] },
+        startDate: { lte: parseDateOnly(date) },
+        endDate: { gte: parseDateOnly(date) },
+      },
+      include: {
+        holder: { select: personSelect },
+        partner: { select: personSelect },
+        checkIns: true,
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    getCheckInLeadHours(),
+  ]);
+
+  const now = new Date();
+  const cells = courts.flatMap((court) =>
+    COURT_HOURS.map((startTime) => {
+      const covering = reservations.filter((row) => row.courtId === court.id && slotCoveredBySpan(date, startTime, spanFromRow(row)));
+      const row = covering.find((item) => item.status === "APPROVED") ?? covering[0];
+      if (!row) {
+        return {
+          courtId: court.id,
+          startTime,
+          endTime: slotEnd(startTime),
+          state: "free" as const,
+          reservation: null,
+        };
+      }
+      const approved = row.status === "APPROVED";
+      const slotStart = slotStartInstant(date, startTime);
+      const checkedIn = approved && row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime);
+      const windowError = checkInWindowError(now, slotStart, lead);
+      const allowed = approved && canCheckInUser(viewer.id, row);
+      const already = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
+      return {
+        courtId: court.id,
+        startTime,
+        endTime: slotEnd(startTime),
+        state: "busy" as const,
+        reservation: {
+          id: row.id,
+          status: row.status,
+          statusLabel: approved ? "onaylı" : "beklemede",
+          purpose: row.purpose,
+          purposeLabel: COURT_PURPOSE_LABELS[row.purpose],
+          checkedIn,
+          canCheckIn: allowed && !already && !windowError,
+          checkInHint: allowed && !already ? windowError : null,
+          players: namesFor(viewer, row),
+        },
+      };
+    }),
+  );
+
+  return {
+    date,
+    weekday,
+    label: known?.label ?? "",
+    short: known?.short ?? "",
+    hours: COURT_HOURS,
+    courts: courts.map(presentCourt),
+    viewer: {
+      canApprove: viewer.role === "ADMIN",
+      purposes: purposesForRole(viewer.role),
+    },
+    cells,
   };
 }
 

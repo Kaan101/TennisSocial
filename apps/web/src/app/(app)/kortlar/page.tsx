@@ -1,7 +1,9 @@
 "use client";
 
+import { istanbulNowParts } from "@club/shared";
 import Link from "next/link";
 import { useState } from "react";
+import { type DayGrid, CourtDayGrid } from "@/components/court-day-grid";
 import {
   type CourtRow,
   type Person,
@@ -21,23 +23,28 @@ export default function CourtsPage() {
   const { user } = useAuth();
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [day, setDay] = useState(() => istanbulNowParts().day);
+  const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
   const courts = useResource<{ data: CourtRow[] }>(user ? (user.role === "ADMIN" ? "/courts?all=true" : "/courts") : null);
+  const dayBoard = useResource<DayGrid>(user ? `/courts/day?date=${day}` : null);
   const requests = useResource<{ data: Reservation[] }>(user ? "/reservations?status=PENDING&pageSize=50" : null);
   const roster = useResource<{ data: Person[] }>(user ? "/players/search?pageSize=50" : null);
   const lead = useResource<{ hours: number }>(user?.role === "ADMIN" ? "/settings/check-in-lead" : null);
 
   async function refresh() {
-    await Promise.all([courts.reload(), requests.reload(), lead.reload()]);
+    await Promise.all([courts.reload(), dayBoard.reload(), requests.reload(), lead.reload()]);
   }
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<string | void>): Promise<boolean> {
     setBusy(true);
     try {
-      await action();
-      setMessage(null);
+      const note = await action();
+      setMessage(note ?? null);
       await refresh();
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "İşlem tamamlanamadı");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -52,26 +59,53 @@ export default function CourtsPage() {
     <div className="space-y-4">
       <PageHeader title="Kortlar" action={<Link href="/takvim" className="text-sm font-semibold text-court">Takvim</Link>} />
       <p className="text-sm text-muted">
-        Kapalı 1–3 balon korttur, mavi çerçeve. Kort 1–9 yeşil çerçeve. Bir korta dokun, haftasını gör.
+        Kapalı 1–3 balon korttur, mavi çerçeve. Kort 1–9 yeşil çerçeve. Bir korta dokun, o sütun vurgulanır. Günü seç; boş saat açık yeşil, dolu saat koyu yeşil.
       </p>
       {message ? <p className="rounded-2xl bg-surface px-3 py-2 text-sm" role="status">{message}</p> : null}
 
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3">
         {rows.map((court) => {
           const balloon = court.kind === "BALLOON";
+          const selected = selectedCourtId === court.id;
           return (
             <li key={court.id}>
-              <Link
-                href={`/kortlar/${court.id}`}
-                className={`flex min-h-24 flex-col justify-between rounded-3xl border-2 px-3 py-3 ${balloon ? "border-[#2563eb] bg-[#eff6ff]" : "border-court bg-court/10"} ${court.active ? "" : "opacity-60"}`}
+              <button
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSelectedCourtId(court.id)}
+                className={`flex min-h-24 w-full flex-col justify-between rounded-3xl border-2 px-3 py-3 text-left ${balloon ? "border-[#2563eb] bg-[#eff6ff]" : "border-court bg-court/10"} ${court.active ? "" : "opacity-60"} ${selected ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : ""}`}
               >
                 <span className="text-base font-semibold leading-tight">{court.name}</span>
                 <span className="text-xs text-muted">{court.kindLabel}{court.active ? "" : " · pasif"}</span>
-              </Link>
+              </button>
             </li>
           );
         })}
       </ul>
+
+      <CourtDayGrid
+        date={day}
+        onDate={setDay}
+        grid={dayBoard.data}
+        loading={dayBoard.loading}
+        error={dayBoard.error}
+        onRetry={() => void dayBoard.reload()}
+        selectedCourtId={selectedCourtId}
+        onSelectCourt={setSelectedCourtId}
+        people={(roster.data?.data ?? []).filter((person) => person.id !== user.id)}
+        busy={busy}
+        onReserve={(body) => run(async () => {
+          await api("/reservations", { method: "POST", body: JSON.stringify(body) });
+          return user.role === "ADMIN" ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.";
+        })}
+        onCheckIn={(reservationId, slotDate, startTime) => run(async () => {
+          await api(`/reservations/${reservationId}/check-in`, {
+            method: "POST",
+            body: JSON.stringify({ date: slotDate, startTime }),
+          });
+          return "Check-in alındı.";
+        })}
+      />
 
       <PendingQueue
         items={requests.data?.data ?? []}
@@ -89,7 +123,7 @@ export default function CourtsPage() {
         busy={busy}
         onSubmit={(body, approved) => void run(async () => {
           await api("/reservations", { method: "POST", body: JSON.stringify(body) });
-          setMessage(approved ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.");
+          return approved ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.";
         })}
       />
 
