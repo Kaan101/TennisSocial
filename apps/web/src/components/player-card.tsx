@@ -26,8 +26,17 @@ export function Avatar({
   );
 }
 
+function whatsappMessageNumber(player: Card): string | null {
+  const phone = player.canCall && player.phone ? player.phone : null;
+  const whatsapp = player.canWhatsapp && player.whatsapp ? player.whatsapp : null;
+  if (phone) return whatsapp ?? phone;
+  return whatsapp;
+}
+
 export function PlayerCard({ player }: { player: Card }) {
   const name = `${player.firstName} ${player.lastName}`.trim();
+  const messageNumber = whatsappMessageNumber(player);
+const callNumber = player.canCall && player.phone ? player.phone : null;
   return (
     <article className="rounded-3xl border border-line bg-surface p-4">
       <Link href={`/oyuncular/${player.id}`} className="flex gap-3">
@@ -54,16 +63,16 @@ export function PlayerCard({ player }: { player: Card }) {
             <Swords className="h-3.5 w-3.5" aria-hidden /> Defi
           </Link>
         ) : null}
-        {player.canWhatsapp && player.whatsapp ? (
-          <a href={waLink(player.whatsapp, player.firstName)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
-            <MessageCircle className="h-3.5 w-3.5" aria-hidden /> WhatsApp
-          </a>
-        ) : null}
-        {player.canCall && player.phone ? (
-          <a href={telLink(player.phone)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
-            <Phone className="h-3.5 w-3.5" aria-hidden /> Ara
-          </a>
-        ) : null}
+  {callNumber ? (
+  <a href={telLink(callNumber)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
+    <Phone className="h-3.5 w-3.5" aria-hidden /> Ara
+  </a>
+) : null}
+{messageNumber ? (
+  <a href={waLink(messageNumber, player.firstName)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
+    <MessageCircle className="h-3.5 w-3.5" aria-hidden /> Mesaj
+  </a>
+) : null}
       </div>
     </article>
   );
