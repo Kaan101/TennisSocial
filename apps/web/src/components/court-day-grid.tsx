@@ -1,9 +1,8 @@
 "use client";
 
-import type { CourtPurpose } from "@club/shared";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
-import { type CourtRow, type Person, type Reservation, addHour, shiftDate } from "@/components/court-ui";
+import { WEEKDAYS, type CourtPurpose } from "@club/shared";
+import { Fragment, useEffect, useState } from "react";
+import { type CourtRow, type Person, type Reservation, addHour, shiftDate, weekdayOf } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 
 export type DayReservation = {
@@ -39,11 +38,11 @@ export type DayGrid = {
 
 export type DaySlot = { courtId: string; startTime: string };
 
-const PURPOSE_OPTIONS: { purpose: CourtPurpose; label: string; text: string; bg: string; idle: string; on: string }[] = [
-  { purpose: "MATCH", label: "Maç", text: "text-[#1d4ed8]", bg: "bg-[#e7f0ff]", idle: "bg-[#dbeafe] text-[#1d4ed8]", on: "bg-[#1d4ed8] text-white" },
-  { purpose: "TRAINING", label: "Antrenman", text: "text-[#047857]", bg: "bg-[#d8f5e6]", idle: "bg-[#d1fae5] text-[#047857]", on: "bg-[#047857] text-white" },
-  { purpose: "TOURNAMENT", label: "Turnuva", text: "text-[#6d28d9]", bg: "bg-[#f3e8ff]", idle: "bg-[#ede9fe] text-[#6d28d9]", on: "bg-[#6d28d9] text-white" },
-  { purpose: "MAINTENANCE", label: "Bakım", text: "text-[#c2410c]", bg: "bg-[#ffedd5]", idle: "bg-[#ffedd5] text-[#c2410c]", on: "bg-[#c2410c] text-white" },
+const PURPOSE_OPTIONS: { purpose: CourtPurpose; label: string; word: string }[] = [
+  { purpose: "MATCH", label: "maç", word: "Maç" },
+  { purpose: "TRAINING", label: "antrenman", word: "Antrenman" },
+  { purpose: "MAINTENANCE", label: "bakım", word: "Bakım" },
+  { purpose: "TOURNAMENT", label: "turnuva", word: "Turnuva" },
 ];
 
 function purposeOption(purpose: CourtPurpose) {
@@ -51,7 +50,7 @@ function purposeOption(purpose: CourtPurpose) {
 }
 
 export function purposeWord(purpose: CourtPurpose): string {
-  return purposeOption(purpose).label;
+  return purposeOption(purpose).word;
 }
 
 function cellKey(courtId: string, startTime: string): string {
@@ -64,6 +63,16 @@ function shortCourtLabel(name: string): string {
   const outdoor = name.match(/^Kort\s+(\d+)$/u);
   if (outdoor?.[1]) return outdoor[1];
   return name;
+}
+
+function weekOf(date: string): { date: string; short: string; label: string }[] {
+  const weekday = weekdayOf(date);
+  const monday = shiftDate(date, weekday === 0 ? -6 : 1 - weekday);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = shiftDate(monday, index);
+    const known = WEEKDAYS.find((item) => item.value === weekdayOf(day));
+    return { date: day, short: known?.short ?? "", label: known?.label ?? "" };
+  });
 }
 
 function hoursUntil(startTime: string, endTime: string): string[] {
@@ -134,12 +143,6 @@ export function paintDayGrid(grid: DayGrid, created: Reservation): DayGrid {
   };
 }
 
-function headerTone(balloon: boolean): string {
-  return balloon
-    ? "border-[#1d4ed8] bg-[#60a5fa] text-[#172554]"
-    : "border-[#047857] bg-[#34d399] text-[#064e3b]";
-}
-
 export function CourtDayGrid({
   date,
   onDate,
@@ -164,13 +167,11 @@ export function CourtDayGrid({
   onCheckIn: (slots: { reservationId: string; date: string; startTime: string }[]) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [purpose, setPurpose] = useState<CourtPurpose | null>(null);
   const [openCourtId, setOpenCourtId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(new Set());
-    setOpenCourtId(null);
     setActionError(null);
   }, [date]);
 
@@ -184,7 +185,8 @@ export function CourtDayGrid({
   });
   const freeSlots = picked.filter((item) => item.cell.state !== "busy").map(({ courtId, startTime }) => ({ courtId, startTime }));
   const reservedSlots = picked.filter((item) => item.cell.state === "busy" && item.cell.reservation);
-  const reservedOnly = picked.length > 0 && freeSlots.length === 0;
+  const showReserved = reservedSlots.length > 0;
+  const days = weekOf(date);
 
   function toggleSlot(courtId: string, startTime: string) {
     const key = cellKey(courtId, startTime);
@@ -221,8 +223,8 @@ export function CourtDayGrid({
     toggleSlot(court.id, hour);
   }
 
-  async function rezerv() {
-    if (!purpose || freeSlots.length === 0) return;
+  async function applyPurpose(purpose: CourtPurpose) {
+    if (freeSlots.length === 0) return;
     setActionError(null);
     try {
       await onApply({ purpose, slots: freeSlots });
@@ -232,10 +234,13 @@ export function CourtDayGrid({
     }
   }
 
-  async function cancelSelected() {
+  async function clearSelected() {
     const ids = [...new Set(reservedSlots.flatMap((item) => item.cell.reservation ? [item.cell.reservation.id] : []))];
-    if (ids.length === 0) return;
     setActionError(null);
+    if (ids.length === 0) {
+      setSelected(new Set());
+      return;
+    }
     try {
       await onCancel(ids);
       setSelected(new Set());
@@ -257,79 +262,71 @@ export function CourtDayGrid({
     }
   }
 
+  const tools: { key: string; label: string; run: () => void }[] = [
+    ...PURPOSE_OPTIONS.map((option) => ({
+      key: option.purpose,
+      label: option.label,
+      run: () => void applyPurpose(option.purpose),
+    })),
+    { key: "bos", label: "boş", run: () => void clearSelected() },
+  ];
+  if (showReserved) {
+    tools.push(
+      { key: "iptal", label: "iptal", run: () => void clearSelected() },
+      { key: "check-in", label: "check-in", run: () => void checkInSelected() },
+    );
+  }
+
   const openCourt = grid?.courts.find((court) => court.id === openCourtId) ?? null;
 
   return (
     <div className="w-full min-w-0 space-y-2">
-      <div className="flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          aria-label="Önceki gün"
-          onClick={() => onDate(shiftDate(date, -1))}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
-        >
-          <ChevronLeft className="h-4 w-4" />
+      <div className="flex min-w-0 items-start gap-2 text-xs sm:text-sm">
+        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>
+          önceki
         </button>
-        <input
-          aria-label="Gün"
-          type="date"
-          value={date}
-          onChange={(event) => {
-            if (/^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) onDate(event.target.value);
-          }}
-          className="h-8 min-w-0 flex-1 rounded-xl border border-line bg-surface px-2 text-sm"
-        />
-        <button
-          type="button"
-          aria-label="Sonraki gün"
-          onClick={() => onDate(shiftDate(date, 1))}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-surface hover:bg-paper-2"
-        >
-          <ChevronRight className="h-4 w-4" />
+        <div className="grid min-w-0 flex-1 grid-cols-7" role="group" aria-label="Haftanın günleri">
+          {days.map((day) => {
+            const on = day.date === date;
+            return (
+              <button
+                key={day.date}
+                type="button"
+                aria-pressed={on}
+                aria-label={day.label}
+                onClick={() => onDate(day.date)}
+                className="min-w-0 px-0.5 text-center"
+              >
+                <span className={`block truncate ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
+                <span className="block font-normal text-muted">{day.date.slice(8)}</span>
+              </button>
+            );
+          })}
+        </div>
+        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, 7))}>
+          sonraki
         </button>
-        {grid ? <span className="min-w-0 truncate text-sm font-semibold">{grid.label}</span> : null}
       </div>
 
-      <div className="grid grid-cols-4 gap-1" role="group" aria-label="Amaç">
-        {PURPOSE_OPTIONS.map((option) => {
-          const on = purpose === option.purpose;
-          return (
-            <button
-              key={option.purpose}
-              type="button"
-              aria-pressed={on}
-              disabled={busy}
-              onClick={() => { setPurpose(option.purpose); setActionError(null); }}
-              className={`min-w-0 truncate rounded-full px-1 py-1.5 text-[11px] font-semibold sm:text-xs ${on ? option.on : option.idle}`}
-            >
-              {option.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="pt-1">
-        {reservedOnly ? (
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={busy} onClick={() => void cancelSelected()} className="rounded-full border border-line bg-surface px-3 py-2 text-sm font-semibold disabled:opacity-50">
-              İptal
-            </button>
-            <button type="button" disabled={busy} onClick={() => void checkInSelected()} className="rounded-full bg-court px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-              Check-in
-            </button>
-          </div>
-        ) : (
+      <div
+        className="grid min-w-0 text-center text-[11px] leading-tight sm:text-xs"
+        style={{ gridTemplateColumns: `repeat(${tools.length}, minmax(0, 1fr))` }}
+        role="group"
+        aria-label="Amaç"
+      >
+        {tools.map((tool) => (
           <button
+            key={tool.key}
             type="button"
-            disabled={busy || !purpose || freeSlots.length === 0}
-            onClick={() => void rezerv()}
-            className="w-full rounded-full bg-court px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            disabled={busy}
+            onClick={tool.run}
+            className="min-w-0 bg-transparent px-0.5 py-1 text-ink [overflow-wrap:anywhere] disabled:opacity-50"
           >
-            Rezerv
+            {tool.label}
           </button>
-        )}
-        {actionError ? <p className="mt-1 text-xs text-ink" role="alert">{actionError}</p> : null}
+        ))}
       </div>
+      {actionError ? <p className="text-xs text-ink" role="alert">{actionError}</p> : null}
 
       {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
       {!loading && error ? <ErrorState message={error} onRetry={onRetry} /> : null}
@@ -337,18 +334,17 @@ export function CourtDayGrid({
       {grid && !loading && !error ? (
         <>
           <div className="md:hidden">
-            <h1 className="mb-2 text-lg font-semibold">Kortlar</h1>
-            <div className="flex flex-wrap gap-1">
+            <h1 className="mb-2 text-sm font-semibold">Kortlar</h1>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
               {grid.courts.map((court) => {
                 const open = openCourtId === court.id;
-                const balloon = court.kind === "BALLOON";
                 return (
                   <button
                     key={court.id}
                     type="button"
                     aria-pressed={open}
                     onClick={() => setOpenCourtId(open ? null : court.id)}
-                    className={`rounded-lg px-2 py-1 text-sm font-semibold ${balloon ? (open ? "bg-[#1d4ed8] text-white" : "bg-[#60a5fa] text-[#172554]") : (open ? "bg-[#047857] text-white" : "bg-[#34d399] text-[#064e3b]")}`}
+                    className={open ? "font-semibold underline underline-offset-2" : "font-normal"}
                   >
                     {shortCourtLabel(court.name)}
                   </button>
@@ -356,10 +352,10 @@ export function CourtDayGrid({
               })}
             </div>
             {openCourt ? (
-              <div className="mt-2 grid gap-[2px]">
+              <div className="mt-2 grid gap-1">
                 {grid.hours.map((hour) => (
-                  <div key={hour} className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-stretch gap-[2px]">
-                    <span className="self-center text-right text-[11px] text-muted">{hour}</span>
+                  <div key={hour} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-stretch gap-1">
+                    <span className="py-2 text-xs text-muted">{hour}</span>
                     <SlotButton
                       court={openCourt}
                       hour={hour}
@@ -374,43 +370,35 @@ export function CourtDayGrid({
           </div>
 
           <div className="hidden overflow-x-auto md:block">
-            <table className="w-max min-w-full border-separate border-spacing-[2px] text-left">
-              <caption className="sr-only">{grid.label} {grid.date}, saatler 08:00–22:00</caption>
-              <thead>
-                <tr>
-                  <th className="w-14" />
+            <p className="sr-only">{grid.label} {grid.date}, saatler 08:00–22:00</p>
+            <div
+              className="grid min-w-[64rem] gap-1"
+              style={{ gridTemplateColumns: `4.5rem repeat(${grid.courts.length}, minmax(4.5rem, 1fr))` }}
+            >
+              <div />
+              {grid.courts.map((court) => (
+                <div key={court.id} className="px-1 pb-1 text-center text-xs font-semibold">
+                  <button type="button" className="w-full font-semibold" onClick={() => toggleCourt(court.id)}>
+                    {court.name}
+                  </button>
+                </div>
+              ))}
+              {grid.hours.map((hour) => (
+                <Fragment key={hour}>
+                  <div className="py-2 text-xs text-muted">{hour}</div>
                   {grid.courts.map((court) => (
-                    <th
+                    <SlotButton
                       key={court.id}
-                      scope="col"
-                      className={`min-w-[5.25rem] border-2 px-1 py-1 text-center text-[11px] font-semibold leading-tight whitespace-nowrap ${headerTone(court.kind === "BALLOON")}`}
-                    >
-                      <button type="button" className="w-full" onClick={() => toggleCourt(court.id)}>
-                        {court.name}
-                      </button>
-                    </th>
+                      court={court}
+                      hour={hour}
+                      cell={cells.get(`${court.id}-${hour}`)}
+                      selected={selected.has(cellKey(court.id, hour))}
+                      onClick={() => onCell(court, hour)}
+                    />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {grid.hours.map((hour) => (
-                  <tr key={hour}>
-                    <th scope="row" className="w-14 pr-1 text-right text-[11px] font-medium whitespace-nowrap text-muted">{hour}</th>
-                    {grid.courts.map((court) => (
-                      <td key={court.id} className="p-0">
-                        <SlotButton
-                          court={court}
-                          hour={hour}
-                          cell={cells.get(`${court.id}-${hour}`)}
-                          selected={selected.has(cellKey(court.id, hour))}
-                          onClick={() => onCell(court, hour)}
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </Fragment>
+              ))}
+            </div>
           </div>
         </>
       ) : null}
@@ -432,24 +420,20 @@ function SlotButton({
   onClick: () => void;
 }) {
   const reservation = cell?.state === "busy" ? cell.reservation : null;
-  const option = reservation ? purposeOption(reservation.purpose) : null;
+  const word = reservation ? purposeWord(reservation.purpose) : "";
   const label = reservation
-    ? `${court.name} ${hour} ${option?.label ?? ""}`.trim()
+    ? `${court.name} ${hour} ${word}`
     : `${court.name} ${hour}${selected ? " seçili" : " boş"}`;
-  const tone = reservation
-    ? `${option?.bg ?? ""} ${option?.text ?? ""} font-semibold ${selected ? "brightness-90" : ""}`
-    : selected
-      ? "bg-[#16a34a] text-white"
-      : "bg-[#e4e2dc] hover:bg-[#22c55e] focus:bg-[#22c55e] focus-visible:bg-[#22c55e] focus-visible:outline-none";
   return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={selected}
+      disabled={!reservation && !court.active}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-[3px] px-1 py-1 text-center text-[11px] leading-tight focus-visible:outline-none ${tone}`}
+      className={`min-h-9 w-full rounded-2xl border bg-surface px-1 py-2 text-center text-[11px] text-ink focus-visible:outline-none ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
     >
-      {option ? option.label : null}
+      {word}
     </button>
   );
 }
