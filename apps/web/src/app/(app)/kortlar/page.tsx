@@ -2,8 +2,8 @@
 
 import { istanbulNowParts } from "@club/shared";
 import Link from "next/link";
-import { useState } from "react";
-import { type DayGrid, CourtDayGrid } from "@/components/court-day-grid";
+import { useRef, useState } from "react";
+import { type DayGrid, CourtDayGrid, groupDaySlots, paintDayGrid } from "@/components/court-day-grid";
 import {
   type CourtRow,
   type Person,
@@ -11,6 +11,7 @@ import {
   AdminCourts,
   PendingQueue,
   RequestForm,
+  weekdayOf,
 } from "@/components/court-ui";
 import { ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { api } from "@/lib/api";
@@ -24,15 +25,24 @@ export default function CourtsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [day, setDay] = useState(() => istanbulNowParts().day);
-  const [selectedCourtId, setSelectedCourtId] = useState<string | null>(null);
+  const dayRef = useRef(day);
+  dayRef.current = day;
   const courts = useResource<{ data: CourtRow[] }>(user ? (user.role === "ADMIN" ? "/courts?all=true" : "/courts") : null);
   const dayBoard = useResource<DayGrid>(user ? `/courts/day?date=${day}` : null);
   const requests = useResource<{ data: Reservation[] }>(user ? "/reservations?status=PENDING&pageSize=50" : null);
   const roster = useResource<{ data: Person[] }>(user ? "/players/search?pageSize=50" : null);
   const lead = useResource<{ hours: number }>(user?.role === "ADMIN" ? "/settings/check-in-lead" : null);
+  const gridRef = useRef(dayBoard.data);
+  gridRef.current = dayBoard.data;
+
+  async function loadDay(date: string) {
+    const fresh = await api<DayGrid>(`/courts/day?date=${date}`, { cache: "no-store" });
+    if (fresh.date === dayRef.current) dayBoard.setData(fresh);
+    return fresh;
+  }
 
   async function refresh() {
-    await Promise.all([courts.reload(), dayBoard.reload(), requests.reload(), lead.reload()]);
+    await Promise.all([courts.reload(), requests.reload(), lead.reload(), loadDay(dayRef.current)]);
   }
 
   async function run(action: () => Promise<string | void>): Promise<boolean> {
@@ -50,38 +60,18 @@ export default function CourtsPage() {
     }
   }
 
-  if (courts.loading || !user) return <LoadingBlock label="Kortlar yükleniyor" />;
-  if (courts.error || !courts.data) return <ErrorState message={courts.error ?? "Kortlar açılmadı"} onRetry={() => void courts.reload()} />;
+  if (!user) return <LoadingBlock label="Kortlar yükleniyor" />;
 
-  const rows = courts.data.data;
+  const rows = courts.data?.data ?? [];
+  const people = (roster.data?.data ?? []).filter((person) => person.id !== user.id);
 
   return (
     <div className="space-y-4">
       <PageHeader title="Kortlar" action={<Link href="/takvim" className="text-sm font-semibold text-court">Takvim</Link>} />
       <p className="text-sm text-muted">
-        Kapalı 1–3 balon korttur, mavi çerçeve. Kort 1–9 yeşil çerçeve. Bir korta dokun, o sütun vurgulanır. Günü seç; boş saat açık yeşil, dolu saat koyu yeşil.
+        Boş saatler açık yeşil. Saat seç, sonra Maç, Antrenman, Turnuva veya Bakım uygula. Dar ekranda kortun saatleri açılır.
       </p>
       {message ? <p className="rounded-2xl bg-surface px-3 py-2 text-sm" role="status">{message}</p> : null}
-
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3">
-        {rows.map((court) => {
-          const balloon = court.kind === "BALLOON";
-          const selected = selectedCourtId === court.id;
-          return (
-            <li key={court.id}>
-              <button
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setSelectedCourtId(court.id)}
-                className={`flex min-h-24 w-full flex-col justify-between rounded-3xl border-2 px-3 py-3 text-left ${balloon ? "border-[#2563eb] bg-[#eff6ff]" : "border-court bg-court/10"} ${court.active ? "" : "opacity-60"} ${selected ? "ring-2 ring-ink ring-offset-2 ring-offset-paper" : ""}`}
-              >
-                <span className="text-base font-semibold leading-tight">{court.name}</span>
-                <span className="text-xs text-muted">{court.kindLabel}{court.active ? "" : " · pasif"}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
 
       <CourtDayGrid
         date={day}
@@ -89,13 +79,34 @@ export default function CourtsPage() {
         grid={dayBoard.data}
         loading={dayBoard.loading}
         error={dayBoard.error}
-        onRetry={() => void dayBoard.reload()}
-        selectedCourtId={selectedCourtId}
-        onSelectCourt={setSelectedCourtId}
-        people={(roster.data?.data ?? []).filter((person) => person.id !== user.id)}
+        onRetry={() => void loadDay(day)}
+        people={people}
         busy={busy}
-        onReserve={(body) => run(async () => {
-          await api("/reservations", { method: "POST", body: JSON.stringify(body) });
+        onApply={(input) => run(async () => {
+          const date = dayRef.current;
+          let painted = gridRef.current;
+          for (const span of groupDaySlots(input.slots)) {
+            const created = await api<Reservation>("/reservations", {
+              method: "POST",
+              cache: "no-store",
+              body: JSON.stringify({
+                courtId: span.courtId,
+                purpose: input.purpose,
+                startDate: date,
+                endDate: date,
+                weekdays: [weekdayOf(date)],
+                startTime: span.startTime,
+                endTime: span.endTime,
+                partnerId: input.purpose === "MATCH" ? input.partnerId : null,
+              }),
+            });
+            if (painted && painted.date === date) {
+              painted = paintDayGrid(painted, created);
+              gridRef.current = painted;
+              if (date === dayRef.current) dayBoard.setData(painted);
+            }
+          }
+          await loadDay(date);
           return user.role === "ADMIN" ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.";
         })}
         onCheckIn={(reservationId, slotDate, startTime) => run(async () => {
@@ -115,19 +126,23 @@ export default function CourtsPage() {
         onReject={(id) => void run(async () => { await api(`/reservations/${id}/reject`, { method: "POST" }); })}
       />
 
-      <RequestForm
-        courts={rows}
-        role={user.role}
-        hours={HOURS}
-        people={(roster.data?.data ?? []).filter((person) => person.id !== user.id)}
-        busy={busy}
-        onSubmit={(body, approved) => void run(async () => {
-          await api("/reservations", { method: "POST", body: JSON.stringify(body) });
-          return approved ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.";
-        })}
-      />
+      {courts.error ? <ErrorState message={courts.error} onRetry={() => void courts.reload()} /> : null}
 
-      {user.role === "ADMIN" ? (
+      {rows.length > 0 ? (
+        <RequestForm
+          courts={rows}
+          role={user.role}
+          hours={HOURS}
+          people={people}
+          busy={busy}
+          onSubmit={(body, approved) => void run(async () => {
+            await api("/reservations", { method: "POST", body: JSON.stringify(body) });
+            return approved ? "Rezervasyon onaylı kaydedildi." : "Talep yönetici onayına düştü.";
+          })}
+        />
+      ) : null}
+
+      {user.role === "ADMIN" && rows.length > 0 ? (
         <AdminCourts
           courts={rows}
           lead={lead.data?.hours ?? 3}
