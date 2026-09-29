@@ -597,6 +597,11 @@ async function main(): Promise<void> {
     },
   });
 
+  for (const name of ["Kort 1", "Kort 2", "Kort 3"]) {
+    const existing = await prisma.court.findFirst({ where: { name, deletedAt: null } });
+    if (!existing) await prisma.court.create({ data: { name, active: true } });
+  }
+
   console.log(`Seed tamam: ${userIds.length} üye, ${groups.length} grup. rand=${rand().toFixed(3)}`);
 }
 

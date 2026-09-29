@@ -17,6 +17,7 @@ import { calendarRoutes } from "./routes/calendar";
 import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { challengeRoutes } from "./routes/challenges";
+import { courtRoutes } from "./routes/courts";
 import { friendRoutes } from "./routes/friends";
 import { groupRoutes } from "./routes/groups";
 import { homeRoutes } from "./routes/home";
@@ -114,6 +115,7 @@ export async function createApp(options?: { logger?: boolean }): Promise<Fastify
   await app.register(analyticsRoutes);
   await app.register(calendarRoutes);
   await app.register(auditRoutes);
+  await app.register(courtRoutes);
 
   await mkdir(config.uploadDir, { recursive: true });
   await app.register(fastifyStatic, { root: config.uploadDir, prefix: "/uploads/" });

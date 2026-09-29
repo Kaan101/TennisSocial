@@ -290,6 +290,22 @@ export const ROLE_LABELS: Record<Role, string> = {
   MEMBER: "Üye",
 };
 
+export const COURT_PURPOSES = ["MATCH", "TRAINING", "TOURNAMENT", "MAINTENANCE"] as const;
+export type CourtPurpose = (typeof COURT_PURPOSES)[number];
+
+export const COURT_PURPOSE_LABELS: Record<CourtPurpose, string> = {
+  MATCH: "maç",
+  TRAINING: "antrenman",
+  TOURNAMENT: "turnuva",
+  MAINTENANCE: "bakım",
+};
+
+export const RESERVATION_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
+
+export const SLOT_OFFER_STATUSES = ["PENDING", "ACCEPTED", "DECLINED", "CANCELLED"] as const;
+export type SlotOfferStatus = (typeof SLOT_OFFER_STATUSES)[number];
+
 export function levelIndex(level: OverallLevel): number {
   return OVERALL_LEVELS.indexOf(level);
 }
@@ -333,6 +349,12 @@ export function canManageClub(role: Role): boolean {
 
 export function canManageTournaments(role: Role): boolean {
   return role === "ADMIN" || role === "CLUB_MANAGER" || role === "TOURNAMENT_MANAGER";
+}
+
+export function purposesForRole(role: Role): CourtPurpose[] {
+  if (role === "ADMIN") return ["MATCH", "TRAINING", "TOURNAMENT", "MAINTENANCE"];
+  if (role === "TOURNAMENT_MANAGER") return ["MATCH", "TRAINING", "TOURNAMENT"];
+  return ["MATCH", "TRAINING"];
 }
 
 export function istanbulNowParts(now = new Date()): { day: string; weekday: number } {

@@ -1,0 +1,424 @@
+import { afterAll, beforeAll, expect, test } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { istanbulNowParts } from "@club/shared";
+import { prisma } from "../src/lib/prisma";
+import { addDays, checkInWindowError, slotIsGreen, slotStartInstant, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
+import { auth, makeApp, registerUser } from "./helpers";
+
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  app = await makeApp();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+const MONDAY = "2026-10-05";
+
+test("green rule counts only a visible pair within one level", () => {
+  expect(slotIsGreen([0, 1])).toBe(true);
+  expect(slotIsGreen([0, 2])).toBe(false);
+  expect(slotIsGreen([0])).toBe(false);
+  expect(slotIsGreen([0, 1, 4])).toBe(true);
+});
+
+test("check-in stays closed until the lead window and ends at the slot start", () => {
+  const start = slotStartInstant("2026-10-05", "18:00");
+  expect(checkInWindowError(new Date(start.getTime() - 4 * 60 * 60 * 1000), start, 3)).toMatch(/henüz açık değil/);
+  expect(checkInWindowError(new Date(start.getTime() - 2 * 60 * 60 * 1000), start, 3)).toBeNull();
+  expect(checkInWindowError(start, start, 3)).toMatch(/doldu/);
+});
+
+test("spans overlap only when a shared weekday exists in both ranges", () => {
+  const mondayEvening = { startDate: MONDAY, endDate: MONDAY, weekdays: [1], startTime: "18:00", endTime: "19:00" };
+  const mondayYear = { startDate: "2026-01-01", endDate: "2026-12-31", weekdays: [1], startTime: "18:00", endTime: "20:00" };
+  const tuesday = { ...mondayEvening, weekdays: [2], startDate: "2026-10-06", endDate: "2026-10-06" };
+  expect(spansOverlap(mondayEvening, mondayYear)).toBe(true);
+  expect(spansOverlap(tuesday, mondayYear)).toBe(false);
+});
+
+async function setLevel(token: string, userId: string, overallLevel: string) {
+  const res = await app.inject({
+    method: "PUT",
+    url: `/api/users/${userId}/tennis-profile`,
+    headers: auth(token),
+    payload: { overallLevel },
+  });
+  expect(res.statusCode).toBe(200);
+}
+
+async function setMondayHour(token: string, userId: string) {
+  const res = await app.inject({
+    method: "PUT",
+    url: `/api/users/${userId}/availability`,
+    headers: auth(token),
+    payload: { weekly: [{ weekday: 1, startTime: "18:00", endTime: "19:00" }], oneOff: [] },
+  });
+  expect(res.statusCode).toBe(200);
+}
+
+async function player(firstName: string, level: string) {
+  const user = await registerUser(app, { firstName, lastName: "Kort" });
+  await setLevel(user.token, user.user.id, level);
+  await setMondayHour(user.token, user.user.id);
+  return user;
+}
+
+async function mondaySlot(token: string) {
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/courts/board?week=${MONDAY}`,
+    headers: auth(token),
+  });
+  expect(res.statusCode).toBe(200);
+  const slot = res.json().slots.find((item: { date: string; startTime: string }) => item.date === MONDAY && item.startTime === "18:00");
+  expect(slot).toBeTruthy();
+  return slot as {
+    green: boolean;
+    people: { id: string }[];
+    courts: { name: string; state: string; reservation: { purposeLabel: string; checkedIn: boolean; players: { id: string }[] | null } | null }[];
+  };
+}
+
+test("two visible players within one level turn the slot green", async () => {
+  const viewer = await registerUser(app);
+  const first = await player("Yakin", "BEGINNER");
+  const second = await player("Es", "BEGINNER_PLUS");
+  const slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(true);
+  expect(slot.people.map((person) => person.id).sort()).toEqual([first.user.id, second.user.id].sort());
+});
+
+test("a pair two levels apart does not turn the slot green", async () => {
+  const viewer = await registerUser(app);
+  await player("Uzak", "BEGINNER");
+  await player("Rakip", "INTERMEDIATE");
+  const slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(false);
+  expect(slot.people).toHaveLength(2);
+});
+
+test("a hidden player does not count toward the green rule", async () => {
+  const viewer = await registerUser(app);
+  const hidden = await player("Gizli", "BEGINNER");
+  await player("Acik", "BEGINNER");
+  const hide = await app.inject({
+    method: "PATCH",
+    url: "/api/me/board-visibility",
+    headers: auth(hidden.token),
+    payload: { visible: false },
+  });
+  expect(hide.statusCode).toBe(200);
+  const slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(false);
+  expect(slot.people.map((person) => person.id)).not.toContain(hidden.user.id);
+});
+
+test("three players are green when only one pair is within one level", async () => {
+  const viewer = await registerUser(app);
+  await player("Bir", "BEGINNER");
+  await player("Iki", "BEGINNER_PLUS");
+  await player("Uc", "ADVANCED");
+  const slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(true);
+  expect(slot.people).toHaveLength(3);
+});
+
+async function asAdmin() {
+  const admin = await registerUser(app, { firstName: "Yonetici", lastName: "Kort" });
+  await prisma.user.update({ where: { id: admin.user.id }, data: { role: "ADMIN" } });
+  return admin;
+}
+
+async function addCourt(token: string, name: string) {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/courts",
+    headers: auth(token),
+    payload: { name },
+  });
+  expect(res.statusCode).toBe(201);
+  return res.json() as { id: string; name: string };
+}
+
+test("a pending reservation is not a booking until admin approves, and overlap is rejected", async () => {
+  const admin = await asAdmin();
+  const member = await registerUser(app, { firstName: "Uye", lastName: "Talep" });
+  const court = await addCourt(admin.token, "Kort 1");
+  const body = {
+    courtId: court.id,
+    purpose: "TRAINING",
+    startDate: MONDAY,
+    endDate: MONDAY,
+    weekdays: [1],
+    startTime: "18:00",
+    endTime: "19:00",
+  };
+  const pending = await app.inject({ method: "POST", url: "/api/reservations", headers: auth(member.token), payload: body });
+  expect(pending.statusCode).toBe(201);
+  expect(pending.json().status).toBe("PENDING");
+
+  const before = await mondaySlot(member.token);
+  expect(before.courts.find((item) => item.name === "Kort 1")?.state).toBe("free");
+
+  const overlap = await app.inject({ method: "POST", url: "/api/reservations", headers: auth(admin.token), payload: { ...body, purpose: "MAINTENANCE" } });
+  expect(overlap.statusCode).toBe(409);
+  expect(overlap.json().error.message).toMatch(/çakışan/);
+
+  const approved = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${pending.json().id}/approve`,
+    headers: auth(admin.token),
+  });
+  expect(approved.statusCode).toBe(200);
+  expect(approved.json().status).toBe("APPROVED");
+
+  const after = await mondaySlot(member.token);
+  const reserved = after.courts.find((item) => item.name === "Kort 1");
+  expect(reserved?.state).toBe("reserved");
+  expect(reserved?.reservation?.purposeLabel).toBe("antrenman");
+  expect(reserved?.reservation?.checkedIn).toBe(false);
+
+  const again = await app.inject({ method: "POST", url: "/api/reservations", headers: auth(member.token), payload: body });
+  expect(again.statusCode).toBe(409);
+
+  const denied = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${pending.json().id}/reject`,
+    headers: auth(member.token),
+  });
+  expect(denied.statusCode).toBe(403);
+});
+
+test("check-in before the lead window is rejected and an open window succeeds", async () => {
+  const admin = await asAdmin();
+  const partner = await registerUser(app, { firstName: "Es", lastName: "Check" });
+  const court = await addCourt(admin.token, "Kort 1");
+  const early = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: {
+      courtId: court.id,
+      purpose: "MATCH",
+      startDate: "2026-12-07",
+      endDate: "2026-12-07",
+      weekdays: [weekdayOfDate("2026-12-07")],
+      startTime: "18:00",
+      endTime: "19:00",
+      partnerId: partner.user.id,
+    },
+  });
+  expect(early.statusCode).toBe(201);
+  expect(early.json().status).toBe("APPROVED");
+  const tooSoon = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${early.json().id}/check-in`,
+    headers: auth(admin.token),
+    payload: { date: "2026-12-07", startTime: "18:00" },
+  });
+  expect(tooSoon.statusCode).toBe(409);
+  expect(tooSoon.json().error.message).toMatch(/henüz açık değil/);
+
+  const { day } = istanbulNowParts();
+  const yesterday = addDays(day, -1);
+  const past = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: {
+      courtId: court.id,
+      purpose: "TRAINING",
+      startDate: yesterday,
+      endDate: yesterday,
+      weekdays: [weekdayOfDate(yesterday)],
+      startTime: "12:00",
+      endTime: "13:00",
+    },
+  });
+  expect(past.statusCode).toBe(201);
+  const late = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${past.json().id}/check-in`,
+    headers: auth(admin.token),
+    payload: { date: yesterday, startTime: "12:00" },
+  });
+  expect(late.statusCode).toBe(409);
+  expect(late.json().error.message).toMatch(/doldu/);
+
+  await prisma.systemParameter.upsert({
+    where: { key: "checkInLeadHours" },
+    create: { key: "checkInLeadHours", value: "72" },
+    update: { value: "72" },
+  });
+  const open = findOpenSlot();
+  const ready = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: {
+      courtId: court.id,
+      purpose: "MATCH",
+      startDate: open.date,
+      endDate: open.date,
+      weekdays: [open.weekday],
+      startTime: open.startTime,
+      endTime: `${String(Number(open.startTime.slice(0, 2)) + 1).padStart(2, "0")}:00`,
+      partnerId: partner.user.id,
+    },
+  });
+  expect(ready.statusCode).toBe(201);
+  const checked = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${ready.json().id}/check-in`,
+    headers: auth(partner.token),
+    payload: { date: open.date, startTime: open.startTime },
+  });
+  expect(checked.statusCode).toBe(200);
+  const stranger = await registerUser(app);
+  const refused = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${ready.json().id}/check-in`,
+    headers: auth(stranger.token),
+    payload: { date: open.date, startTime: open.startTime },
+  });
+  expect(refused.statusCode).toBe(403);
+});
+
+function findOpenSlot(): { date: string; startTime: string; weekday: number } {
+  const now = Date.now();
+  for (let offset = 1; offset < 72; offset += 1) {
+    const instant = new Date(now + offset * 60 * 60 * 1000);
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
+    const clock = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
+    const startTime = `${clock.slice(0, 2)}:00`;
+    if (!COURT_HOURS.includes(startTime)) continue;
+    const start = slotStartInstant(date, startTime);
+    if (start.getTime() <= now) continue;
+    if (start.getTime() - now >= 72 * 60 * 60 * 1000) continue;
+    return { date, startTime, weekday: weekdayOfDate(date) };
+  }
+  throw new Error("açık check-in saati bulunamadı");
+}
+
+test("accepting a slot offer books one free court and leaves the hour open", async () => {
+  const admin = await asAdmin();
+  const first = await addCourt(admin.token, "Kort A");
+  const second = await addCourt(admin.token, "Kort B");
+  const alpha = await player("Alpha", "INTERMEDIATE");
+  const beta = await player("Beta", "INTERMEDIATE");
+  const gamma = await player("Gamma", "INTERMEDIATE_PLUS");
+  const delta = await player("Delta", "INTERMEDIATE");
+  const epsilon = await player("Epsilon", "INTERMEDIATE");
+  const zeta = await player("Zeta", "INTERMEDIATE");
+
+  const offer = await app.inject({
+    method: "POST",
+    url: "/api/slot-offers",
+    headers: auth(alpha.token),
+    payload: { toUserId: beta.user.id, date: MONDAY, startTime: "18:00" },
+  });
+  expect(offer.statusCode).toBe(201);
+  const accepted = await app.inject({
+    method: "POST",
+    url: `/api/slot-offers/${offer.json().id}/accept`,
+    headers: auth(beta.token),
+  });
+  expect(accepted.statusCode).toBe(200);
+  expect(accepted.json().courtId).toBe(first.id);
+  expect(accepted.json().courtName).toBe("Kort A");
+
+  const midway = await mondaySlot(gamma.token);
+  expect(midway.green).toBe(true);
+  expect(midway.people.map((person) => person.id)).not.toContain(alpha.user.id);
+  expect(midway.people.map((person) => person.id)).not.toContain(beta.user.id);
+  expect(midway.people.map((person) => person.id)).toEqual(expect.arrayContaining([gamma.user.id, delta.user.id, epsilon.user.id, zeta.user.id]));
+  const booked = midway.courts.find((court) => court.name === "Kort A");
+  const free = midway.courts.find((court) => court.name === "Kort B");
+  expect(booked?.state).toBe("reserved");
+  expect(booked?.reservation?.purposeLabel).toBe("maç");
+  expect(booked?.reservation?.players?.map((person) => person.id).sort()).toEqual([alpha.user.id, beta.user.id].sort());
+  expect(free?.state).toBe("free");
+
+  const secondOffer = await app.inject({
+    method: "POST",
+    url: "/api/slot-offers",
+    headers: auth(gamma.token),
+    payload: { toUserId: delta.user.id, date: MONDAY, startTime: "18:00" },
+  });
+  expect(secondOffer.statusCode).toBe(201);
+  const secondAccept = await app.inject({
+    method: "POST",
+    url: `/api/slot-offers/${secondOffer.json().id}/accept`,
+    headers: auth(delta.token),
+  });
+  expect(secondAccept.statusCode).toBe(200);
+  expect(secondAccept.json().courtId).toBe(second.id);
+
+  const lastOffer = await app.inject({
+    method: "POST",
+    url: "/api/slot-offers",
+    headers: auth(epsilon.token),
+    payload: { toUserId: zeta.user.id, date: MONDAY, startTime: "18:00" },
+  });
+  expect(lastOffer.statusCode).toBe(201);
+  const failed = await app.inject({
+    method: "POST",
+    url: `/api/slot-offers/${lastOffer.json().id}/accept`,
+    headers: auth(zeta.token),
+  });
+  expect(failed.statusCode).toBe(409);
+  expect(failed.json().error.message).toMatch(/boş kort/);
+  const stillOpen = await mondaySlot(epsilon.token);
+  expect(stillOpen.people.map((person) => person.id)).toEqual(expect.arrayContaining([epsilon.user.id, zeta.user.id]));
+  expect(stillOpen.green).toBe(true);
+});
+
+test("purpose rights follow role and admin maintenance is stored approved", async () => {
+  const admin = await asAdmin();
+  const member = await registerUser(app);
+  const tournament = await registerUser(app, { firstName: "Turnuva", lastName: "Sorumlu" });
+  await prisma.user.update({ where: { id: tournament.user.id }, data: { role: "TOURNAMENT_MANAGER" } });
+  const court = await addCourt(admin.token, "Kort 1");
+  const slot = {
+    courtId: court.id,
+    startDate: MONDAY,
+    endDate: MONDAY,
+    weekdays: [1],
+    startTime: "09:00",
+    endTime: "10:00",
+  };
+  const maintenance = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(member.token),
+    payload: { ...slot, purpose: "MAINTENANCE" },
+  });
+  expect(maintenance.statusCode).toBe(403);
+  const memberTournament = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(member.token),
+    payload: { ...slot, purpose: "TOURNAMENT" },
+  });
+  expect(memberTournament.statusCode).toBe(403);
+  const opened = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(tournament.token),
+    payload: { ...slot, purpose: "TOURNAMENT" },
+  });
+  expect(opened.statusCode).toBe(201);
+  expect(opened.json().status).toBe("PENDING");
+  const kept = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: { ...slot, purpose: "MAINTENANCE", startTime: "11:00", endTime: "12:00" },
+  });
+  expect(kept.statusCode).toBe(201);
+  expect(kept.json().status).toBe("APPROVED");
+  expect(kept.json().purposeLabel).toBe("bakım");
+});

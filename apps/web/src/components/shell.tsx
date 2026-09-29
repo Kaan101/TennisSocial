@@ -1,7 +1,7 @@
 "use client";
 
 import { brand } from "@club/ui";
-import { Bell, CircleDot, House, Plus, Trophy, UserRound, Users, X } from "lucide-react";
+import { Bell, CircleDot, House, LayoutGrid, Plus, Trophy, UserRound, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { useResource } from "@/lib/use-resource";
 const items = [
   { href: "/", label: "Ana Sayfa", icon: House },
   { href: "/oyna", label: "Oyna", icon: CircleDot },
+  { href: "/kortlar", label: "Kortlar", icon: LayoutGrid },
   { href: "/turnuvalar", label: "Turnuvalar", icon: Trophy },
   { href: "/oyuncular", label: "Oyuncular", icon: Users },
   { href: "/profil", label: "Profil", icon: UserRound },
@@ -60,9 +61,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
+  const wide = pathname.startsWith("/kortlar");
 
   return (
-    <div className="mx-auto min-h-dvh max-w-lg pb-28">
+    <div className={`mx-auto min-h-dvh pb-28 ${wide ? "max-w-6xl" : "max-w-lg"}`}>
       <a href="#icerik" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-3 focus:py-2">
         İçeriğe geç
       </a>
@@ -134,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
-        <ul className="mx-auto grid max-w-lg grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+        <ul className={`mx-auto grid grid-cols-6 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;
@@ -143,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`flex flex-col items-center gap-1 py-2 text-[11px] font-medium ${active ? "text-court" : "text-muted"}`}
+                  className={`flex flex-col items-center gap-1 py-2 text-[10px] font-medium sm:text-[11px] ${active ? "text-court" : "text-muted"}`}
                 >
                   <Icon className="h-5 w-5" aria-hidden />
                   {item.label}

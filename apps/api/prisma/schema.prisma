@@ -226,6 +226,7 @@ model User {
   email        String    @unique
   passwordHash String
   role         Role      @default(MEMBER)
+  boardVisible Boolean   @default(true)
   deletedAt    DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -261,6 +262,13 @@ model User {
   friendshipsIn      Friendship[]       @relation("FriendAdd")
   auditLogs          AuditLog[]         @relation("AuditActor")
   activities         ActivityEvent[]
+  heldReservations   CourtReservation[] @relation("ReservationHolder")
+  partnerReservations CourtReservation[] @relation("ReservationPartner")
+  authoredReservations CourtReservation[] @relation("ReservationAuthor")
+  decidedReservations CourtReservation[] @relation("ReservationDecider")
+  reservationCheckIns ReservationCheckIn[]
+  slotOffersSent     SlotOffer[]        @relation("SlotOfferFrom")
+  slotOffersReceived SlotOffer[]        @relation("SlotOfferTo")
 
   @@index([role])
   @@index([deletedAt])
@@ -487,10 +495,11 @@ model Match {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  players   MatchPlayer[]
-  challenge Challenge?
-  ladderId  String?
-  ladder    Ladder? @relation(fields: [ladderId], references: [id])
+  players          MatchPlayer[]
+  challenge        Challenge?
+  courtReservation CourtReservation?
+  ladderId         String?
+  ladder           Ladder? @relation(fields: [ladderId], references: [id])
 
   @@index([scheduledAt])
   @@index([ladderId])
@@ -760,4 +769,116 @@ model RefreshToken {
 
   @@index([userId])
   @@index([familyId])
+}
+
+enum CourtPurpose {
+  MATCH
+  TRAINING
+  TOURNAMENT
+  MAINTENANCE
+}
+
+enum ReservationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SlotOfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+model SystemParameter {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Court {
+  id        String    @id @default(cuid())
+  name      String
+  active    Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  reservations CourtReservation[]
+
+  @@index([active])
+  @@index([deletedAt])
+}
+
+model CourtReservation {
+  id          String            @id @default(cuid())
+  courtId     String
+  court       Court             @relation(fields: [courtId], references: [id])
+  purpose     CourtPurpose
+  status      ReservationStatus
+  startDate   DateTime          @db.Date
+  endDate     DateTime          @db.Date
+  weekdays    Int[]
+  startTime   String
+  endTime     String
+  holderId    String
+  holder      User              @relation("ReservationHolder", fields: [holderId], references: [id])
+  partnerId   String?
+  partner     User?             @relation("ReservationPartner", fields: [partnerId], references: [id])
+  note        String?
+  matchId     String?           @unique
+  match       Match?            @relation(fields: [matchId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User              @relation("ReservationAuthor", fields: [createdById], references: [id])
+  decidedById String?
+  decidedBy   User?             @relation("ReservationDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  checkIns  ReservationCheckIn[]
+  slotOffer SlotOffer?
+
+  @@index([courtId, status])
+  @@index([startDate, endDate])
+  @@index([holderId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model ReservationCheckIn {
+  id            String           @id @default(cuid())
+  reservationId String
+  reservation   CourtReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  date          DateTime         @db.Date
+  startTime     String
+  userId        String
+  user          User             @relation(fields: [userId], references: [id])
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@unique([reservationId, date, startTime, userId])
+  @@index([reservationId, date, startTime])
+}
+
+model SlotOffer {
+  id            String            @id @default(cuid())
+  fromUserId    String
+  toUserId      String
+  fromUser      User              @relation("SlotOfferFrom", fields: [fromUserId], references: [id])
+  toUser        User              @relation("SlotOfferTo", fields: [toUserId], references: [id])
+  date          DateTime          @db.Date
+  startTime     String
+  status        SlotOfferStatus   @default(PENDING)
+  reservationId String?           @unique
+  reservation   CourtReservation? @relation(fields: [reservationId], references: [id])
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+  @@index([date, startTime])
 }

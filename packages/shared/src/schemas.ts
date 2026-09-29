@@ -18,9 +18,12 @@ import {
   TOURNAMENT_STATUSES,
   VISIBILITIES,
   GROUP_VISIBILITIES,
+  COURT_PURPOSES,
+  RESERVATION_STATUSES,
 } from "./constants";
 
 export const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat HH:mm olmalı");
+export const hourSchema = z.string().regex(/^(?:[01]\d|2[0-3]):00$/, "Saat tam saat olmalı");
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tarih YYYY-MM-DD olmalı");
 
 export const passwordSchema = z
@@ -295,6 +298,58 @@ export const announcementSchema = z.object({
 
 export const friendRequestSchema = z.object({
   userId: z.string().min(1),
+});
+
+export const courtCreateSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+});
+
+export const courtUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(40).optional(),
+  active: z.boolean().optional(),
+});
+
+export const courtReservationSchema = z.object({
+  courtId: z.string().min(1),
+  purpose: z.enum(COURT_PURPOSES),
+  startDate: dateSchema,
+  endDate: dateSchema,
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+  startTime: hourSchema,
+  endTime: hourSchema,
+  partnerId: z.string().min(1).nullable().optional(),
+  note: z.string().trim().max(300).nullable().optional(),
+});
+
+export const reservationListSchema = paginationSchema.extend({
+  status: z.enum(RESERVATION_STATUSES).optional(),
+});
+
+export const reservationCheckInSchema = z.object({
+  date: dateSchema,
+  startTime: hourSchema,
+});
+
+export const boardWeekSchema = z.object({
+  week: dateSchema.optional(),
+});
+
+export const boardVisibilitySchema = z.object({
+  visible: z.boolean(),
+});
+
+export const checkInLeadSchema = z.object({
+  hours: z.number().int().min(0).max(72),
+});
+
+export const slotOfferSchema = z.object({
+  toUserId: z.string().min(1),
+  date: dateSchema,
+  startTime: hourSchema,
+});
+
+export const slotOfferListSchema = z.object({
+  scope: z.enum(["incoming", "outgoing"]).default("incoming"),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

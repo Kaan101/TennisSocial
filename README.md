@@ -101,6 +101,10 @@ Yalnızca geliştirme. `pnpm db:seed` production'da çalışmaz. Parola hepsi i�
 
 Diğer seed hesapları da aynı parolayı kullanır ve `@tennisclub.local` adreslidir. Hepsi kurgusal kulüp üyesidir.
 
+## Kortlar
+
+`/kortlar` haftalık kort tahtasıdır. Üyeler maç ve antrenman talebi açar; turnuva sorumlusu turnuva talebi açar; yönetici bakım dahil her amacı açar ve talebi onaylar. Yönetici talebi hemen onaylı kaydolur. Onay, aynı kortta bekleyen veya onaylı bir taleple çakışırsa reddedilir. Check-in, `checkInLeadHours` (varsayılan 3) saat kala açılır ve kort saati başlayınca kapanır.
+
 ## Bu dilimde olmayanlar
 
 Canlı Railway veya Vercel yayını, e-posta gönderimi ve uygulama dışındaki anlık bildirimler bu dilimde yok. Bildirimler uygulama içindedir; WhatsApp kendiliğinden gitmez. Rakip önerisi kural tabanlıdır: ana sayfadaki “Bu akşam sana uygun” bloğu `Matchmaker` servisinin kısa gerekçesini gösterir.
