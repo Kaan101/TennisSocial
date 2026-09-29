@@ -38,11 +38,11 @@ export type DayGrid = {
 
 export type DaySlot = { courtId: string; startTime: string };
 
-const PURPOSE_OPTIONS: { purpose: CourtPurpose; label: string; word: string }[] = [
-  { purpose: "MATCH", label: "maç", word: "Maç" },
-  { purpose: "TRAINING", label: "antrenman", word: "Antrenman" },
-  { purpose: "MAINTENANCE", label: "bakım", word: "Bakım" },
-  { purpose: "TOURNAMENT", label: "turnuva", word: "Turnuva" },
+const PURPOSE_OPTIONS: { purpose: CourtPurpose; word: string; bg: string }[] = [
+  { purpose: "MATCH", word: "Maç", bg: "bg-[#dcfce7]" },
+  { purpose: "TRAINING", word: "Antrenman", bg: "bg-[#f3e8ff]" },
+  { purpose: "MAINTENANCE", word: "Bakım", bg: "bg-[#ffedd5]" },
+  { purpose: "TOURNAMENT", word: "Turnuva", bg: "bg-[#dbeafe]" },
 ];
 
 function purposeOption(purpose: CourtPurpose) {
@@ -51,6 +51,12 @@ function purposeOption(purpose: CourtPurpose) {
 
 export function purposeWord(purpose: CourtPurpose): string {
   return purposeOption(purpose).word;
+}
+
+function cellTone(reservation: DayReservation | null): string {
+  if (!reservation) return "bg-surface text-ink";
+  if (reservation.purpose === "MATCH" && reservation.checkedIn) return "bg-[#22c55e] text-white";
+  return `${purposeOption(reservation.purpose).bg} text-ink`;
 }
 
 function cellKey(courtId: string, startTime: string): string {
@@ -185,7 +191,8 @@ export function CourtDayGrid({
   });
   const freeSlots = picked.filter((item) => item.cell.state !== "busy").map(({ courtId, startTime }) => ({ courtId, startTime }));
   const reservedSlots = picked.filter((item) => item.cell.state === "busy" && item.cell.reservation);
-  const showReserved = reservedSlots.length > 0;
+  const matchSlots = reservedSlots.filter((item) => item.cell.reservation?.purpose === "MATCH");
+  const showMatch = matchSlots.length > 0 && matchSlots.length === reservedSlots.length;
   const days = weekOf(date);
 
   function toggleSlot(courtId: string, startTime: string) {
@@ -249,8 +256,20 @@ export function CourtDayGrid({
     }
   }
 
+  async function cancelMatches() {
+    const ids = [...new Set(matchSlots.flatMap((item) => item.cell.reservation ? [item.cell.reservation.id] : []))];
+    if (ids.length === 0) return;
+    setActionError(null);
+    try {
+      await onCancel(ids);
+      setSelected(new Set());
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
+    }
+  }
+
   async function checkInSelected() {
-    const slots = reservedSlots.flatMap((item) => item.cell.reservation
+    const slots = matchSlots.flatMap((item) => item.cell.reservation
       ? [{ reservationId: item.cell.reservation.id, date, startTime: item.startTime }]
       : []);
     if (slots.length === 0) return;
@@ -262,21 +281,6 @@ export function CourtDayGrid({
     }
   }
 
-  const tools: { key: string; label: string; run: () => void }[] = [
-    ...PURPOSE_OPTIONS.map((option) => ({
-      key: option.purpose,
-      label: option.label,
-      run: () => void applyPurpose(option.purpose),
-    })),
-    { key: "bos", label: "boş", run: () => void clearSelected() },
-  ];
-  if (showReserved) {
-    tools.push(
-      { key: "iptal", label: "iptal", run: () => void clearSelected() },
-      { key: "check-in", label: "check-in", run: () => void checkInSelected() },
-    );
-  }
-
   const openCourt = grid?.courts.find((court) => court.id === openCourtId) ?? null;
 
   return (
@@ -285,7 +289,7 @@ export function CourtDayGrid({
         <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>
           önceki
         </button>
-        <div className="grid min-w-0 flex-1 grid-cols-7" role="group" aria-label="Haftanın günleri">
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-1" role="group" aria-label="Haftanın günleri">
           {days.map((day) => {
             const on = day.date === date;
             return (
@@ -297,7 +301,8 @@ export function CourtDayGrid({
                 onClick={() => onDate(day.date)}
                 className="min-w-0 px-0.5 text-center"
               >
-                <span className={`block truncate ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
+                <span className={`block truncate md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
+                <span className={`hidden whitespace-nowrap md:block ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
                 <span className="block font-normal text-muted">{day.date.slice(8)}</span>
               </button>
             );
@@ -308,24 +313,47 @@ export function CourtDayGrid({
         </button>
       </div>
 
-      <div
-        className="grid min-w-0 text-center text-[11px] leading-tight sm:text-xs"
-        style={{ gridTemplateColumns: `repeat(${tools.length}, minmax(0, 1fr))` }}
-        role="group"
-        aria-label="Amaç"
-      >
-        {tools.map((tool) => (
+      <div className="flex min-w-0 flex-nowrap items-center gap-1 sm:gap-2" role="group" aria-label="Amaç">
+        {PURPOSE_OPTIONS.map((option) => (
           <button
-            key={tool.key}
+            key={option.purpose}
             type="button"
             disabled={busy}
-            onClick={tool.run}
-            className="min-w-0 bg-transparent px-0.5 py-1 text-ink [overflow-wrap:anywhere] disabled:opacity-50"
+            onClick={() => void applyPurpose(option.purpose)}
+            className="shrink-0 rounded-lg border border-line bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-50 sm:px-2 sm:text-xs"
           >
-            {tool.label}
+            {option.word}
           </button>
         ))}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void clearSelected()}
+          className="shrink-0 rounded-lg border border-line bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-50 sm:px-2 sm:text-xs"
+        >
+          Boş
+        </button>
       </div>
+      {showMatch ? (
+        <div className="flex items-center gap-2 pt-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void cancelMatches()}
+            className="rounded-lg border border-line bg-[#e7e5e0] px-2 py-1 text-xs text-ink disabled:opacity-50"
+          >
+            İptal
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void checkInSelected()}
+            className="rounded-lg border border-[#86efac] bg-[#d1fae5] px-2 py-1 text-xs text-ink disabled:opacity-50"
+          >
+            Check-in
+          </button>
+        </div>
+      ) : null}
       {actionError ? <p className="text-xs text-ink" role="alert">{actionError}</p> : null}
 
       {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
@@ -431,7 +459,7 @@ function SlotButton({
       aria-pressed={selected}
       disabled={!reservation && !court.active}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-2xl border bg-surface px-1 py-2 text-center text-[11px] text-ink focus-visible:outline-none ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
+      className={`min-h-9 w-full rounded-lg border px-1 py-2 text-center text-[11px] focus-visible:outline-none ${cellTone(reservation)} ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
     >
       {word}
     </button>
