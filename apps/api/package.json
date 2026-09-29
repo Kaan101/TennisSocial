@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "build": "tsup",
+    "build": "prisma generate && tsup",
+    "start": "prisma migrate deploy && node dist/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint -c ../../eslint.config.mjs src test prisma/seed.ts --max-warnings 0",
     "test": "vitest run",
