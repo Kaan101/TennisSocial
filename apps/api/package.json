@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.cjs",
+    "start": "node dist/index.js",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint -c ../../eslint.config.mjs src test prisma/seed.ts --max-warnings 0",
