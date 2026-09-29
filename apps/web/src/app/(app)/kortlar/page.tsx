@@ -9,7 +9,6 @@ import {
   AdminCourts,
   PendingQueue,
   RequestForm,
-  kindClass,
 } from "@/components/court-ui";
 import { ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { api } from "@/lib/api";
@@ -53,43 +52,25 @@ export default function CourtsPage() {
     <div className="space-y-4">
       <PageHeader title="Kortlar" action={<Link href="/takvim" className="text-sm font-semibold text-court">Takvim</Link>} />
       <p className="text-sm text-muted">
-        Kapalı 1–3 balon korttur. Kort 1–9 onların ardından gelir. Bir korta dokun, haftasını gör.
+        Kapalı 1–3 balon korttur, mavi çerçeve. Kort 1–9 yeşil çerçeve. Bir korta dokun, haftasını gör.
       </p>
       {message ? <p className="rounded-2xl bg-surface px-3 py-2 text-sm" role="status">{message}</p> : null}
 
-      <div className="hidden overflow-hidden rounded-3xl border border-line md:block">
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Kulüp kortları</caption>
-          <thead className="bg-paper text-xs uppercase tracking-wide text-muted">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Kort</th>
-              <th className="px-4 py-3 font-semibold">Tür</th>
-              <th className="px-4 py-3 font-semibold">Durum</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((court) => (
-              <tr key={court.id} className="border-t border-line">
-                <td className="px-4 py-3">
-                  <Link href={`/kortlar/${court.id}`} className="font-semibold underline-offset-2 hover:underline">{court.name}</Link>
-                </td>
-                <td className="px-4 py-3"><span className={kindClass(court.kind)}>{court.kindLabel}</span></td>
-                <td className="px-4 py-3 text-muted">{court.active ? "Aktif" : "Pasif"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <ul className="space-y-2 md:hidden">
-        {rows.map((court) => (
-          <li key={court.id}>
-            <Link href={`/kortlar/${court.id}`} className="flex items-center justify-between rounded-3xl border border-line bg-surface px-4 py-3">
-              <span className="font-semibold">{court.name}</span>
-              <span className={kindClass(court.kind)}>{court.kindLabel}</span>
-            </Link>
-          </li>
-        ))}
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-3">
+        {rows.map((court) => {
+          const balloon = court.kind === "BALLOON";
+          return (
+            <li key={court.id}>
+              <Link
+                href={`/kortlar/${court.id}`}
+                className={`flex min-h-24 flex-col justify-between rounded-3xl border-2 px-3 py-3 ${balloon ? "border-[#2563eb] bg-[#eff6ff]" : "border-court bg-court/10"} ${court.active ? "" : "opacity-60"}`}
+              >
+                <span className="text-base font-semibold leading-tight">{court.name}</span>
+                <span className="text-xs text-muted">{court.kindLabel}{court.active ? "" : " · pasif"}</span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
 
       <PendingQueue
