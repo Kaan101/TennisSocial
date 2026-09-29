@@ -4,6 +4,7 @@ import {
   boardWeekSchema,
   checkInLeadSchema,
   courtCreateSchema,
+  courtRangeSchema,
   courtReservationSchema,
   courtUpdateSchema,
   reservationCheckInSchema,
@@ -19,6 +20,7 @@ import {
   approveReservation,
   boardFor,
   checkInReservation,
+  courtWeekFor,
   createCourt,
   createReservation,
   createSlotOffer,
@@ -27,6 +29,7 @@ import {
   listCourts,
   listReservations,
   listSlotOffers,
+  rangeFor,
   rejectReservation,
   setBoardVisible,
   setCheckInLeadHours,
@@ -57,6 +60,19 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const query = parse(boardWeekSchema, req.query);
     return boardFor(viewer, query.week);
+  });
+
+  app.get("/api/courts/range", async (req) => {
+    const viewer = requireUser(req);
+    const query = parse(courtRangeSchema, req.query);
+    return rangeFor(viewer, query);
+  });
+
+  app.get("/api/courts/:id/week", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const query = parse(boardWeekSchema, req.query);
+    return courtWeekFor(viewer, id, query.week);
   });
 
   app.get("/api/reservations", async (req) => {

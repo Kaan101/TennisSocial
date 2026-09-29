@@ -791,6 +791,11 @@ enum SlotOfferStatus {
   CANCELLED
 }
 
+enum CourtKind {
+  BALLOON
+  OUTDOOR
+}
+
 model SystemParameter {
   key       String   @id
   value     String
@@ -801,6 +806,8 @@ model SystemParameter {
 model Court {
   id        String    @id @default(cuid())
   name      String
+  kind      CourtKind @default(OUTDOOR)
+  sortOrder Int       @default(0)
   active    Boolean   @default(true)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -808,6 +815,7 @@ model Court {
 
   reservations CourtReservation[]
 
+  @@index([sortOrder])
   @@index([active])
   @@index([deletedAt])
 }

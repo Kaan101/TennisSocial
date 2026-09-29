@@ -101,9 +101,13 @@ Yalnızca geliştirme. `pnpm db:seed` production'da çalışmaz. Parola hepsi i�
 
 Diğer seed hesapları da aynı parolayı kullanır ve `@tennisclub.local` adreslidir. Hepsi kurgusal kulüp üyesidir.
 
-## Kortlar
+## Takvim ve kortlar
 
-`/kortlar` haftalık kort tahtasıdır. Üyeler maç ve antrenman talebi açar; turnuva sorumlusu turnuva talebi açar; yönetici bakım dahil her amacı açar ve talebi onaylar. Yönetici talebi hemen onaylı kaydolur. Onay, aynı kortta bekleyen veya onaylı bir taleple çakışırsa reddedilir. Check-in, `checkInLeadHours` (varsayılan 3) saat kala açılır ve kort saati başlayınca kapanır.
+`/takvim` oyuncu müsaitliğidir: günler × 08:00–22:00. Yeşil saat, en az iki görünen oyuncu ve aralarında seviye farkı en fazla 1 olan bir çift demektir. Bir saate dokununca panel açılır; aynı günde bitiş saati hariç bir aralık seçilebilir (18:00–21:00, 18, 19 ve 20’yi kapsar). Aralıkta bir kort ancak her saatte boşsa boş sayılır.
+
+`/kortlar` on iki kortun listesidir. Korta girince o kortun haftası görünür: boş saat talep açar, dolu saat Takvim paneline gider. Takvimdeki kort adı da o kortun haftasına gider.
+
+Kulüp kortları migration ile gelir, seed ile değil: Kapalı 1–3 balon korttur (kapalı), Kort 1–9 açık korttur. Ekran sırası budur. Üyeler maç ve antrenman talebi açar; turnuva sorumlusu turnuva talebi açar; yönetici bakım dahil her amacı açar. Yönetici kaydı onaylıdır, diğerleri ADMIN onaylar. Çakışma reddedilir. Check-in, `checkInLeadHours` (varsayılan 3) saat kala açılır ve kort saati başlayınca kapanır.
 
 ## Bu dilimde olmayanlar
 

@@ -114,3 +114,21 @@ export function checkInWindowError(now: Date, slotStart: Date, leadHours: number
 export function slotStartInstant(date: string, startTime: string): Date {
   return new Date(`${date}T${startTime}:00+03:00`);
 }
+
+/** End is exclusive: 18:00–21:00 is the slots 18, 19, and 20. */
+export function hoursInRange(startTime: string, endTime: string): string[] {
+  const start = Number(startTime.slice(0, 2));
+  const end = Number(endTime.slice(0, 2));
+  if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return [];
+  const hours: string[] = [];
+  for (let hour = start; hour < end; hour += 1) {
+    hours.push(`${String(hour).padStart(2, "0")}:00`);
+  }
+  return hours;
+}
+
+export function isHourRange(startTime: string, endTime: string): boolean {
+  const hours = hoursInRange(startTime, endTime);
+  if (hours.length === 0 || endTime > COURT_CLOSE) return false;
+  return hours.every((hour) => COURT_HOURS.includes(hour));
+}

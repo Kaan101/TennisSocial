@@ -300,6 +300,30 @@ export const COURT_PURPOSE_LABELS: Record<CourtPurpose, string> = {
   MAINTENANCE: "bakım",
 };
 
+export const COURT_KINDS = ["BALLOON", "OUTDOOR"] as const;
+export type CourtKind = (typeof COURT_KINDS)[number];
+
+/** Kapalı 1–3 are balloon courts. Their label is kapalı, never açık. */
+export const COURT_KIND_LABELS: Record<CourtKind, string> = {
+  BALLOON: "kapalı",
+  OUTDOOR: "açık",
+};
+
+export const CLUB_COURTS: { name: string; kind: CourtKind; sortOrder: number }[] = [
+  { name: "Kapalı 1", kind: "BALLOON", sortOrder: 1 },
+  { name: "Kapalı 2", kind: "BALLOON", sortOrder: 2 },
+  { name: "Kapalı 3", kind: "BALLOON", sortOrder: 3 },
+  { name: "Kort 1", kind: "OUTDOOR", sortOrder: 4 },
+  { name: "Kort 2", kind: "OUTDOOR", sortOrder: 5 },
+  { name: "Kort 3", kind: "OUTDOOR", sortOrder: 6 },
+  { name: "Kort 4", kind: "OUTDOOR", sortOrder: 7 },
+  { name: "Kort 5", kind: "OUTDOOR", sortOrder: 8 },
+  { name: "Kort 6", kind: "OUTDOOR", sortOrder: 9 },
+  { name: "Kort 7", kind: "OUTDOOR", sortOrder: 10 },
+  { name: "Kort 8", kind: "OUTDOOR", sortOrder: 11 },
+  { name: "Kort 9", kind: "OUTDOOR", sortOrder: 12 },
+];
+
 export const RESERVATION_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 

@@ -1,5 +1,5 @@
-import type { CourtPurpose, OverallLevel, Role } from "@club/shared";
-import { COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, levelIndex, purposesForRole } from "@club/shared";
+import type { CourtKind, CourtPurpose, OverallLevel, Role } from "@club/shared";
+import { CLUB_COURTS, COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, levelIndex, purposesForRole } from "@club/shared";
 import type { Prisma } from "@prisma/client";
 import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
@@ -15,7 +15,9 @@ import {
   MAX_RANGE_DAYS,
   type Span,
   checkInWindowError,
+  hoursInRange,
   inclusiveDayCount,
+  isHourRange,
   mondayOf,
   rangeHitsWeekdays,
   slotCoveredBySpan,
@@ -38,6 +40,37 @@ type Person = {
   firstName: string;
   lastName: string;
 };
+
+const courtOrder = [{ sortOrder: "asc" as const }, { name: "asc" as const }];
+
+function presentCourt(row: { id: string; name: string; active: boolean; kind: CourtKind; sortOrder: number }) {
+  return {
+    id: row.id,
+    name: row.name,
+    active: row.active,
+    kind: row.kind,
+    kindLabel: COURT_KIND_LABELS[row.kind],
+    sortOrder: row.sortOrder,
+  };
+}
+
+export async function ensureClubCourts(db: Db = prisma): Promise<void> {
+  for (const court of CLUB_COURTS) {
+    const existing = await db.court.findFirst({ where: { name: court.name, deletedAt: null } });
+    if (!existing) {
+      await db.court.create({
+        data: { name: court.name, kind: court.kind, sortOrder: court.sortOrder, active: true },
+      });
+      continue;
+    }
+    if (existing.kind !== court.kind || existing.sortOrder !== court.sortOrder) {
+      await db.court.update({
+        where: { id: existing.id },
+        data: { kind: court.kind, sortOrder: court.sortOrder },
+      });
+    }
+  }
+}
 
 const personSelect = {
   id: true,
@@ -148,17 +181,15 @@ export async function listCourts(viewer: CourtViewer, includeInactive: boolean) 
   const showAll = includeInactive && viewer.role === "ADMIN";
   const rows = await prisma.court.findMany({
     where: { deletedAt: null, ...(showAll ? {} : { active: true }) },
-    orderBy: { name: "asc" },
+    orderBy: courtOrder,
   });
-  return {
-    data: rows.map((row) => ({ id: row.id, name: row.name, active: row.active })),
-  };
+  return { data: rows.map(presentCourt) };
 }
 
 export async function createCourt(viewer: CourtViewer, name: string) {
   if (viewer.role !== "ADMIN") throw forbidden("Kortu yalnızca yönetici ekler");
-  const court = await prisma.court.create({ data: { name, active: true } });
-  return { id: court.id, name: court.name, active: court.active };
+  const court = await prisma.court.create({ data: { name, active: true, kind: "OUTDOOR", sortOrder: 1000 } });
+  return presentCourt(court);
 }
 
 export async function updateCourt(viewer: CourtViewer, id: string, input: { name?: string; active?: boolean }) {
@@ -169,7 +200,7 @@ export async function updateCourt(viewer: CourtViewer, id: string, input: { name
     where: { id },
     data: { name: input.name, active: input.active },
   });
-  return { id: updated.id, name: updated.name, active: updated.active };
+  return presentCourt(updated);
 }
 
 const reservationInclude = {
@@ -312,7 +343,7 @@ export async function approveReservation(viewer: CourtViewer, id: string) {
         type: "SYSTEM",
         title: "Kort talebi onaylandı",
         body: `${updated.court.name} · ${COURT_PURPOSE_LABELS[updated.purpose]} · ${updated.startTime}`,
-        link: "/kortlar",
+        link: `/kortlar/${updated.courtId}`,
       }),
     ),
   );
@@ -333,7 +364,7 @@ export async function rejectReservation(viewer: CourtViewer, id: string) {
       type: "SYSTEM",
       title: "Kort talebi reddedildi",
       body: `${updated.court.name} için talep reddedildi.`,
-      link: "/kortlar",
+      link: `/kortlar/${updated.courtId}`,
     });
   }
   return presentReservation(updated);
@@ -431,13 +462,19 @@ function namesFor(
   return visible.map(({ id, firstName, lastName }) => ({ id, firstName, lastName }));
 }
 
-export async function boardFor(viewer: CourtViewer, weekInput?: string) {
+export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = []) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
   const weekEnd = dates[6]!;
   const [courts, users, reservations, lead, me] = await Promise.all([
-    prisma.court.findMany({ where: { deletedAt: null, active: true }, orderBy: { name: "asc" } }),
+    prisma.court.findMany({
+      where: {
+        deletedAt: null,
+        OR: [{ active: true }, ...(extraCourtIds.length > 0 ? [{ id: { in: extraCourtIds } }] : [])],
+      },
+      orderBy: courtOrder,
+    }),
     prisma.user.findMany({
       where: { deletedAt: null, boardVisible: true, profile: { is: { deletedAt: null } } },
       select: {
@@ -495,15 +532,15 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string) {
         green: slotIsGreen(people.map((person) => person.levelIndex)),
         people: people.map(({ levelIndex: _levelIndex, ...person }) => person),
         courts: courts.map((court) => {
+          const identity = { id: court.id, name: court.name, kind: court.kind, kindLabel: COURT_KIND_LABELS[court.kind] };
           const row = covering.find((item) => item.courtId === court.id);
-          if (!row) return { id: court.id, name: court.name, state: "free" as const, reservation: null };
+          if (!row) return { ...identity, state: "free" as const, reservation: null };
           const checkedIn = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime);
           const windowError = checkInWindowError(now, slotStart, lead);
           const allowed = canCheckInUser(viewer.id, row);
           const already = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
           return {
-            id: court.id,
-            name: court.name,
+            ...identity,
             state: "reserved" as const,
             reservation: {
               id: row.id,
@@ -536,6 +573,57 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string) {
       return { date, weekday, label: known?.label ?? "", short: known?.short ?? "" };
     }),
     slots,
+  };
+}
+
+export async function rangeFor(viewer: CourtViewer, input: { date: string; start: string; end: string }) {
+  if (!isHourRange(input.start, input.end)) {
+    throw new AppError(400, "VALIDATION_ERROR", "Saat aralığı aynı gün içinde 08:00 ile 23:00 arasında olmalı");
+  }
+  const board = await boardFor(viewer, input.date);
+  const wanted = hoursInRange(input.start, input.end);
+  const hours = wanted.map((startTime) => board.slots.find((slot) => slot.date === input.date && slot.startTime === startTime));
+  if (hours.some((slot) => !slot)) {
+    throw new AppError(400, "VALIDATION_ERROR", "Seçilen saatler takvimde yok");
+  }
+  const slots = hours.filter((slot): slot is NonNullable<typeof slot> => Boolean(slot));
+  const template = slots[0]?.courts ?? [];
+  const freeForRange = template
+    .filter((court) => slots.every((slot) => slot.courts.find((item) => item.id === court.id)?.state === "free"))
+    .map((court) => ({ id: court.id, name: court.name, kind: court.kind, kindLabel: court.kindLabel }));
+  return {
+    date: input.date,
+    startTime: input.start,
+    endTime: input.end,
+    hours: slots,
+    freeForRange,
+  };
+}
+
+export async function courtWeekFor(viewer: CourtViewer, courtId: string, weekInput?: string) {
+  const court = await prisma.court.findFirst({ where: { id: courtId, deletedAt: null } });
+  if (!court) throw notFound("Kort bulunamadı");
+  if (!court.active && viewer.role !== "ADMIN") throw notFound("Kort bulunamadı");
+  const board = await boardFor(viewer, weekInput, [court.id]);
+  return {
+    court: presentCourt(court),
+    weekStart: board.weekStart,
+    weekEnd: board.weekEnd,
+    hours: board.hours,
+    days: board.days,
+    checkInLeadHours: board.checkInLeadHours,
+    viewer: board.viewer,
+    slots: board.slots.map((slot) => {
+      const cell = slot.courts.find((item) => item.id === court.id);
+      return {
+        date: slot.date,
+        weekday: slot.weekday,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        state: cell?.state ?? "free",
+        reservation: cell?.state === "reserved" ? cell.reservation : null,
+      };
+    }),
   };
 }
 
@@ -594,7 +682,7 @@ export async function createSlotOffer(viewer: CourtViewer, input: { toUserId: st
     type: "SYSTEM",
     title: "Kort için maç teklifi",
     body: `${offer.fromUser.profile?.firstName ?? ""} ${input.date} ${input.startTime} için maç teklif etti.`.trim(),
-    link: "/kortlar",
+    link: `/takvim?date=${input.date}&start=${input.startTime}`,
   });
   return presentOffer(offer, viewer.id);
 }
@@ -638,7 +726,7 @@ export async function acceptSlotOffer(viewer: CourtViewer, id: string) {
     await tx.$queryRaw`SELECT id FROM "Court" WHERE active = true AND "deletedAt" IS NULL FOR UPDATE`;
     const fresh = await tx.slotOffer.findUnique({ where: { id } });
     if (!fresh || fresh.status !== "PENDING") throw new AppError(409, "CONFLICT", "Bu teklif artık yanıtlanamaz");
-    const courts = await tx.court.findMany({ where: { active: true, deletedAt: null }, orderBy: { name: "asc" } });
+    const courts = await tx.court.findMany({ where: { active: true, deletedAt: null }, orderBy: courtOrder });
     let free: { id: string; name: string } | null = null;
     for (const court of courts) {
       const rows = await tx.courtReservation.findMany({
@@ -699,7 +787,7 @@ export async function acceptSlotOffer(viewer: CourtViewer, id: string) {
     type: "SYSTEM",
     title: "Maç teklifi kabul edildi",
     body: `${date} ${offer.startTime} için ${booked.courtName} ayrıldı.`,
-    link: "/kortlar",
+    link: `/takvim?date=${date}&start=${offer.startTime}`,
   });
   return { offerId: id, ...booked };
 }

@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { istanbulNowParts } from "@club/shared";
+import { CLUB_COURTS, istanbulNowParts } from "@club/shared";
 import { prisma } from "../src/lib/prisma";
-import { addDays, checkInWindowError, slotIsGreen, slotStartInstant, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
+import { ensureClubCourts } from "../src/services/courts/service";
+import { addDays, checkInWindowError, hoursInRange, slotIsGreen, slotStartInstant, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
 import { auth, makeApp, registerUser } from "./helpers";
 
 let app: FastifyInstance;
@@ -16,6 +19,21 @@ afterAll(async () => {
 });
 
 const MONDAY = "2026-10-05";
+
+test("18:00–21:00 is the three slots 18, 19, and 20", () => {
+  expect(hoursInRange("18:00", "21:00")).toEqual(["18:00", "19:00", "20:00"]);
+  expect(hoursInRange("22:00", "23:00")).toEqual(["22:00"]);
+  expect(hoursInRange("18:00", "18:00")).toEqual([]);
+});
+
+test("the migration inserts Kapalı 1–3 and Kort 1–9 and the seed does not recreate Kort 1–3", () => {
+  const sql = readFileSync(fileURLToPath(new URL("../prisma/migrations/20260929160000_club_courts/migration.sql", import.meta.url)), "utf8");
+  const seed = readFileSync(fileURLToPath(new URL("../prisma/seed.ts", import.meta.url)), "utf8");
+  for (const court of CLUB_COURTS) expect(sql).toContain(`'${court.name}'`);
+  expect(sql).toContain("'BALLOON'");
+  expect(sql).not.toContain("açık");
+  expect(seed).not.toContain('["Kort 1", "Kort 2", "Kort 3"]');
+});
 
 test("green rule counts only a visible pair within one level", () => {
   expect(slotIsGreen([0, 1])).toBe(true);
@@ -421,4 +439,64 @@ test("purpose rights follow role and admin maintenance is stored approved", asyn
   expect(kept.statusCode).toBe(201);
   expect(kept.json().status).toBe("APPROVED");
   expect(kept.json().purposeLabel).toBe("bakım");
+});
+
+test("lists Kapalı 1–3 then Kort 1–9, and the balloon courts are not açık", async () => {
+  await ensureClubCourts();
+  const viewer = await registerUser(app);
+  const res = await app.inject({ method: "GET", url: "/api/courts", headers: auth(viewer.token) });
+  expect(res.statusCode).toBe(200);
+  const data = res.json().data as { name: string; kind: string; kindLabel: string }[];
+  expect(data.map((court) => court.name)).toEqual(CLUB_COURTS.map((court) => court.name));
+  const indoor = data.filter((court) => court.name.startsWith("Kapalı"));
+  expect(indoor).toHaveLength(3);
+  expect(indoor.every((court) => court.kind === "BALLOON" && court.kindLabel === "kapalı")).toBe(true);
+  expect(indoor.some((court) => court.kindLabel === "açık")).toBe(false);
+  expect(data.filter((court) => court.name.startsWith("Kort ")).every((court) => court.kind === "OUTDOOR")).toBe(true);
+});
+
+test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async () => {
+  await ensureClubCourts();
+  const admin = await asAdmin();
+  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(admin.token) });
+  const kort1 = (listed.json().data as { id: string; name: string }[]).find((court) => court.name === "Kort 1");
+  expect(kort1).toBeTruthy();
+  const day = "2026-10-07";
+  expect(weekdayOfDate(day)).toBe(3);
+  const booked = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(admin.token),
+    payload: {
+      courtId: kort1!.id,
+      purpose: "TRAINING",
+      startDate: day,
+      endDate: day,
+      weekdays: [3],
+      startTime: "20:00",
+      endTime: "21:00",
+    },
+  });
+  expect(booked.statusCode).toBe(201);
+  expect(booked.json().status).toBe("APPROVED");
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/courts/range?date=${day}&start=18:00&end=21:00`,
+    headers: auth(admin.token),
+  });
+  expect(res.statusCode).toBe(200);
+  const body = res.json() as {
+    hours: { startTime: string; courts: { name: string; state: string; reservation: { purposeLabel: string } | null }[] }[];
+    freeForRange: { name: string }[];
+  };
+  expect(body.hours.map((hour) => hour.startTime)).toEqual(["18:00", "19:00", "20:00"]);
+  const states = body.hours.map((hour) => hour.courts.find((court) => court.name === "Kort 1")?.state);
+  expect(states).toEqual(["free", "free", "reserved"]);
+  expect(body.hours[2]?.courts.find((court) => court.name === "Kort 1")?.reservation?.purposeLabel).toBe("antrenman");
+  const freeNames = body.freeForRange.map((court) => court.name);
+  expect(freeNames).not.toContain("Kort 1");
+  expect(freeNames).toContain("Kapalı 1");
+  expect(freeNames).toContain("Kort 2");
+  expect(freeNames).toHaveLength(CLUB_COURTS.length - 1);
 });

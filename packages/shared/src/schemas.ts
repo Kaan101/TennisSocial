@@ -334,6 +334,12 @@ export const boardWeekSchema = z.object({
   week: dateSchema.optional(),
 });
 
+export const courtRangeSchema = z.object({
+  date: dateSchema,
+  start: hourSchema,
+  end: hourSchema,
+});
+
 export const boardVisibilitySchema = z.object({
   visible: z.boolean(),
 });

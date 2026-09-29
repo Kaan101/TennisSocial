@@ -1,7 +1,7 @@
 "use client";
 
 import { brand } from "@club/ui";
-import { Bell, CircleDot, House, LayoutGrid, Plus, Trophy, UserRound, Users, X } from "lucide-react";
+import { Bell, CalendarDays, CircleDot, House, LayoutGrid, Plus, Trophy, UserRound, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { useResource } from "@/lib/use-resource";
 const items = [
   { href: "/", label: "Ana Sayfa", icon: House },
   { href: "/oyna", label: "Oyna", icon: CircleDot },
+  { href: "/takvim", label: "Takvim", icon: CalendarDays },
   { href: "/kortlar", label: "Kortlar", icon: LayoutGrid },
   { href: "/turnuvalar", label: "Turnuvalar", icon: Trophy },
   { href: "/oyuncular", label: "Oyuncular", icon: Users },
@@ -61,7 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim");
 
   return (
     <div className={`mx-auto min-h-dvh pb-28 ${wide ? "max-w-6xl" : "max-w-lg"}`}>
@@ -136,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
-        <ul className={`mx-auto grid grid-cols-6 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+        <ul className={`mx-auto grid grid-cols-7 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;
@@ -145,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`flex flex-col items-center gap-1 py-2 text-[10px] font-medium sm:text-[11px] ${active ? "text-court" : "text-muted"}`}
+                  className={`flex flex-col items-center gap-1 px-0.5 py-2 text-center text-[9px] font-medium leading-tight sm:text-[11px] ${active ? "text-court" : "text-muted"}`}
                 >
                   <Icon className="h-5 w-5" aria-hidden />
                   {item.label}
