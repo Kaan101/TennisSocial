@@ -161,6 +161,15 @@ export function paintCheckedIn(grid: DayGrid, slots: { courtId?: string; startTi
   };
 }
 
+export function restoreSlots(current: DayGrid, snapshot: DayGrid, slots: DaySlot[]): DayGrid {
+  const keys = new Set(slots.map((slot) => cellKey(slot.courtId, slot.startTime)));
+  const previous = new Map(snapshot.cells.map((cell) => [cellKey(cell.courtId, cell.startTime), cell]));
+  return {
+    ...current,
+    cells: current.cells.map((cell) => (keys.has(cellKey(cell.courtId, cell.startTime)) ? previous.get(cellKey(cell.courtId, cell.startTime)) ?? cell : cell)),
+  };
+}
+
 export function clearReservations(grid: DayGrid, ids: string[]): DayGrid {
   const drop = new Set(ids);
   return {
@@ -222,7 +231,7 @@ export function CourtDayGrid({
   onRetry: () => void;
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
   onCancel: (reservationIds: string[]) => Promise<void>;
-  onCheckIn: (slots: { reservationId: string; date: string; startTime: string }[]) => Promise<void>;
+  onCheckIn: (slots: { reservationId: string; courtId: string; date: string; startTime: string }[]) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openCourtId, setOpenCourtId] = useState<string | null>(null);
@@ -304,7 +313,7 @@ export function CourtDayGrid({
 
   async function checkInSelected() {
     const slots = matchSlots.flatMap((item) => item.cell.reservation
-      ? [{ reservationId: item.cell.reservation.id, date, startTime: item.startTime }]
+      ? [{ reservationId: item.cell.reservation.id, courtId: item.courtId, date, startTime: item.startTime }]
       : []);
     if (slots.length === 0) return;
     setSelected(new Set());
@@ -357,7 +366,7 @@ export function CourtDayGrid({
             key={option.purpose}
             type="button"
             onClick={() => void applyPurpose(option.purpose)}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
+            className="court-press rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink"
           >
             {option.word}
           </button>
@@ -365,14 +374,14 @@ export function CourtDayGrid({
         <button
           type="button"
           onClick={() => void clearSelected()}
-          className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
+          className="court-press rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink"
         >
           Boş
         </button>
         <button
           type="button"
           onClick={() => void cancelMatches()}
-          className="ml-3 rounded-md border border-line px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
+          className="court-press ml-3 rounded-md border border-line px-2 py-1 text-xs text-ink"
           style={{ backgroundColor: "#e7e5e0" }}
         >
           İptal
@@ -380,17 +389,17 @@ export function CourtDayGrid({
         <button
           type="button"
           onClick={() => void checkInSelected()}
-          className="rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
+          className="court-press rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink"
           style={{ backgroundColor: "#d1fae5" }}
         >
           Check-in
         </button>
       </div>
 
-      {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
-      {!loading && error ? <ErrorState message={error} onRetry={onRetry} /> : null}
+      {loading && !grid ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
+      {error && !grid ? <ErrorState message={error} onRetry={onRetry} /> : null}
 
-      {grid && !loading && !error ? (
+      {grid ? (
         <>
           <div className="md:hidden">
             <h1 className="mb-2 text-sm font-semibold">Kortlar</h1>
@@ -490,7 +499,7 @@ function SlotButton({
       aria-pressed={selected}
       disabled={!reservation && !court.active}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-md border px-1 py-2 text-center text-[11px] transition-transform focus-visible:outline-none active:scale-95 active:brightness-90 ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
+      className={`court-press min-h-9 w-full rounded-md border px-1 py-2 text-center text-[11px] focus-visible:outline-none ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
       style={{ ...cellPaint(reservation), borderRadius: 6 }}
     >
       {word}

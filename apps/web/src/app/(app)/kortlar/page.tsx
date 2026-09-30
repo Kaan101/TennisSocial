@@ -2,7 +2,8 @@
 
 import { istanbulNowParts } from "@club/shared";
 import { useEffect, useRef, useState } from "react";
-import { type DayGrid, CourtDayGrid, clearReservations, groupDaySlots, paintCheckedIn, paintPurpose } from "@/components/court-day-grid";
+import { flushSync } from "react-dom";
+import { type DayGrid, type DaySlot, CourtDayGrid, clearReservations, groupDaySlots, paintCheckedIn, paintPurpose, restoreSlots } from "@/components/court-day-grid";
 import { type Reservation, weekdayOf } from "@/components/court-ui";
 import { LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
@@ -15,6 +16,9 @@ export default function CourtsPage() {
   const dayRef = useRef(day);
   const dayBoard = useResource<DayGrid>(user ? `/courts/day?date=${day}` : null);
   const gridRef = useRef(dayBoard.data);
+  const savedIds = useRef(new Map<string, string>());
+  const cancelAfterSave = useRef(new Set<string>());
+  const checkInAfterSave = useRef(new Map<string, { courtId: string; date: string; startTime: string }>());
   useEffect(() => {
     dayRef.current = day;
     gridRef.current = dayBoard.data;
@@ -29,10 +33,40 @@ export default function CourtsPage() {
     return fresh;
   }
 
-  function showGrid(next: DayGrid | null) {
+  function showGrid(next: DayGrid | null, immediate = false) {
     if (!next || next.date !== dayRef.current) return;
     gridRef.current = next;
-    dayBoard.setData(next);
+    if (immediate) flushSync(() => dayBoard.setData(next));
+    else dayBoard.setData(next);
+  }
+
+  async function finishSavedSpan(id: string, span: { courtId: string; startTime: string; endTime: string }, date: string, snapshot: DayGrid | null) {
+    for (const hour of hoursInSpan(span.startTime, span.endTime)) {
+      const key = `local-${span.courtId}-${hour}`;
+      savedIds.current.set(key, id);
+      if (cancelAfterSave.current.has(key)) {
+        cancelAfterSave.current.delete(key);
+        try {
+          await api(`/reservations/${id}/cancel`, { method: "POST" });
+        } catch {
+          const current = gridRef.current;
+          if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, [{ courtId: span.courtId, startTime: hour }]));
+        }
+        continue;
+      }
+      const check = checkInAfterSave.current.get(key);
+      if (!check) continue;
+      checkInAfterSave.current.delete(key);
+      try {
+        await api(`/reservations/${id}/check-in`, {
+          method: "POST",
+          body: JSON.stringify({ date: check.date, startTime: check.startTime }),
+        });
+      } catch {
+        const current = gridRef.current;
+        if (current?.date === date) showGrid(uncheckSlot(current, check.courtId, check.startTime));
+      }
+    }
   }
 
   if (!user) return <LoadingBlock label="Kortlar yükleniyor" />;
@@ -48,10 +82,11 @@ export default function CourtsPage() {
       onApply={async (input) => {
         const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"));
-        try {
-          for (const span of groupDaySlots(input.slots)) {
-            await api<Reservation>("/reservations", {
+        if (snapshot?.date === date) showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"), true);
+        const pending = input.slots.map((slot) => ({ ...slot }));
+        for (const span of groupDaySlots(input.slots)) {
+          try {
+            const created = await api<Reservation>("/reservations", {
               method: "POST",
               cache: "no-store",
               body: JSON.stringify({
@@ -65,56 +100,104 @@ export default function CourtsPage() {
                 partnerId: null,
               }),
             });
+            await finishSavedSpan(created.id, span, date, snapshot);
+            dropSpan(pending, span);
+          } catch {
+            const current = gridRef.current;
+            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            return;
           }
-        } catch {
-          showGrid(snapshot);
-          return;
-        }
-        try {
-          await loadDay(date);
-        } catch {
-          /* painted cells stay until the next day load */
         }
       }}
       onCancel={async (ids) => {
         const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(clearReservations(snapshot, ids));
-        try {
-          for (const id of ids) {
-            await api(`/reservations/${id}/cancel`, { method: "POST" });
+        if (snapshot?.date === date) showGrid(clearReservations(snapshot, ids), true);
+        const pending = ids.flatMap((id) => slotsForReservation(snapshot, id));
+        for (const id of ids) {
+          const serverId = savedIds.current.get(id) ?? id;
+          if (serverId.startsWith("local-")) {
+            cancelAfterSave.current.add(id);
+            dropReservation(pending, snapshot, id);
+            continue;
           }
-        } catch {
-          showGrid(snapshot);
-          return;
-        }
-        try {
-          await loadDay(date);
-        } catch {
-          /* painted cells stay until the next day load */
+          try {
+            await api(`/reservations/${serverId}/cancel`, { method: "POST" });
+            dropReservation(pending, snapshot, id);
+          } catch {
+            const current = gridRef.current;
+            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            return;
+          }
         }
       }}
       onCheckIn={async (slots) => {
         const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(paintCheckedIn(snapshot, slots));
-        try {
-          for (const slot of slots) {
-            await api(`/reservations/${slot.reservationId}/check-in`, {
+        if (snapshot?.date === date) showGrid(paintCheckedIn(snapshot, slots), true);
+        const pending = slots.map((slot) => ({ courtId: slot.courtId, startTime: slot.startTime }));
+        for (const slot of slots) {
+          const serverId = savedIds.current.get(slot.reservationId) ?? slot.reservationId;
+          if (serverId.startsWith("local-")) {
+            checkInAfterSave.current.set(slot.reservationId, { courtId: slot.courtId, date: slot.date, startTime: slot.startTime });
+            const index = pending.findIndex((item) => item.courtId === slot.courtId && item.startTime === slot.startTime);
+            if (index >= 0) pending.splice(index, 1);
+            continue;
+          }
+          try {
+            await api(`/reservations/${serverId}/check-in`, {
               method: "POST",
               body: JSON.stringify({ date: slot.date, startTime: slot.startTime }),
             });
+            const index = pending.findIndex((item) => item.courtId === slot.courtId && item.startTime === slot.startTime);
+            if (index >= 0) pending.splice(index, 1);
+          } catch {
+            const current = gridRef.current;
+            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            return;
           }
-        } catch {
-          showGrid(snapshot);
-          return;
-        }
-        try {
-          await loadDay(date);
-        } catch {
-          /* painted cells stay until the next day load */
         }
       }}
     />
   );
+}
+
+function hoursInSpan(startTime: string, endTime: string): string[] {
+  const hours: string[] = [];
+  let cursor = startTime;
+  while (cursor < endTime && cursor <= "22:00") {
+    hours.push(cursor);
+    cursor = `${String(Number(cursor.slice(0, 2)) + 1).padStart(2, "0")}:00`;
+  }
+  return hours;
+}
+
+function uncheckSlot(grid: DayGrid, courtId: string, startTime: string): DayGrid {
+  return {
+    ...grid,
+    cells: grid.cells.map((cell) => {
+      if (cell.courtId !== courtId || cell.startTime !== startTime || !cell.reservation) return cell;
+      return { ...cell, reservation: { ...cell.reservation, checkedIn: false, canCheckIn: true } };
+    }),
+  };
+}
+
+function dropSpan(pending: DaySlot[], span: { courtId: string; startTime: string; endTime: string }) {
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const slot = pending[index];
+    if (slot && slot.courtId === span.courtId && slot.startTime >= span.startTime && slot.startTime < span.endTime) pending.splice(index, 1);
+  }
+}
+
+function slotsForReservation(grid: DayGrid | null, id: string): DaySlot[] {
+  if (!grid) return [];
+  return grid.cells.flatMap((cell) => (cell.reservation?.id === id ? [{ courtId: cell.courtId, startTime: cell.startTime }] : []));
+}
+
+function dropReservation(pending: DaySlot[], grid: DayGrid | null, id: string) {
+  const keys = new Set(slotsForReservation(grid, id).map((slot) => `${slot.courtId}|${slot.startTime}`));
+  for (let index = pending.length - 1; index >= 0; index -= 1) {
+    const slot = pending[index];
+    if (slot && keys.has(`${slot.courtId}|${slot.startTime}`)) pending.splice(index, 1);
+  }
 }
