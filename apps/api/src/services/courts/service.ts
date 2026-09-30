@@ -482,6 +482,10 @@ function namesFor(
   return visible.map(({ id, firstName, lastName }) => ({ id, firstName, lastName }));
 }
 
+function courtPurposeTakesCourt(purpose: CourtPurpose): boolean {
+  return purpose === "MATCH" || purpose === "TRAINING" || purpose === "TOURNAMENT" || purpose === "MAINTENANCE";
+}
+
 export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = []) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const weekStart = mondayOf(weekInput ?? today);
@@ -509,7 +513,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
     prisma.courtReservation.findMany({
       where: {
         deletedAt: null,
-        status: "APPROVED",
+        status: { in: ["PENDING", "APPROVED"] },
         startDate: { lte: parseDateOnly(weekEnd) },
         endDate: { gte: parseDateOnly(weekStart) },
       },
@@ -527,7 +531,8 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
     const weekday = weekdayOfDate(date);
     return COURT_HOURS.map((startTime) => {
       const covering = reservations.filter((row) => slotCoveredBySpan(date, startTime, spanFromRow(row)));
-      const busy = new Set(covering.flatMap((row) => playingIds(row)));
+      const approvedCovering = covering.filter((row) => row.status === "APPROVED");
+      const busy = new Set(approvedCovering.flatMap((row) => playingIds(row)));
       const people = (users as BoardUser[])
         .filter((user) => userAvailable(user, date, weekday, startTime) && !busy.has(user.id))
         .map((user) => {
@@ -552,11 +557,13 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
         people: people.map(({ levelIndex: _levelIndex, ...person }) => person),
         courts: courts.map((court) => {
           const identity = { id: court.id, name: court.name, kind: court.kind, kindLabel: COURT_KIND_LABELS[court.kind] };
-          const row = covering.find((item) => item.courtId === court.id);
+          const rows = covering.filter((item) => item.courtId === court.id && courtPurposeTakesCourt(item.purpose));
+          const row = rows.find((item) => item.status === "APPROVED") ?? rows[0];
           if (!row) return { ...identity, state: "free" as const, reservation: null };
-          const checkedIn = hourCheckedIn(row, date, startTime);
-          const allowed = canCheckInUser(viewer.id, row);
-          const already = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
+          const approved = row.status === "APPROVED";
+          const checkedIn = approved && hourCheckedIn(row, date, startTime);
+          const allowed = approved && canCheckInUser(viewer.id, row);
+          const already = approved && row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
           return {
             ...identity,
             state: "reserved" as const,

@@ -290,7 +290,7 @@ async function addCourt(token: string, name: string) {
   return res.json() as { id: string; name: string };
 }
 
-test("a pending reservation is not a booking until admin approves, and overlap is rejected", async () => {
+test("a pending reservation takes the court on the board, and overlap is rejected", async () => {
   const admin = await asAdmin();
   const member = await registerUser(app, { firstName: "Uye", lastName: "Talep" });
   const court = await addCourt(admin.token, "Kort 1");
@@ -308,7 +308,8 @@ test("a pending reservation is not a booking until admin approves, and overlap i
   expect(pending.json().status).toBe("PENDING");
 
   const before = await mondaySlot(member.token);
-  expect(before.courts.find((item) => item.name === "Kort 1")?.state).toBe("free");
+  expect(before.courts.find((item) => item.name === "Kort 1")?.state).toBe("reserved");
+  expect(before.courts.find((item) => item.name === "Kort 1")?.reservation?.purposeLabel).toBe("antrenman");
 
   const overlap = await app.inject({ method: "POST", url: "/api/reservations", headers: auth(admin.token), payload: { ...body, purpose: "MAINTENANCE" } });
   expect(overlap.statusCode).toBe(409);
@@ -557,7 +558,7 @@ test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async (
   expect(freeNames).toHaveLength(CLUB_COURTS.length - 1);
 });
 
-test("day grid marks pending and approved hours dolu without changing the Takvim board", async () => {
+test("day grid and the Takvim board mark maç, antrenman, bakım, and turnuva as taken", async () => {
   await ensureClubCourts();
   const admin = await asAdmin();
   const member = await registerUser(app, { firstName: "Gun", lastName: "Izgara" });
@@ -658,8 +659,9 @@ test("day grid marks pending and approved hours dolu without changing the Takvim
   const slots = board.json().slots as { date: string; startTime: string; courts: { name: string; state: string }[] }[];
   const boardCell = (name: string, startTime: string) =>
     slots.find((item) => item.date === day && item.startTime === startTime)?.courts.find((court) => court.name === name);
-  expect(boardCell("Kapalı 1", "10:00")?.state).toBe("free");
-  expect(boardCell("Kapalı 3", "09:00")?.state).toBe("free");
+  expect(boardCell("Kapalı 1", "10:00")?.state).toBe("reserved");
+  expect(boardCell("Kapalı 3", "09:00")?.state).toBe("reserved");
+  expect(boardCell("Kort 5", "11:00")?.state).toBe("reserved");
   expect(boardCell("Kapalı 2", "15:00")?.state).toBe("reserved");
   expect(boardCell("Kort 2", "18:00")?.state).toBe("reserved");
   expect(boardCell("Kort 2", "21:00")?.state).toBe("free");

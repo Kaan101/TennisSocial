@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { type CourtCell, type Slot, fullName, shiftDate } from "@/components/court-ui";
+import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
 import { Avatar } from "@/components/player-card";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { useAuth } from "@/lib/auth";
@@ -31,6 +31,22 @@ function panelCourtName(court: CourtCell): string {
 function courtOrder(court: CourtCell): number {
   const number = Number(/(\d+)/u.exec(court.name)?.[1] ?? 0);
   return court.kind === "BALLOON" || court.name.startsWith("Kapalı") ? number : 100 + number;
+}
+
+function courtIsFree(court: CourtCell): boolean {
+  if (court.state === "reserved") return false;
+  const purpose = court.reservation?.purpose;
+  return purpose !== "MATCH" && purpose !== "TRAINING" && purpose !== "MAINTENANCE" && purpose !== "TOURNAMENT";
+}
+
+function circleLabel(court: CourtCell): string {
+  const number = /(\d+)/u.exec(court.name)?.[1];
+  if (court.kind === "BALLOON" || court.name.startsWith("Kapalı")) return number ? `K${number}` : "";
+  return number ?? "";
+}
+
+function freeCourtsOf(slot: Slot): CourtCell[] {
+  return slot.courts.filter(courtIsFree).sort((left, right) => courtOrder(left) - courtOrder(right));
 }
 
 export function TakvimView() {
@@ -67,7 +83,7 @@ export function TakvimView() {
 
   const data = board.data;
   const slot = picked ? data.slots.find((item) => item.date === picked.date && item.startTime === picked.start) ?? null : null;
-  const courts = slot ? [...slot.courts].sort((left, right) => courtOrder(left) - courtOrder(right)) : [];
+  const courts = slot ? freeCourtsOf(slot) : [];
 
   return (
     <div className="flex w-full min-w-0 flex-col items-start gap-2">
@@ -98,16 +114,27 @@ export function TakvimView() {
                   const cell = data.slots.find((item) => item.date === day.date && item.startTime === hour);
                   if (!cell) return <div key={day.date} />;
                   const selected = picked?.date === day.date && picked.start === hour;
+                  const freeCourts = freeCourtsOf(cell);
+                  const open = freeCourts.length > 0;
                   return (
                     <button
                       key={day.date}
                       type="button"
                       aria-pressed={selected}
-                      aria-label={`${day.label} ${hour}${cell.green ? " uygun" : ""}`}
+                      aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press block min-h-8 w-full border ${cell.green ? "border-court bg-court/15" : "border-line bg-surface"} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex min-h-8 w-full flex-wrap content-start items-center gap-0.5 border-2 p-0.5 ${open ? "border-court bg-surface" : "border-line bg-surface"} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
-                    />
+                    >
+                      {cell.people.map((person) => (
+                        <CellPhoto key={person.id} person={person} />
+                      ))}
+                      {freeCourts.map((court) => (
+                        <span key={court.id} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-[9px] font-semibold leading-none text-ink">
+                          {circleLabel(court)}
+                        </span>
+                      ))}
+                    </button>
                   );
                 })}
               </Fragment>
@@ -132,10 +159,7 @@ export function TakvimView() {
                 <h2 className="text-sm font-semibold">Kortlar</h2>
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {courts.map((court) => (
-                    <li
-                      key={court.id}
-                      className={`rounded-md border border-line px-2 py-1 text-sm ${court.state === "reserved" ? "bg-paper-2 text-muted" : "bg-surface text-ink"}`}
-                    >
+                    <li key={court.id} className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink">
                       {panelCourtName(court)}
                     </li>
                   ))}
@@ -146,5 +170,17 @@ export function TakvimView() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function CellPhoto({ person }: { person: SlotPerson }) {
+  if (person.photoUrl) {
+    return <img src={person.photoUrl} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />; // eslint-disable-line @next/next/no-img-element
+  }
+  const letters = `${person.firstName[0] ?? ""}${person.lastName[0] ?? ""}`.toLocaleUpperCase("tr-TR");
+  return (
+    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-court-deep text-[8px] font-semibold leading-none text-white">
+      {letters}
+    </span>
   );
 }
