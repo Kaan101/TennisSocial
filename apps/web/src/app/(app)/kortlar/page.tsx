@@ -2,7 +2,7 @@
 
 import { istanbulNowParts } from "@club/shared";
 import { useEffect, useRef, useState } from "react";
-import { type DayGrid, CourtDayGrid, groupDaySlots, paintDayGrid } from "@/components/court-day-grid";
+import { type DayGrid, CourtDayGrid, clearReservations, groupDaySlots, paintCheckedIn, paintPurpose } from "@/components/court-day-grid";
 import { type Reservation, weekdayOf } from "@/components/court-ui";
 import { LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
@@ -11,7 +11,6 @@ import { useResource } from "@/lib/use-resource";
 
 export default function CourtsPage() {
   const { user } = useAuth();
-  const [busy, setBusy] = useState(false);
   const [day, setDay] = useState(() => istanbulNowParts().day);
   const dayRef = useRef(day);
   const dayBoard = useResource<DayGrid>(user ? `/courts/day?date=${day}` : null);
@@ -30,13 +29,10 @@ export default function CourtsPage() {
     return fresh;
   }
 
-  async function run(action: () => Promise<void>) {
-    setBusy(true);
-    try {
-      await action();
-    } finally {
-      setBusy(false);
-    }
+  function showGrid(next: DayGrid | null) {
+    if (!next || next.date !== dayRef.current) return;
+    gridRef.current = next;
+    dayBoard.setData(next);
   }
 
   if (!user) return <LoadingBlock label="Kortlar yükleniyor" />;
@@ -49,48 +45,76 @@ export default function CourtsPage() {
       loading={dayBoard.loading}
       error={dayBoard.error}
       onRetry={() => void loadDay(day)}
-      busy={busy}
-      onApply={(input) => run(async () => {
+      onApply={async (input) => {
         const date = dayRef.current;
-        let painted = gridRef.current;
-        for (const span of groupDaySlots(input.slots)) {
-          const created = await api<Reservation>("/reservations", {
-            method: "POST",
-            cache: "no-store",
-            body: JSON.stringify({
-              courtId: span.courtId,
-              purpose: input.purpose,
-              startDate: date,
-              endDate: date,
-              weekdays: [weekdayOf(date)],
-              startTime: span.startTime,
-              endTime: span.endTime,
-              partnerId: null,
-            }),
-          });
-          if (painted && painted.date === date) {
-            painted = paintDayGrid(painted, created);
-            gridRef.current = painted;
-            if (date === dayRef.current) dayBoard.setData(painted);
+        const snapshot = gridRef.current;
+        if (snapshot?.date === date) showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"));
+        try {
+          for (const span of groupDaySlots(input.slots)) {
+            await api<Reservation>("/reservations", {
+              method: "POST",
+              cache: "no-store",
+              body: JSON.stringify({
+                courtId: span.courtId,
+                purpose: input.purpose,
+                startDate: date,
+                endDate: date,
+                weekdays: [weekdayOf(date)],
+                startTime: span.startTime,
+                endTime: span.endTime,
+                partnerId: null,
+              }),
+            });
           }
+        } catch {
+          showGrid(snapshot);
+          return;
         }
-        await loadDay(date);
-      })}
-      onCancel={(ids) => run(async () => {
-        for (const id of ids) {
-          await api(`/reservations/${id}/cancel`, { method: "POST" });
+        try {
+          await loadDay(date);
+        } catch {
+          /* painted cells stay until the next day load */
         }
-        await loadDay(dayRef.current);
-      })}
-      onCheckIn={(slots) => run(async () => {
-        for (const slot of slots) {
-          await api(`/reservations/${slot.reservationId}/check-in`, {
-            method: "POST",
-            body: JSON.stringify({ date: slot.date, startTime: slot.startTime }),
-          });
+      }}
+      onCancel={async (ids) => {
+        const date = dayRef.current;
+        const snapshot = gridRef.current;
+        if (snapshot?.date === date) showGrid(clearReservations(snapshot, ids));
+        try {
+          for (const id of ids) {
+            await api(`/reservations/${id}/cancel`, { method: "POST" });
+          }
+        } catch {
+          showGrid(snapshot);
+          return;
         }
-        await loadDay(dayRef.current);
-      })}
+        try {
+          await loadDay(date);
+        } catch {
+          /* painted cells stay until the next day load */
+        }
+      }}
+      onCheckIn={async (slots) => {
+        const date = dayRef.current;
+        const snapshot = gridRef.current;
+        if (snapshot?.date === date) showGrid(paintCheckedIn(snapshot, slots));
+        try {
+          for (const slot of slots) {
+            await api(`/reservations/${slot.reservationId}/check-in`, {
+              method: "POST",
+              body: JSON.stringify({ date: slot.date, startTime: slot.startTime }),
+            });
+          }
+        } catch {
+          showGrid(snapshot);
+          return;
+        }
+        try {
+          await loadDay(date);
+        } catch {
+          /* painted cells stay until the next day load */
+        }
+      }}
     />
   );
 }

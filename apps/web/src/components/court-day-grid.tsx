@@ -125,6 +125,53 @@ export function groupDaySlots(slots: DaySlot[]): { courtId: string; startTime: s
   return spans;
 }
 
+export function paintPurpose(grid: DayGrid, slots: DaySlot[], purpose: CourtPurpose, status: "PENDING" | "APPROVED"): DayGrid {
+  const keys = new Set(slots.map((slot) => cellKey(slot.courtId, slot.startTime)));
+  return {
+    ...grid,
+    cells: grid.cells.map((cell) => {
+      if (!keys.has(cellKey(cell.courtId, cell.startTime)) || cell.state === "busy") return cell;
+      return {
+        ...cell,
+        state: "busy",
+        reservation: {
+          id: `local-${cell.courtId}-${cell.startTime}`,
+          status,
+          statusLabel: status === "APPROVED" ? "onaylı" : "beklemede",
+          purpose,
+          purposeLabel: purposeWord(purpose),
+          checkedIn: false,
+          canCheckIn: false,
+          checkInHint: null,
+          players: [],
+        },
+      };
+    }),
+  };
+}
+
+export function paintCheckedIn(grid: DayGrid, slots: { courtId?: string; startTime: string; reservationId: string }[]): DayGrid {
+  const keys = new Set(slots.map((slot) => `${slot.reservationId}|${slot.startTime}`));
+  return {
+    ...grid,
+    cells: grid.cells.map((cell) => {
+      if (!cell.reservation || !keys.has(`${cell.reservation.id}|${cell.startTime}`)) return cell;
+      return { ...cell, reservation: { ...cell.reservation, checkedIn: true, canCheckIn: false } };
+    }),
+  };
+}
+
+export function clearReservations(grid: DayGrid, ids: string[]): DayGrid {
+  const drop = new Set(ids);
+  return {
+    ...grid,
+    cells: grid.cells.map((cell) => {
+      if (!cell.reservation || !drop.has(cell.reservation.id)) return cell;
+      return { ...cell, state: "free", reservation: null };
+    }),
+  };
+}
+
 export function paintDayGrid(grid: DayGrid, created: Reservation): DayGrid {
   if (grid.date < created.startDate || grid.date > created.endDate) return grid;
   if (!created.weekdays.includes(grid.weekday)) return grid;
@@ -163,7 +210,6 @@ export function CourtDayGrid({
   loading,
   error,
   onRetry,
-  busy,
   onApply,
   onCancel,
   onCheckIn,
@@ -174,18 +220,15 @@ export function CourtDayGrid({
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  busy: boolean;
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
   onCancel: (reservationIds: string[]) => Promise<void>;
   onCheckIn: (slots: { reservationId: string; date: string; startTime: string }[]) => Promise<void>;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openCourtId, setOpenCourtId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setSelected(new Set());
-    setActionError(null);
   }, [date]);
 
   const cells = new Map((grid?.cells ?? []).map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
@@ -199,12 +242,10 @@ export function CourtDayGrid({
   const freeSlots = picked.filter((item) => item.cell.state !== "busy").map(({ courtId, startTime }) => ({ courtId, startTime }));
   const reservedSlots = picked.filter((item) => item.cell.state === "busy" && item.cell.reservation);
   const matchSlots = reservedSlots.filter((item) => item.cell.reservation?.purpose === "MATCH");
-  const showMatch = matchSlots.length > 0 && matchSlots.length === reservedSlots.length;
   const days = weekOf(date);
 
   function toggleSlot(courtId: string, startTime: string) {
     const key = cellKey(courtId, startTime);
-    setActionError(null);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
@@ -239,40 +280,26 @@ export function CourtDayGrid({
 
   async function applyPurpose(purpose: CourtPurpose) {
     if (freeSlots.length === 0) return;
-    setActionError(null);
-    try {
-      await onApply({ purpose, slots: freeSlots });
-      setSelected(new Set());
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
-    }
+    const slots = freeSlots;
+    setSelected(new Set());
+    await onApply({ purpose, slots });
   }
 
   async function clearSelected() {
     const ids = [...new Set(reservedSlots.flatMap((item) => item.cell.reservation ? [item.cell.reservation.id] : []))];
-    setActionError(null);
     if (ids.length === 0) {
       setSelected(new Set());
       return;
     }
-    try {
-      await onCancel(ids);
-      setSelected(new Set());
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
-    }
+    setSelected(new Set());
+    await onCancel(ids);
   }
 
   async function cancelMatches() {
     const ids = [...new Set(matchSlots.flatMap((item) => item.cell.reservation ? [item.cell.reservation.id] : []))];
     if (ids.length === 0) return;
-    setActionError(null);
-    try {
-      await onCancel(ids);
-      setSelected(new Set());
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
-    }
+    setSelected(new Set());
+    await onCancel(ids);
   }
 
   async function checkInSelected() {
@@ -280,12 +307,8 @@ export function CourtDayGrid({
       ? [{ reservationId: item.cell.reservation.id, date, startTime: item.startTime }]
       : []);
     if (slots.length === 0) return;
-    setActionError(null);
-    try {
-      await onCheckIn(slots);
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "İşlem tamamlanamadı");
-    }
+    setSelected(new Set());
+    await onCheckIn(slots);
   }
 
   const openCourt = grid?.courts.find((court) => court.id === openCourtId) ?? null;
@@ -333,41 +356,36 @@ export function CourtDayGrid({
           <button
             key={option.purpose}
             type="button"
-            disabled={busy}
             onClick={() => void applyPurpose(option.purpose)}
-            className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink disabled:opacity-50"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
           >
             {option.word}
           </button>
         ))}
         <button
           type="button"
-          disabled={busy}
           onClick={() => void clearSelected()}
-          className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink disabled:opacity-50"
+          className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
         >
           Boş
         </button>
         <button
           type="button"
-          disabled={busy || !showMatch}
           onClick={() => void cancelMatches()}
-          className={`ml-3 rounded-md border border-line px-2 py-1 text-xs text-ink disabled:opacity-40 ${showMatch ? "" : "opacity-40"}`}
+          className="ml-3 rounded-md border border-line px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
           style={{ backgroundColor: "#e7e5e0" }}
         >
           İptal
         </button>
         <button
           type="button"
-          disabled={busy || !showMatch}
           onClick={() => void checkInSelected()}
-          className={`rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink disabled:opacity-40 ${showMatch ? "" : "opacity-40"}`}
+          className="rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink transition-transform active:scale-95 active:brightness-90"
           style={{ backgroundColor: "#d1fae5" }}
         >
           Check-in
         </button>
       </div>
-      {actionError ? <p className="text-xs text-ink" role="alert">{actionError}</p> : null}
 
       {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
       {!loading && error ? <ErrorState message={error} onRetry={onRetry} /> : null}
@@ -472,7 +490,7 @@ function SlotButton({
       aria-pressed={selected}
       disabled={!reservation && !court.active}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-md border px-1 py-2 text-center text-[11px] focus-visible:outline-none ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
+      className={`min-h-9 w-full rounded-md border px-1 py-2 text-center text-[11px] transition-transform focus-visible:outline-none active:scale-95 active:brightness-90 ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
       style={{ ...cellPaint(reservation), borderRadius: 6 }}
     >
       {word}

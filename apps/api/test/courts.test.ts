@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { CLUB_COURTS, istanbulNowParts } from "@club/shared";
 import { prisma } from "../src/lib/prisma";
 import { ensureClubCourts } from "../src/services/courts/service";
-import { addDays, checkInWindowError, hoursInRange, slotIsGreen, slotLocksCourt, slotStartInstant, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
+import { addDays, hoursInRange, slotIsGreen, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
 import { auth, makeApp, registerUser } from "./helpers";
 
 let app: FastifyInstance;
@@ -40,17 +40,6 @@ test("green rule counts only a visible pair within one level", () => {
   expect(slotIsGreen([0, 2])).toBe(false);
   expect(slotIsGreen([0])).toBe(false);
   expect(slotIsGreen([0, 1, 4])).toBe(true);
-});
-
-test("check-in is open from the slot start through the next 24 hours", () => {
-  const start = slotStartInstant("2026-10-05", "18:00");
-  expect(checkInWindowError(new Date(start.getTime() - 60 * 60 * 1000), start)).toMatch(/24 saat/);
-  expect(checkInWindowError(start, start)).toBeNull();
-  expect(checkInWindowError(new Date(start.getTime() + 23 * 60 * 60 * 1000), start)).toBeNull();
-  expect(checkInWindowError(new Date(start.getTime() + 25 * 60 * 60 * 1000), start)).toMatch(/24 saat/);
-  expect(slotLocksCourt(new Date(start.getTime() - 60 * 60 * 1000), start, false)).toBe(true);
-  expect(slotLocksCourt(new Date(start.getTime() + 25 * 60 * 60 * 1000), start, false)).toBe(false);
-  expect(slotLocksCourt(new Date(start.getTime() + 25 * 60 * 60 * 1000), start, true)).toBe(true);
 });
 
 test("spans overlap only when a shared weekday exists in both ranges", () => {
@@ -214,11 +203,11 @@ test("a pending reservation is not a booking until admin approves, and overlap i
   expect(denied.statusCode).toBe(403);
 });
 
-test("check-in is rejected before the slot and succeeds within 24 hours", async () => {
+test("check-in marks a future maç and still refuses a stranger", async () => {
   const admin = await asAdmin();
   const partner = await registerUser(app, { firstName: "Es", lastName: "Check" });
   const court = await addCourt(admin.token, "Kort 1");
-  const early = await app.inject({
+  const future = await app.inject({
     method: "POST",
     url: "/api/reservations",
     headers: auth(admin.token),
@@ -233,66 +222,24 @@ test("check-in is rejected before the slot and succeeds within 24 hours", async 
       partnerId: partner.user.id,
     },
   });
-  expect(early.statusCode).toBe(201);
-  expect(early.json().status).toBe("APPROVED");
-  const tooSoon = await app.inject({
-    method: "POST",
-    url: `/api/reservations/${early.json().id}/check-in`,
-    headers: auth(admin.token),
-    payload: { date: "2026-12-07", startTime: "18:00" },
-  });
-  expect(tooSoon.statusCode).toBe(409);
-  expect(tooSoon.json().error.message).toMatch(/24 saat/);
-
-  const open = findRecentSlot();
-  const ready = await app.inject({
-    method: "POST",
-    url: "/api/reservations",
-    headers: auth(admin.token),
-    payload: {
-      courtId: court.id,
-      purpose: "MATCH",
-      startDate: open.date,
-      endDate: open.date,
-      weekdays: [open.weekday],
-      startTime: open.startTime,
-      endTime: `${String(Number(open.startTime.slice(0, 2)) + 1).padStart(2, "0")}:00`,
-      partnerId: partner.user.id,
-    },
-  });
-  expect(ready.statusCode).toBe(201);
+  expect(future.statusCode).toBe(201);
+  expect(future.json().status).toBe("APPROVED");
   const checked = await app.inject({
     method: "POST",
-    url: `/api/reservations/${ready.json().id}/check-in`,
+    url: `/api/reservations/${future.json().id}/check-in`,
     headers: auth(partner.token),
-    payload: { date: open.date, startTime: open.startTime },
+    payload: { date: "2026-12-07", startTime: "18:00" },
   });
   expect(checked.statusCode).toBe(200);
   const stranger = await registerUser(app);
   const refused = await app.inject({
     method: "POST",
-    url: `/api/reservations/${ready.json().id}/check-in`,
+    url: `/api/reservations/${future.json().id}/check-in`,
     headers: auth(stranger.token),
-    payload: { date: open.date, startTime: open.startTime },
+    payload: { date: "2026-12-07", startTime: "18:00" },
   });
   expect(refused.statusCode).toBe(403);
 });
-
-function findRecentSlot(): { date: string; startTime: string; weekday: number } {
-  const now = Date.now();
-  for (let offset = 1; offset <= 23; offset += 1) {
-    const instant = new Date(now - offset * 60 * 60 * 1000);
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
-    const clock = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(instant);
-    const startTime = `${clock.slice(0, 2)}:00`;
-    if (!COURT_HOURS.includes(startTime)) continue;
-    const start = slotStartInstant(date, startTime);
-    const age = now - start.getTime();
-    if (age < 0 || age > 24 * 60 * 60 * 1000) continue;
-    return { date, startTime, weekday: weekdayOfDate(date) };
-  }
-  throw new Error("son 24 saatte kort saati bulunamadı");
-}
 
 test("accepting a slot offer books one free court and leaves the hour open", async () => {
   const admin = await asAdmin();
@@ -656,7 +603,7 @@ test("maç without an opponent is stored, and iptal frees the hour", async () =>
   expect(afterCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "11:00")?.reservation?.status).toBe("APPROVED");
 });
 
-test("a maç older than 24 hours without check-in frees the hour, and a checked-in maç stays locked", async () => {
+test("an old maç stays locked, and check-in still marks it", async () => {
   await ensureClubCourts();
   const admin = await asAdmin();
   const member = await registerUser(app, { firstName: "Eski", lastName: "Mac" });
@@ -680,17 +627,20 @@ test("a maç older than 24 hours without check-in frees the hour, and a checked-
     },
   });
   expect(stale.statusCode).toBe(201);
-  const missed = await app.inject({
+  const checked = await app.inject({
     method: "POST",
     url: `/api/reservations/${stale.json().id}/check-in`,
     headers: auth(admin.token),
     payload: { date: day, startTime: "10:00" },
   });
-  expect(missed.statusCode).toBe(409);
+  expect(checked.statusCode).toBe(200);
 
-  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(member.token) });
-  const beforeCells = before.json().cells as { courtId: string; startTime: string; state: string }[];
-  expect(beforeCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")?.state).toBe("free");
+  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(admin.token) });
+  const beforeCells = before.json().cells as { courtId: string; startTime: string; state: string; reservation: { checkedIn: boolean; purpose: string } | null }[];
+  expect(beforeCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")).toMatchObject({
+    state: "busy",
+    reservation: { checkedIn: true, purpose: "MATCH" },
+  });
 
   const taken = await app.inject({
     method: "POST",
@@ -706,7 +656,7 @@ test("a maç older than 24 hours without check-in frees the hour, and a checked-
       endTime: "11:00",
     },
   });
-  expect(taken.statusCode).toBe(201);
+  expect(taken.statusCode).toBe(409);
 
   const kept = await app.inject({
     method: "POST",
@@ -723,14 +673,13 @@ test("a maç older than 24 hours without check-in frees the hour, and a checked-
     },
   });
   expect(kept.statusCode).toBe(201);
-  await prisma.reservationCheckIn.create({
-    data: {
-      reservationId: kept.json().id,
-      date: new Date(`${day}T00:00:00.000Z`),
-      startTime: "15:00",
-      userId: admin.user.id,
-    },
+  const marked = await app.inject({
+    method: "POST",
+    url: `/api/reservations/${kept.json().id}/check-in`,
+    headers: auth(admin.token),
+    payload: { date: day, startTime: "15:00" },
   });
+  expect(marked.statusCode).toBe(200);
   const blocked = await app.inject({
     method: "POST",
     url: "/api/reservations",
