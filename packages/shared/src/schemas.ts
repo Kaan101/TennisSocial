@@ -138,7 +138,11 @@ export const availabilityPutSchema = z.object({
 export const availabilityCellSchema = z.object({
   date: dateSchema,
   startTime: hourSchema,
-  state: z.enum(AVAILABILITY_STATES),
+  state: z.enum(AVAILABILITY_STATES).nullable(),
+});
+
+export const availabilityMonthCopySchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/, "Ay YYYY-MM olmalı"),
 });
 
 export const privacySchema = z.object({

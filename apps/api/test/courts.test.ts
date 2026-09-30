@@ -169,6 +169,96 @@ test("Tam counts for the green rule and Belki or Dolu does not", async () => {
   expect(cell).toMatchObject({ manual: "BUSY", match: false });
 });
 
+test("next month copy repeats marked hours on the same weekday and leaves maç and empty alone", async () => {
+  const member = await registerUser(app, { firstName: "Ay", lastName: "Kopya" });
+  await setLevel(member.token, member.user.id, "BEGINNER");
+  const weekly = await app.inject({
+    method: "PUT",
+    url: `/api/users/${member.user.id}/availability`,
+    headers: auth(member.token),
+    payload: { weekly: [{ weekday: 1, startTime: "18:00", endTime: "19:00" }], oneOff: [] },
+  });
+  expect(weekly.statusCode).toBe(200);
+
+  const read = async (date: string, startTime: string) => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/me/availability-week?week=${date}`,
+      headers: auth(member.token),
+    });
+    expect(res.statusCode).toBe(200);
+    const cell = (res.json().cells as { date: string; startTime: string; manual: string | null; match: boolean }[])
+      .find((item) => item.date === date && item.startTime === startTime);
+    expect(cell).toBeTruthy();
+    return cell!;
+  };
+
+  expect(await read("2026-10-05", "18:00")).toMatchObject({ manual: null, match: false });
+
+  const paint = (date: string, startTime: string, state: "FULL" | "MAYBE" | "BUSY" | null) => app.inject({
+    method: "POST",
+    url: "/api/me/availability-cells",
+    headers: auth(member.token),
+    payload: { date, startTime, state },
+  });
+  expect((await paint("2026-10-05", "18:00", "FULL")).statusCode).toBe(200);
+  expect((await paint("2026-10-12", "18:00", "MAYBE")).statusCode).toBe(200);
+  expect((await paint("2026-10-12", "18:00", null)).statusCode).toBe(200);
+  expect(await read("2026-10-12", "18:00")).toMatchObject({ manual: null, match: false });
+  expect((await paint("2026-10-07", "10:00", "BUSY")).statusCode).toBe(200);
+  expect((await paint("2026-10-07", "18:00", "FULL")).statusCode).toBe(200);
+  expect((await paint("2026-10-19", "18:00", "FULL")).statusCode).toBe(200);
+
+  const admin = await asAdmin();
+  const court = await addCourt(admin.token, "Kort 1");
+  const match = await app.inject({
+    method: "POST",
+    url: "/api/reservations",
+    headers: auth(member.token),
+    payload: {
+      courtId: court.id,
+      purpose: "MATCH",
+      startDate: "2026-10-19",
+      endDate: "2026-10-19",
+      weekdays: [weekdayOfDate("2026-10-19")],
+      startTime: "18:00",
+      endTime: "19:00",
+      partnerId: null,
+    },
+  });
+  expect(match.statusCode).toBe(201);
+  expect((await paint("2026-10-19", "18:00", null)).statusCode).toBe(409);
+  expect(await read("2026-10-19", "18:00")).toMatchObject({ match: true });
+
+  const copied = await app.inject({
+    method: "POST",
+    url: "/api/me/availability-copy-month",
+    headers: auth(member.token),
+    payload: { month: "2026-10" },
+  });
+  expect(copied.statusCode).toBe(200);
+  expect(copied.json().copied).toBe(3);
+
+  expect(await read("2026-11-02", "18:00")).toMatchObject({ manual: "FULL", match: false });
+  expect(await read("2026-11-04", "10:00")).toMatchObject({ manual: "BUSY", match: false });
+  expect(await read("2026-11-04", "18:00")).toMatchObject({ manual: "FULL", match: false });
+  expect(await read("2026-11-09", "18:00")).toMatchObject({ manual: null, match: false });
+  expect(await read("2026-11-23", "18:00")).toMatchObject({ manual: null, match: false });
+
+  const board = await app.inject({
+    method: "GET",
+    url: "/api/courts/board?week=2026-11-02",
+    headers: auth(member.token),
+  });
+  expect(board.statusCode).toBe(200);
+  const peopleAt = (date: string, startTime: string) => {
+    const slot = board.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
+    return (slot?.people ?? []) as { id: string }[];
+  };
+  expect(peopleAt("2026-11-04", "18:00").map((person) => person.id)).toContain(member.user.id);
+  expect(peopleAt("2026-11-04", "10:00").map((person) => person.id)).not.toContain(member.user.id);
+});
+
 test("three players are green when only one pair is within one level", async () => {
   const viewer = await registerUser(app);
   await player("Bir", "BEGINNER");

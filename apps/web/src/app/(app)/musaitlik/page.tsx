@@ -9,6 +9,7 @@ import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 
 type Manual = AvailabilityState | null;
+type Tool = AvailabilityState | "CLEAR";
 
 type Cell = {
   date: string;
@@ -42,7 +43,7 @@ function cellFill(cell: Cell): { backgroundColor: string; color: string } {
   if (cell.manual === "FULL") return { backgroundColor: "#16a34a", color: "#ffffff" };
   if (cell.manual === "MAYBE") return { backgroundColor: "#bbf7d0", color: "#14241c" };
   if (cell.manual === "BUSY") return { backgroundColor: "#fecaca", color: "#14241c" };
-  return { backgroundColor: "#fffdf8", color: "#14241c" };
+  return { backgroundColor: "transparent", color: "#14241c" };
 }
 
 function cellWord(cell: Cell): string {
@@ -56,7 +57,7 @@ function cellWord(cell: Cell): string {
 export default function AvailabilityCalendarPage() {
   const [week, setWeek] = useState(() => istanbulNowParts().day);
   const [grid, setGrid] = useState<WeekGrid | null>(null);
-  const [mode, setMode] = useState<AvailabilityState | null>(null);
+  const [mode, setMode] = useState<Tool | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const gridRef = useRef(grid);
@@ -95,13 +96,14 @@ export default function AvailabilityCalendarPage() {
     if (!mode) return;
     const snapshot = gridRef.current;
     const cell = snapshot?.cells.find((item) => item.date === date && item.startTime === startTime);
-    if (!snapshot || !cell || cell.match || cell.manual === mode) return;
+    const next = mode === "CLEAR" ? null : mode;
+    if (!snapshot || !cell || cell.match || cell.manual === next) return;
     const previous = cell.manual;
     paintEpoch.current += 1;
-    showGrid(paintCell(snapshot, date, startTime, mode));
+    showGrid(paintCell(snapshot, date, startTime, next));
     void api("/me/availability-cells", {
       method: "POST",
-      body: JSON.stringify({ date, startTime, state: mode }),
+      body: JSON.stringify({ date, startTime, state: next }),
     }).catch(() => {
       const current = gridRef.current;
       if (!current || current.weekStart !== snapshot.weekStart) return;
@@ -109,6 +111,16 @@ export default function AvailabilityCalendarPage() {
       gridRef.current = restored;
       setGrid(restored);
     });
+  }
+
+  function copyNextMonth() {
+    const snapshot = gridRef.current;
+    if (!snapshot) return;
+    const month = snapshot.weekStart.slice(0, 7);
+    void api("/me/availability-copy-month", {
+      method: "POST",
+      body: JSON.stringify({ month }),
+    }).catch(() => undefined);
   }
 
   if (!grid && !failed) return <LoadingBlock label="Müsaitlik yükleniyor" />;
@@ -140,11 +152,22 @@ export default function AvailabilityCalendarPage() {
             </button>
           );
         })}
+        <button
+          type="button"
+          aria-pressed={mode === "CLEAR"}
+          onClick={() => setMode("CLEAR")}
+          className={`court-press rounded-md border bg-surface px-2 py-1 text-xs text-ink ${mode === "CLEAR" ? "border-ink font-semibold" : "border-line"}`}
+        >
+          Boş
+        </button>
+        <button type="button" className="court-press ml-3 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink" onClick={copyNextMonth}>
+          Sonraki aya kopyala
+        </button>
       </div>
       <div className="w-full min-w-0 overflow-x-auto">
         <div
-          className="grid min-w-[36rem] gap-0.5"
-          style={{ gridTemplateColumns: `3.25rem repeat(${grid.days.length}, minmax(2.6rem, 1fr))` }}
+          className="grid w-max gap-0.5"
+          style={{ gridTemplateColumns: `3.25rem repeat(${grid.days.length}, 2.1rem)` }}
         >
           <div />
           {grid.days.map((day) => (
@@ -166,8 +189,8 @@ export default function AvailabilityCalendarPage() {
                     type="button"
                     aria-label={`${day.label} ${hour} ${word}`}
                     onClick={() => onCell(day.date, hour)}
-                    className="court-press block min-h-6 w-full rounded-sm border border-line"
-                    style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "#fffdf8", borderRadius: 4 }}
+                    className="court-press block min-h-8 w-full rounded-sm border border-line"
+                    style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
                   />
                 );
               })}

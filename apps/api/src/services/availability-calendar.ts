@@ -21,16 +21,45 @@ type WindowRow = {
   state: AvailabilityState;
 };
 
-function manualState(windows: WindowRow[], date: string, weekday: number, startTime: string): AvailabilityState | null {
+function paintedState(windows: WindowRow[], date: string, startTime: string): AvailabilityState | null {
   const endTime = slotEnd(startTime);
-  const overlaps = (window: WindowRow) => timesOverlap(window.startTime, window.endTime, startTime, endTime);
-  const oneOffs = windows.filter((window) => window.kind === "ONE_OFF" && dateOnly(window.date) === date && overlaps(window));
-  if (oneOffs.length > 0) {
-    const exact = oneOffs.find((window) => window.startTime === startTime && window.endTime === endTime);
-    return (exact ?? oneOffs[0])?.state ?? null;
-  }
-  const weekly = windows.find((window) => window.kind === "WEEKLY" && window.weekday === weekday && overlaps(window));
-  return weekly?.state ?? null;
+  const exact = windows.find((window) => window.kind === "ONE_OFF" && dateOnly(window.date) === date && window.startTime === startTime && window.endTime === endTime);
+  return exact?.state ?? null;
+}
+
+export function sameWeekdayNextMonth(date: string): string | null {
+  const [yearText, monthText, dayText] = date.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!year || !month || !day) return null;
+  const weekday = weekdayOfDate(date);
+  const ordinal = Math.floor((day - 1) / 7) + 1;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const firstWeekday = weekdayOfDate(`${nextYear}-${String(nextMonth).padStart(2, "0")}-01`);
+  const delta = (weekday - firstWeekday + 7) % 7;
+  const targetDay = 1 + delta + (ordinal - 1) * 7;
+  const lastDay = new Date(Date.UTC(nextYear, nextMonth, 0)).getUTCDate();
+  if (targetDay > lastDay) return null;
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
+function monthBounds(month: string): { start: string; end: string } {
+  const [yearText, monthText] = month.split("-");
+  const year = Number(yearText);
+  const monthNumber = Number(monthText);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const mm = String(monthNumber).padStart(2, "0");
+  return { start: `${yearText}-${mm}-01`, end: `${yearText}-${mm}-${String(lastDay).padStart(2, "0")}` };
+}
+
+function nextMonthKey(month: string): string {
+  const [yearText, monthText] = month.split("-");
+  const year = Number(yearText);
+  const monthNumber = Number(monthText);
+  if (monthNumber === 12) return `${year + 1}-01`;
+  return `${yearText}-${String(monthNumber + 1).padStart(2, "0")}`;
 }
 
 export async function availabilityWeek(userId: string, weekInput?: string) {
@@ -76,7 +105,7 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
       return {
         date,
         startTime,
-        manual: manualState(windows, date, weekday, startTime),
+        manual: paintedState(windows, date, startTime),
         match,
       };
     });
@@ -94,40 +123,36 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
   };
 }
 
-export async function paintAvailabilityCell(userId: string, input: { date: string; startTime: string; state: AvailabilityState }) {
-  if (!COURT_HOURS.includes(input.startTime)) {
-    throw new AppError(400, "VALIDATION_ERROR", "Saat 08:00 ile 22:00 arasında olmalı");
-  }
-  const endTime = slotEnd(input.startTime);
-  const weekday = weekdayOfDate(input.date);
+async function hasMatch(userId: string, date: string, startTime: string): Promise<boolean> {
   const matches = await prisma.courtReservation.findMany({
     where: {
       deletedAt: null,
       purpose: "MATCH",
       status: { in: ["PENDING", "APPROVED"] },
       OR: [{ holderId: userId }, { partnerId: userId }],
-      startDate: { lte: parseDateOnly(input.date) },
-      endDate: { gte: parseDateOnly(input.date) },
+      startDate: { lte: parseDateOnly(date) },
+      endDate: { gte: parseDateOnly(date) },
     },
     select: { startDate: true, endDate: true, weekdays: true, startTime: true, endTime: true },
   });
-  const booked = matches.some((row) => slotCoveredBySpan(input.date, input.startTime, {
-    startDate: dateOnly(row.startDate) ?? input.date,
-    endDate: dateOnly(row.endDate) ?? input.date,
+  return matches.some((row) => slotCoveredBySpan(date, startTime, {
+    startDate: dateOnly(row.startDate) ?? date,
+    endDate: dateOnly(row.endDate) ?? date,
     weekdays: row.weekdays,
     startTime: row.startTime,
     endTime: row.endTime,
   }));
-  if (booked) throw new AppError(409, "CONFLICT", "Bu saatte maçın var");
+}
 
-  const date = parseDateOnly(input.date);
+async function writeExactHour(userId: string, date: string, startTime: string, state: AvailabilityState) {
+  const endTime = slotEnd(startTime);
   const existing = await prisma.availability.findMany({
     where: {
       userId,
       deletedAt: null,
       kind: "ONE_OFF",
-      date,
-      startTime: input.startTime,
+      date: parseDateOnly(date),
+      startTime,
       endTime,
     },
     select: { id: true },
@@ -135,20 +160,95 @@ export async function paintAvailabilityCell(userId: string, input: { date: strin
   if (existing.length > 0) {
     await prisma.availability.updateMany({
       where: { id: { in: existing.map((row) => row.id) } },
-      data: { state: input.state },
+      data: { state },
     });
-  } else {
-    await prisma.availability.create({
-      data: {
+    return;
+  }
+  await prisma.availability.create({
+    data: {
+      userId,
+      kind: "ONE_OFF",
+      date: parseDateOnly(date),
+      weekday: weekdayOfDate(date),
+      startTime,
+      endTime,
+      state,
+    },
+  });
+}
+
+export async function paintAvailabilityCell(userId: string, input: { date: string; startTime: string; state: AvailabilityState | null }) {
+  if (!COURT_HOURS.includes(input.startTime)) {
+    throw new AppError(400, "VALIDATION_ERROR", "Saat 08:00 ile 22:00 arasında olmalı");
+  }
+  if (await hasMatch(userId, input.date, input.startTime)) throw new AppError(409, "CONFLICT", "Bu saatte maçın var");
+  const endTime = slotEnd(input.startTime);
+  if (input.state === null) {
+    await prisma.availability.updateMany({
+      where: {
         userId,
+        deletedAt: null,
         kind: "ONE_OFF",
-        date,
-        weekday,
+        date: parseDateOnly(input.date),
         startTime: input.startTime,
         endTime,
-        state: input.state,
       },
+      data: { deletedAt: new Date() },
     });
+    return { ok: true, date: input.date, startTime: input.startTime, state: null };
   }
+  await writeExactHour(userId, input.date, input.startTime, input.state);
   return { ok: true, date: input.date, startTime: input.startTime, state: input.state };
+}
+
+type MatchRow = { startDate: Date; endDate: Date; weekdays: number[]; startTime: string; endTime: string };
+
+function rowMatches(rows: MatchRow[], date: string, startTime: string): boolean {
+  return rows.some((row) => slotCoveredBySpan(date, startTime, {
+    startDate: dateOnly(row.startDate) ?? date,
+    endDate: dateOnly(row.endDate) ?? date,
+    weekdays: row.weekdays,
+    startTime: row.startTime,
+    endTime: row.endTime,
+  }));
+}
+
+export async function copyAvailabilityMonth(userId: string, month: string) {
+  const source = monthBounds(month);
+  const targetKey = nextMonthKey(month);
+  const target = monthBounds(targetKey);
+  const [marks, matches] = await Promise.all([
+    prisma.availability.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        kind: "ONE_OFF",
+        date: { gte: parseDateOnly(source.start), lte: parseDateOnly(source.end) },
+      },
+      select: { date: true, startTime: true, endTime: true, state: true },
+    }),
+    prisma.courtReservation.findMany({
+      where: {
+        deletedAt: null,
+        purpose: "MATCH",
+        status: { in: ["PENDING", "APPROVED"] },
+        OR: [{ holderId: userId }, { partnerId: userId }],
+        startDate: { lte: parseDateOnly(target.end) },
+        endDate: { gte: parseDateOnly(source.start) },
+      },
+      select: { startDate: true, endDate: true, weekdays: true, startTime: true, endTime: true },
+    }),
+  ]);
+  let copied = 0;
+  for (const mark of marks) {
+    const date = dateOnly(mark.date);
+    if (!date || !COURT_HOURS.includes(mark.startTime) || mark.endTime !== slotEnd(mark.startTime)) continue;
+    if (rowMatches(matches, date, mark.startTime)) continue;
+    const nextDate = sameWeekdayNextMonth(date);
+    if (!nextDate || nextDate < target.start || nextDate > target.end) continue;
+    if (rowMatches(matches, nextDate, mark.startTime)) continue;
+    await writeExactHour(userId, nextDate, mark.startTime, mark.state);
+    copied += 1;
+  }
+  return { ok: true, month, nextMonth: targetKey, copied };
 }

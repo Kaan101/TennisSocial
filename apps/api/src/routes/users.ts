@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   availabilityCellSchema,
+  availabilityMonthCopySchema,
   availabilityPutSchema,
   paginationSchema,
   privacySchema,
@@ -15,7 +16,7 @@ import { dateOnly, parseDateOnly } from "../lib/dates";
 import { AppError, forbidden, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { imageStorage } from "../lib/storage";
-import { availabilityWeek, paintAvailabilityCell } from "../services/availability-calendar";
+import { availabilityWeek, copyAvailabilityMonth, paintAvailabilityCell } from "../services/availability-calendar";
 import { areFriends } from "../services/friends";
 import { toUserDetail, userInclude } from "../services/present";
 
@@ -334,6 +335,12 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const body = parse(availabilityCellSchema, req.body);
     return paintAvailabilityCell(viewer.id, body);
+  });
+
+  app.post("/api/me/availability-copy-month", async (req) => {
+    const viewer = requireUser(req);
+    const body = parse(availabilityMonthCopySchema, req.body);
+    return copyAvailabilityMonth(viewer.id, body.month);
   });
 
   app.get("/api/users/:id/privacy", async (req) => {
