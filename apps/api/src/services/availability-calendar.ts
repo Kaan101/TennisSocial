@@ -3,13 +3,12 @@ import { WEEKDAYS, istanbulNowParts } from "@club/shared";
 import { dateOnly, parseDateOnly } from "../lib/dates";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
-import { COURT_HOURS, mondayOf, slotCoveredBySpan, slotEnd, timesOverlap, weekDates, weekdayOfDate, type Span } from "./courts/rules";
+import { COURT_HOURS, mondayOf, slotEnd, weekDates, weekdayOfDate } from "./courts/rules";
 
 export type CalendarCell = {
   date: string;
   startTime: string;
   manual: AvailabilityState | null;
-  match: boolean;
 };
 
 type WindowRow = {
@@ -66,50 +65,16 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
   const today = istanbulNowParts().day;
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
-  const weekEnd = dates[6]!;
-  const [windows, matches] = await Promise.all([
-    prisma.availability.findMany({
-      where: { userId, deletedAt: null },
-      select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true },
-    }),
-    prisma.courtReservation.findMany({
-      where: {
-        deletedAt: null,
-        purpose: "MATCH",
-        status: { in: ["PENDING", "APPROVED"] },
-        OR: [{ holderId: userId }, { partnerId: userId }],
-        startDate: { lte: parseDateOnly(weekEnd) },
-        endDate: { gte: parseDateOnly(weekStart) },
-      },
-      select: { startDate: true, endDate: true, weekdays: true, startTime: true, endTime: true },
-    }),
-  ]);
-
-  const cells: CalendarCell[] = dates.flatMap((date) => {
-    const weekday = weekdayOfDate(date);
-    return COURT_HOURS.map((startTime) => {
-      const span: Span = {
-        startDate: date,
-        endDate: date,
-        weekdays: [weekday],
-        startTime,
-        endTime: slotEnd(startTime),
-      };
-      const match = matches.some((row) => slotCoveredBySpan(date, startTime, {
-        startDate: dateOnly(row.startDate) ?? date,
-        endDate: dateOnly(row.endDate) ?? date,
-        weekdays: row.weekdays,
-        startTime: row.startTime,
-        endTime: row.endTime,
-      }) && timesOverlap(row.startTime, row.endTime, span.startTime, span.endTime));
-      return {
-        date,
-        startTime,
-        manual: paintedState(windows, date, startTime),
-        match,
-      };
-    });
+  const windows = await prisma.availability.findMany({
+    where: { userId, deletedAt: null },
+    select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true },
   });
+
+  const cells: CalendarCell[] = dates.flatMap((date) => COURT_HOURS.map((startTime) => ({
+    date,
+    startTime,
+    manual: paintedState(windows, date, startTime),
+  })));
 
   return {
     weekStart,
@@ -121,27 +86,6 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
     }),
     cells,
   };
-}
-
-async function hasMatch(userId: string, date: string, startTime: string): Promise<boolean> {
-  const matches = await prisma.courtReservation.findMany({
-    where: {
-      deletedAt: null,
-      purpose: "MATCH",
-      status: { in: ["PENDING", "APPROVED"] },
-      OR: [{ holderId: userId }, { partnerId: userId }],
-      startDate: { lte: parseDateOnly(date) },
-      endDate: { gte: parseDateOnly(date) },
-    },
-    select: { startDate: true, endDate: true, weekdays: true, startTime: true, endTime: true },
-  });
-  return matches.some((row) => slotCoveredBySpan(date, startTime, {
-    startDate: dateOnly(row.startDate) ?? date,
-    endDate: dateOnly(row.endDate) ?? date,
-    weekdays: row.weekdays,
-    startTime: row.startTime,
-    endTime: row.endTime,
-  }));
 }
 
 async function writeExactHour(userId: string, date: string, startTime: string, state: AvailabilityState) {
@@ -181,7 +125,6 @@ export async function paintAvailabilityCell(userId: string, input: { date: strin
   if (!COURT_HOURS.includes(input.startTime)) {
     throw new AppError(400, "VALIDATION_ERROR", "Saat 08:00 ile 22:00 arasında olmalı");
   }
-  if (await hasMatch(userId, input.date, input.startTime)) throw new AppError(409, "CONFLICT", "Bu saatte maçın var");
   const endTime = slotEnd(input.startTime);
   if (input.state === null) {
     await prisma.availability.updateMany({
@@ -201,52 +144,25 @@ export async function paintAvailabilityCell(userId: string, input: { date: strin
   return { ok: true, date: input.date, startTime: input.startTime, state: input.state };
 }
 
-type MatchRow = { startDate: Date; endDate: Date; weekdays: number[]; startTime: string; endTime: string };
-
-function rowMatches(rows: MatchRow[], date: string, startTime: string): boolean {
-  return rows.some((row) => slotCoveredBySpan(date, startTime, {
-    startDate: dateOnly(row.startDate) ?? date,
-    endDate: dateOnly(row.endDate) ?? date,
-    weekdays: row.weekdays,
-    startTime: row.startTime,
-    endTime: row.endTime,
-  }));
-}
-
 export async function copyAvailabilityMonth(userId: string, month: string) {
   const source = monthBounds(month);
   const targetKey = nextMonthKey(month);
   const target = monthBounds(targetKey);
-  const [marks, matches] = await Promise.all([
-    prisma.availability.findMany({
-      where: {
-        userId,
-        deletedAt: null,
-        kind: "ONE_OFF",
-        date: { gte: parseDateOnly(source.start), lte: parseDateOnly(source.end) },
-      },
-      select: { date: true, startTime: true, endTime: true, state: true },
-    }),
-    prisma.courtReservation.findMany({
-      where: {
-        deletedAt: null,
-        purpose: "MATCH",
-        status: { in: ["PENDING", "APPROVED"] },
-        OR: [{ holderId: userId }, { partnerId: userId }],
-        startDate: { lte: parseDateOnly(target.end) },
-        endDate: { gte: parseDateOnly(source.start) },
-      },
-      select: { startDate: true, endDate: true, weekdays: true, startTime: true, endTime: true },
-    }),
-  ]);
+  const marks = await prisma.availability.findMany({
+    where: {
+      userId,
+      deletedAt: null,
+      kind: "ONE_OFF",
+      date: { gte: parseDateOnly(source.start), lte: parseDateOnly(source.end) },
+    },
+    select: { date: true, startTime: true, endTime: true, state: true },
+  });
   let copied = 0;
   for (const mark of marks) {
     const date = dateOnly(mark.date);
     if (!date || !COURT_HOURS.includes(mark.startTime) || mark.endTime !== slotEnd(mark.startTime)) continue;
-    if (rowMatches(matches, date, mark.startTime)) continue;
     const nextDate = sameWeekdayNextMonth(date);
     if (!nextDate || nextDate < target.start || nextDate > target.end) continue;
-    if (rowMatches(matches, nextDate, mark.startTime)) continue;
     await writeExactHour(userId, nextDate, mark.startTime, mark.state);
     copied += 1;
   }

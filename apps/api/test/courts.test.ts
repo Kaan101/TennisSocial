@@ -164,12 +164,12 @@ test("Tam counts for the green rule and Belki or Dolu does not", async () => {
     headers: auth(other.token),
   });
   expect(week.statusCode).toBe(200);
-  const cell = (week.json().cells as { date: string; startTime: string; manual: string; match: boolean }[])
+  const cell = (week.json().cells as { date: string; startTime: string; manual: string }[])
     .find((item) => item.date === MONDAY && item.startTime === "18:00");
-  expect(cell).toMatchObject({ manual: "BUSY", match: false });
+  expect(cell).toMatchObject({ manual: "BUSY" });
 });
 
-test("next month copy repeats marked hours on the same weekday and leaves maç and empty alone", async () => {
+test("next month copy repeats marked hours on the same weekday and leaves empty hours empty", async () => {
   const member = await registerUser(app, { firstName: "Ay", lastName: "Kopya" });
   await setLevel(member.token, member.user.id, "BEGINNER");
   const weekly = await app.inject({
@@ -187,13 +187,13 @@ test("next month copy repeats marked hours on the same weekday and leaves maç a
       headers: auth(member.token),
     });
     expect(res.statusCode).toBe(200);
-    const cell = (res.json().cells as { date: string; startTime: string; manual: string | null; match: boolean }[])
+    const cell = (res.json().cells as { date: string; startTime: string; manual: string | null }[])
       .find((item) => item.date === date && item.startTime === startTime);
     expect(cell).toBeTruthy();
     return cell!;
   };
 
-  expect(await read("2026-10-05", "18:00")).toMatchObject({ manual: null, match: false });
+  expect(await read("2026-10-05", "18:00")).toMatchObject({ manual: null });
 
   const paint = (date: string, startTime: string, state: "FULL" | "MAYBE" | "BUSY" | null) => app.inject({
     method: "POST",
@@ -204,31 +204,34 @@ test("next month copy repeats marked hours on the same weekday and leaves maç a
   expect((await paint("2026-10-05", "18:00", "FULL")).statusCode).toBe(200);
   expect((await paint("2026-10-12", "18:00", "MAYBE")).statusCode).toBe(200);
   expect((await paint("2026-10-12", "18:00", null)).statusCode).toBe(200);
-  expect(await read("2026-10-12", "18:00")).toMatchObject({ manual: null, match: false });
+  expect(await read("2026-10-12", "18:00")).toMatchObject({ manual: null });
   expect((await paint("2026-10-07", "10:00", "BUSY")).statusCode).toBe(200);
   expect((await paint("2026-10-07", "18:00", "FULL")).statusCode).toBe(200);
   expect((await paint("2026-10-19", "18:00", "FULL")).statusCode).toBe(200);
+  expect((await paint("2026-10-26", "18:00", "FULL")).statusCode).toBe(200);
 
   const admin = await asAdmin();
   const court = await addCourt(admin.token, "Kort 1");
-  const match = await app.inject({
+  const book = (date: string) => app.inject({
     method: "POST",
     url: "/api/reservations",
     headers: auth(member.token),
     payload: {
       courtId: court.id,
       purpose: "MATCH",
-      startDate: "2026-10-19",
-      endDate: "2026-10-19",
-      weekdays: [weekdayOfDate("2026-10-19")],
+      startDate: date,
+      endDate: date,
+      weekdays: [weekdayOfDate(date)],
       startTime: "18:00",
       endTime: "19:00",
       partnerId: null,
     },
   });
-  expect(match.statusCode).toBe(201);
-  expect((await paint("2026-10-19", "18:00", null)).statusCode).toBe(409);
-  expect(await read("2026-10-19", "18:00")).toMatchObject({ match: true });
+  expect((await book("2026-10-19")).statusCode).toBe(201);
+  expect((await book("2026-10-26")).statusCode).toBe(201);
+  expect((await paint("2026-10-19", "18:00", null)).statusCode).toBe(200);
+  expect(await read("2026-10-19", "18:00")).toMatchObject({ manual: null });
+  expect(await read("2026-10-26", "18:00")).toMatchObject({ manual: "FULL" });
 
   const copied = await app.inject({
     method: "POST",
@@ -237,13 +240,14 @@ test("next month copy repeats marked hours on the same weekday and leaves maç a
     payload: { month: "2026-10" },
   });
   expect(copied.statusCode).toBe(200);
-  expect(copied.json().copied).toBe(3);
+  expect(copied.json().copied).toBe(4);
 
-  expect(await read("2026-11-02", "18:00")).toMatchObject({ manual: "FULL", match: false });
-  expect(await read("2026-11-04", "10:00")).toMatchObject({ manual: "BUSY", match: false });
-  expect(await read("2026-11-04", "18:00")).toMatchObject({ manual: "FULL", match: false });
-  expect(await read("2026-11-09", "18:00")).toMatchObject({ manual: null, match: false });
-  expect(await read("2026-11-23", "18:00")).toMatchObject({ manual: null, match: false });
+  expect(await read("2026-11-02", "18:00")).toMatchObject({ manual: "FULL" });
+  expect(await read("2026-11-04", "10:00")).toMatchObject({ manual: "BUSY" });
+  expect(await read("2026-11-04", "18:00")).toMatchObject({ manual: "FULL" });
+  expect(await read("2026-11-09", "18:00")).toMatchObject({ manual: null });
+  expect(await read("2026-11-16", "18:00")).toMatchObject({ manual: null });
+  expect(await read("2026-11-23", "18:00")).toMatchObject({ manual: "FULL" });
 
   const board = await app.inject({
     method: "GET",

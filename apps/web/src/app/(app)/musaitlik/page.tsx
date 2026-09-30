@@ -15,7 +15,6 @@ type Cell = {
   date: string;
   startTime: string;
   manual: Manual;
-  match: boolean;
 };
 
 type WeekGrid = {
@@ -34,12 +33,11 @@ const MODES: { state: AvailabilityState; word: string; backgroundColor: string; 
 function paintCell(grid: WeekGrid, date: string, startTime: string, manual: Manual): WeekGrid {
   return {
     ...grid,
-    cells: grid.cells.map((cell) => (cell.date === date && cell.startTime === startTime && !cell.match ? { ...cell, manual } : cell)),
+    cells: grid.cells.map((cell) => (cell.date === date && cell.startTime === startTime ? { ...cell, manual } : cell)),
   };
 }
 
 function cellFill(cell: Cell): { backgroundColor: string; color: string } {
-  if (cell.match) return { backgroundColor: "#166534", color: "#ffffff" };
   if (cell.manual === "FULL") return { backgroundColor: "#16a34a", color: "#ffffff" };
   if (cell.manual === "MAYBE") return { backgroundColor: "#bbf7d0", color: "#14241c" };
   if (cell.manual === "BUSY") return { backgroundColor: "#fecaca", color: "#14241c" };
@@ -47,7 +45,6 @@ function cellFill(cell: Cell): { backgroundColor: string; color: string } {
 }
 
 function cellWord(cell: Cell): string {
-  if (cell.match) return "maç";
   if (cell.manual === "FULL") return "tam";
   if (cell.manual === "MAYBE") return "belki";
   if (cell.manual === "BUSY") return "dolu";
@@ -97,7 +94,7 @@ export default function AvailabilityCalendarPage() {
     const snapshot = gridRef.current;
     const cell = snapshot?.cells.find((item) => item.date === date && item.startTime === startTime);
     const next = mode === "CLEAR" ? null : mode;
-    if (!snapshot || !cell || cell.match || cell.manual === next) return;
+    if (!snapshot || !cell || cell.manual === next) return;
     const previous = cell.manual;
     paintEpoch.current += 1;
     showGrid(paintCell(snapshot, date, startTime, next));
@@ -167,11 +164,11 @@ export default function AvailabilityCalendarPage() {
       <div className="w-full min-w-0 overflow-x-auto">
         <div
           className="grid w-max gap-0.5"
-          style={{ gridTemplateColumns: `3.25rem repeat(${grid.days.length}, 2.1rem)` }}
+          style={{ gridTemplateColumns: `3.25rem repeat(${grid.days.length}, 7.25rem)` }}
         >
           <div />
           {grid.days.map((day) => (
-            <div key={day.date} className="px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
+            <div key={day.date} className="whitespace-nowrap px-1 pb-1 text-center text-[10px] font-semibold leading-tight md:text-xs">
               <span className="md:hidden">{day.short}</span>
               <span className="hidden md:inline">{day.label}</span>
               <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
