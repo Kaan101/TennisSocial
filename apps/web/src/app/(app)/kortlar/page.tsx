@@ -5,39 +5,53 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { type DayGrid, type DaySlot, CourtDayGrid, clearReservations, groupDaySlots, paintCheckedIn, paintPurpose, restoreSlots } from "@/components/court-day-grid";
 import { type Reservation, weekdayOf } from "@/components/court-ui";
-import { LoadingBlock } from "@/components/states";
+import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useResource } from "@/lib/use-resource";
 
 export default function CourtsPage() {
   const { user } = useAuth();
   const [day, setDay] = useState(() => istanbulNowParts().day);
+  const [grid, setGrid] = useState<DayGrid | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
   const dayRef = useRef(day);
-  const dayBoard = useResource<DayGrid>(user ? `/courts/day?date=${day}` : null);
-  const gridRef = useRef(dayBoard.data);
+  const gridRef = useRef(grid);
+  const paintEpoch = useRef(0);
   const savedIds = useRef(new Map<string, string>());
   const cancelAfterSave = useRef(new Set<string>());
   const checkInAfterSave = useRef(new Map<string, { courtId: string; date: string; startTime: string }>());
+
   useEffect(() => {
     dayRef.current = day;
-    gridRef.current = dayBoard.data;
-  }, [day, dayBoard.data]);
-
-  async function loadDay(date: string) {
-    const fresh = await api<DayGrid>(`/courts/day?date=${date}`, { cache: "no-store" });
-    if (fresh.date === dayRef.current) {
-      dayBoard.setData(fresh);
-      gridRef.current = fresh;
-    }
-    return fresh;
-  }
+    if (!user) return;
+    const epoch = paintEpoch.current;
+    const requested = day;
+    let cancel = false;
+    api<DayGrid>(`/courts/day?date=${requested}`, { cache: "no-store" })
+      .then((data) => {
+        if (cancel || dayRef.current !== requested) return;
+        const sameDay = gridRef.current?.date === data.date;
+        if (sameDay && paintEpoch.current !== epoch) return;
+        gridRef.current = data;
+        setGrid(data);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (cancel || dayRef.current !== requested || gridRef.current) return;
+        setFailed(true);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [day, retry, user]);
 
   function showGrid(next: DayGrid | null, immediate = false) {
-    if (!next || next.date !== dayRef.current) return;
+    if (!next || next.date !== gridRef.current?.date) return;
+    paintEpoch.current += 1;
     gridRef.current = next;
-    if (immediate) flushSync(() => dayBoard.setData(next));
-    else dayBoard.setData(next);
+    if (immediate) flushSync(() => setGrid(next));
+    else setGrid(next);
   }
 
   async function finishSavedSpan(id: string, span: { courtId: string; startTime: string; endTime: string }, date: string, snapshot: DayGrid | null) {
@@ -69,20 +83,20 @@ export default function CourtsPage() {
     }
   }
 
-  if (!user) return <LoadingBlock label="Kortlar yükleniyor" />;
+  if (!user || (!grid && !failed)) return <LoadingBlock label="Kortlar yükleniyor" />;
+  if (!grid && failed) return <ErrorState message="Gün tablosu yüklenemedi" onRetry={() => setRetry((value) => value + 1)} />;
+  if (!grid) return null;
 
   return (
     <CourtDayGrid
-      date={day}
+      date={grid.date}
       onDate={setDay}
-      grid={dayBoard.data}
-      loading={dayBoard.loading}
-      error={dayBoard.error}
-      onRetry={() => void loadDay(day)}
+      grid={grid}
       onApply={async (input) => {
-        const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"), true);
+        const date = snapshot?.date;
+        if (!snapshot || !date) return;
+        showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"), true);
         const pending = input.slots.map((slot) => ({ ...slot }));
         for (const span of groupDaySlots(input.slots)) {
           try {
@@ -110,9 +124,10 @@ export default function CourtsPage() {
         }
       }}
       onCancel={async (ids) => {
-        const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(clearReservations(snapshot, ids), true);
+        const date = snapshot?.date;
+        if (!snapshot || !date) return;
+        showGrid(clearReservations(snapshot, ids), true);
         const pending = ids.flatMap((id) => slotsForReservation(snapshot, id));
         for (const id of ids) {
           const serverId = savedIds.current.get(id) ?? id;
@@ -132,9 +147,10 @@ export default function CourtsPage() {
         }
       }}
       onCheckIn={async (slots) => {
-        const date = dayRef.current;
         const snapshot = gridRef.current;
-        if (snapshot?.date === date) showGrid(paintCheckedIn(snapshot, slots), true);
+        const date = snapshot?.date;
+        if (!snapshot || !date) return;
+        showGrid(paintCheckedIn(snapshot, slots), true);
         const pending = slots.map((slot) => ({ courtId: slot.courtId, startTime: slot.startTime }));
         for (const slot of slots) {
           const serverId = savedIds.current.get(slot.reservationId) ?? slot.reservationId;
