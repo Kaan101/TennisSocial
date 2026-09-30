@@ -428,7 +428,7 @@ export async function checkInReservation(viewer: CourtViewer, id: string, input:
 type BoardUser = {
   id: string;
   boardVisible: boolean;
-  profile: { firstName: string; lastName: string; playerStatus: string } | null;
+  profile: { firstName: string; lastName: string; playerStatus: string; photoUrl: string | null } | null;
   tennisProfile: { overallLevel: OverallLevel } | null;
   availability: { kind: "WEEKLY" | "ONE_OFF"; weekday: number | null; date: Date | null; startTime: string; endTime: string; state: "FULL" | "MAYBE" | "BUSY" }[];
   absences: { startDate: Date; endDate: Date }[];
@@ -500,7 +500,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       select: {
         id: true,
         boardVisible: true,
-        profile: { select: { firstName: true, lastName: true, playerStatus: true } },
+        profile: { select: { firstName: true, lastName: true, playerStatus: true, photoUrl: true } },
         tennisProfile: { select: { overallLevel: true } },
         availability: { where: { deletedAt: null }, select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true } },
         absences: { where: { deletedAt: null }, select: { startDate: true, endDate: true } },
@@ -536,6 +536,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
             id: user.id,
             firstName: user.profile?.firstName ?? "",
             lastName: user.profile?.lastName ?? "",
+            photoUrl: user.profile?.photoUrl ?? null,
             overallLevel: level,
             levelLabel: LEVEL_LABELS[level],
             levelIndex: levelIndex(level),
