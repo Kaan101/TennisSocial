@@ -9,14 +9,31 @@ import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
+function useCurrentDay(): string {
+  const [day, setDay] = useState(() => istanbulNowParts().day);
+  useEffect(() => {
+    const sync = () => {
+      const next = istanbulNowParts().day;
+      setDay((current) => (current === next ? current : next));
+    };
+    document.addEventListener("visibilitychange", sync);
+    const timer = window.setInterval(sync, 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.clearInterval(timer);
+    };
+  }, []);
+  return day;
+}
+
 export default function CourtsPage() {
   const { user } = useAuth();
-  const [day, setDay] = useState(() => istanbulNowParts().day);
+  const today = useCurrentDay();
   const [focus, setFocus] = useState<{ date: string; courtId: string; hour: string } | null>(null);
   const [grid, setGrid] = useState<DayGrid | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const dayRef = useRef(day);
+  const dayRef = useRef(today);
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
   const savedIds = useRef(new Map<string, string>());
@@ -28,15 +45,14 @@ export default function CourtsPage() {
     const date = query.get("date");
     const court = query.get("court");
     const hour = query.get("hour");
-    if (date) setDay(date);
-    if (date && court && hour) setFocus({ date, courtId: court, hour });
+    if (date && court && hour && date === istanbulNowParts().day) setFocus({ date, courtId: court, hour });
   }, []);
 
   useEffect(() => {
-    dayRef.current = day;
+    dayRef.current = today;
     if (!user) return;
     const epoch = paintEpoch.current;
-    const requested = day;
+    const requested = today;
     let cancel = false;
     api<DayGrid>(`/courts/day?date=${requested}`, { cache: "no-store" })
       .then((data) => {
@@ -54,7 +70,7 @@ export default function CourtsPage() {
     return () => {
       cancel = true;
     };
-  }, [day, retry, user]);
+  }, [today, retry, user]);
 
   function showGrid(next: DayGrid | null, immediate = false) {
     if (!next || next.date !== gridRef.current?.date) return;
@@ -99,8 +115,7 @@ export default function CourtsPage() {
 
   return (
     <CourtDayGrid
-      date={grid.date}
-      onDate={setDay}
+      date={today}
       grid={grid}
       focus={focus}
       onApply={async (input) => {

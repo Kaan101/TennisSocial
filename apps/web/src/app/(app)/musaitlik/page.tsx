@@ -2,9 +2,8 @@
 
 import type { AvailabilityState } from "@club/shared";
 import { istanbulNowParts } from "@club/shared";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
-import { shiftDate } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 
@@ -51,24 +50,41 @@ function cellWord(cell: Cell): string {
   return "boş";
 }
 
+function useCurrentDay(): string {
+  const [day, setDay] = useState(() => istanbulNowParts().day);
+  useEffect(() => {
+    const sync = () => {
+      const next = istanbulNowParts().day;
+      setDay((current) => (current === next ? current : next));
+    };
+    document.addEventListener("visibilitychange", sync);
+    const timer = window.setInterval(sync, 60_000);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      window.clearInterval(timer);
+    };
+  }, []);
+  return day;
+}
+
 export default function AvailabilityCalendarPage() {
-  const [week, setWeek] = useState(() => istanbulNowParts().day);
+  const today = useCurrentDay();
   const [grid, setGrid] = useState<WeekGrid | null>(null);
   const [mode, setMode] = useState<Tool | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
-  const weekRef = useRef(week);
+  const todayRef = useRef(today);
 
   useEffect(() => {
-    weekRef.current = week;
+    todayRef.current = today;
     const epoch = paintEpoch.current;
-    const requested = week;
+    const requested = today;
     let cancel = false;
     api<WeekGrid>(`/me/availability-week?week=${requested}`, { cache: "no-store" })
       .then((data) => {
-        if (cancel || weekRef.current !== requested) return;
+        if (cancel || todayRef.current !== requested) return;
         const sameWeek = gridRef.current?.weekStart === data.weekStart;
         if (sameWeek && paintEpoch.current !== epoch) return;
         gridRef.current = data;
@@ -76,13 +92,13 @@ export default function AvailabilityCalendarPage() {
         setFailed(false);
       })
       .catch(() => {
-        if (cancel || weekRef.current !== requested || gridRef.current) return;
+        if (cancel || todayRef.current !== requested || gridRef.current) return;
         setFailed(true);
       });
     return () => {
       cancel = true;
     };
-  }, [week, retry]);
+  }, [today, retry]);
 
   function showGrid(next: WeekGrid) {
     gridRef.current = next;
@@ -110,30 +126,25 @@ export default function AvailabilityCalendarPage() {
     });
   }
 
-  function copyNextMonth() {
-    const snapshot = gridRef.current;
-    if (!snapshot) return;
-    const month = snapshot.weekStart.slice(0, 7);
-    void api("/me/availability-copy-month", {
-      method: "POST",
-      body: JSON.stringify({ month }),
-    }).catch(() => undefined);
-  }
-
   if (!grid && !failed) return <LoadingBlock label="Müsaitlik yükleniyor" />;
   if (!grid && failed) return <ErrorState message="Müsaitlik yüklenemedi" onRetry={() => setRetry((value) => value + 1)} />;
 
   if (!grid) return null;
 
   return (
-    <div className="flex w-full min-w-0 flex-col items-start gap-2">
-      <h1 className="text-sm font-semibold">Müsaitlik</h1>
-      <div className="flex w-full min-w-0 items-center gap-3 text-sm">
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => setWeek(shiftDate(grid.weekStart, -7))}>önceki</button>
-        <p className="min-w-0 flex-1 text-center text-xs text-muted">{grid.days[0]?.date} – {grid.days[6]?.date}</p>
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => setWeek(shiftDate(grid.weekStart, 7))}>sonraki</button>
-      </div>
-      <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2 md:pl-[3.25rem]" role="group" aria-label="Müsaitlik">
+    <div className="-mx-4 flex h-[calc(100dvh-11rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible">
+      <style>{`
+        .musait-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
+        @media (max-width: 63.99rem) {
+          .musait-board { grid-template-rows: auto repeat(var(--musait-rows), minmax(0, 1fr)); }
+        }
+        @media (min-width: 64rem) {
+          .musait-board { grid-template-columns: 3.25rem repeat(7, 7.25rem); }
+        }
+      `}</style>
+      <h1 className="shrink-0 px-4 text-sm font-semibold leading-none lg:px-0">Müsaitlik</h1>
+      <p className="shrink-0 px-4 text-center text-xs leading-none text-muted lg:px-0">{grid.days[0]?.date} – {grid.days[6]?.date}</p>
+      <div className="inline-flex max-w-full shrink-0 flex-wrap items-center justify-start gap-2 px-4 lg:ml-[3.25rem] lg:px-0" role="group" aria-label="Müsaitlik">
         {MODES.map((option) => {
           const on = mode === option.state;
           return (
@@ -157,26 +168,23 @@ export default function AvailabilityCalendarPage() {
         >
           Boş
         </button>
-        <button type="button" className="court-press ml-3 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink" onClick={copyNextMonth}>
-          Sonraki aya kopyala
-        </button>
       </div>
-      <div className="w-full min-w-0 overflow-x-auto">
+      <div className="min-h-0 w-full flex-1 lg:flex-none lg:overflow-x-auto">
         <div
-          className="grid w-max gap-0.5"
-          style={{ gridTemplateColumns: `3.25rem repeat(${grid.days.length}, 7.25rem)` }}
+          className="musait-board grid h-full w-full gap-x-0.5 gap-y-px lg:h-auto lg:w-max lg:gap-0.5"
+          style={{ "--musait-rows": String(grid.hours.length) } as CSSProperties}
         >
           <div />
           {grid.days.map((day) => (
-            <div key={day.date} className="whitespace-nowrap px-1 pb-1 text-center text-[10px] font-semibold leading-tight md:text-xs">
-              <span className="md:hidden">{day.short}</span>
-              <span className="hidden md:inline">{day.label}</span>
-              <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
+            <div key={day.date} className="flex min-h-0 min-w-0 flex-col items-center justify-end pb-px text-center">
+              <span className="text-[10px] font-semibold leading-none lg:hidden">{day.short}</span>
+              <span className="hidden max-w-full truncate text-[10px] font-semibold leading-none lg:block lg:text-xs">{day.label}</span>
+              <span className="mt-px hidden text-[9px] font-normal leading-none text-muted lg:block">{day.date.slice(8)}</span>
             </div>
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="py-1 text-[10px] font-bold text-ink">{hour}</div>
+              <div className="flex items-center pl-1 whitespace-nowrap text-[10px] font-bold leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
               {grid.days.map((day) => {
                 const cell = grid.cells.find((item) => item.date === day.date && item.startTime === hour);
                 const word = cell ? cellWord(cell) : "boş";
@@ -186,7 +194,7 @@ export default function AvailabilityCalendarPage() {
                     type="button"
                     aria-label={`${day.label} ${hour} ${word}`}
                     onClick={() => onCell(day.date, hour)}
-                    className="court-press block min-h-8 w-full rounded-sm border border-line"
+                    className="court-press block h-full min-h-0 w-full border border-line lg:min-h-8"
                     style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
                   />
                 );

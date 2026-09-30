@@ -222,7 +222,6 @@ type Tool = CourtPurpose | "CLEAR" | "CANCEL" | "CHECKIN";
 
 export function CourtDayGrid({
   date,
-  onDate,
   grid,
   onApply,
   onCancel,
@@ -230,7 +229,6 @@ export function CourtDayGrid({
   focus = null,
 }: {
   date: string;
-  onDate: (date: string) => void;
   grid: DayGrid;
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
   onCancel: (reservationIds: string[]) => Promise<void>;
@@ -274,21 +272,17 @@ export function CourtDayGrid({
   return (
     <div className="flex w-full min-w-0 flex-col items-start gap-2">
       <h1 className="text-sm font-semibold">Kortlar</h1>
-      <div className="flex w-full min-w-0 items-center gap-2 text-sm md:gap-3">
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>önceki</button>
-        <div className="flex min-w-0 flex-1 items-start justify-between gap-1" role="group" aria-label="Haftanın günleri">
-          {days.map((day) => {
-            const on = day.date === date;
-            return (
-              <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onDate(day.date)} className="court-press min-w-0 px-0.5 text-center text-[10px] leading-tight md:text-xs">
-                <span className={`md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
-                <span className={`hidden whitespace-nowrap md:inline ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
-                <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
-              </button>
-            );
-          })}
-        </div>
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => onDate(shiftDate(date, 7))}>sonraki</button>
+      <div className="flex w-full min-w-0 items-start justify-between gap-1 text-sm" role="group" aria-label="Haftanın günleri">
+        {days.map((day) => {
+          const on = day.date === date;
+          return (
+            <div key={day.date} className="min-w-0 px-0.5 text-center text-[10px] leading-tight md:text-xs">
+              <span className={`md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
+              <span className={`hidden whitespace-nowrap md:inline ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
+              <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
+            </div>
+          );
+        })}
       </div>
       <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2 md:pl-[3.25rem]" role="group" aria-label="Amaç">
         {PURPOSE_OPTIONS.map((option) => {
@@ -347,7 +341,7 @@ export function CourtDayGrid({
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="py-1 text-[10px] font-bold text-ink">{hour}</div>
+              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-[10px] font-bold whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
               {grid.courts.map((court) => {
                 const cell = cells.get(`${court.id}-${hour}`);
                 const reservation = cell?.state === "busy" ? cell.reservation : null;

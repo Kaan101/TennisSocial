@@ -51,10 +51,15 @@ function freeCourtsOf(slot: Slot): CourtCell[] {
   return slot.courts.filter(courtIsFree).sort((left, right) => courtOrder(left) - courtOrder(right));
 }
 
-function cellFrame(freeCourts: number, players: number): string {
-  if (freeCourts < 1) return "border-line";
-  if (players > 0) return "border-court";
-  return "border-[#2563eb]";
+function phoneFace(freeCourts: number): string {
+  if (freeCourts < 1) return "border-line bg-transparent";
+  return "border-court bg-[#dcfce7]";
+}
+
+function desktopFace(freeCourts: number, players: number): string {
+  if (freeCourts < 1) return "lg:border-line lg:bg-transparent";
+  if (players > 0) return "lg:border-court lg:bg-transparent";
+  return "lg:border-[#2563eb] lg:bg-transparent";
 }
 
 function nameInitials(person: SlotPerson): string {
@@ -145,14 +150,11 @@ export function TakvimView() {
                       aria-pressed={selected}
                       aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 bg-transparent p-px lg:flex-col lg:justify-center ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 p-px lg:flex-col lg:justify-center ${phoneFace(freeCourts.length)} ${desktopFace(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
                     >
                       {cell.people.length > 0 ? (
                         <User className="h-3 w-3 shrink-0 text-ink lg:hidden" aria-hidden />
-                      ) : null}
-                      {freeCourts.length > 0 ? (
-                        <span className="h-2.5 w-2.5 shrink-0 bg-[#2563eb] lg:hidden" aria-hidden />
                       ) : null}
                       {cell.people.length > 0 || freeCourts.length > 0 ? (
                         <span className="hidden max-h-full min-h-0 w-full flex-wrap content-center items-center justify-center gap-px overflow-hidden lg:flex">
@@ -173,37 +175,31 @@ export function TakvimView() {
             ))}
           </div>
         </div>
-        <aside className="max-h-36 w-full min-h-0 shrink overflow-y-auto lg:max-h-none lg:min-w-0 lg:flex-1">
+        <aside className="h-36 w-full shrink-0 overflow-y-auto lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1">
           {slot ? (
             <div className="space-y-1.5 lg:space-y-3">
-              <section>
-                <h2 className="text-xs font-semibold lg:text-sm">Oyuncular</h2>
-                <ul className="mt-1 flex flex-wrap gap-1 lg:gap-2">
-                  {slot.people.map((person) => (
-                    <li key={person.id}>
-                      <PlayerChip person={person} />
-                    </li>
-                  ))}
-                </ul>
-              </section>
-              <section>
-                <h2 className="text-xs font-semibold lg:text-sm">Kortlar</h2>
-                <ul className="mt-1 flex flex-wrap gap-1 lg:gap-2">
-                  {courts.map((court) => (
-                    <li key={court.id}>
-                      <Link
-                        href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
-                      >
-                        <span className="lg:hidden">{circleLabel(court)}</span>
-                        <span className="hidden lg:inline">{panelCourtName(court)}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+              <ul className="flex flex-wrap gap-1 lg:gap-2">
+                {slot.people.map((person) => (
+                  <li key={person.id}>
+                    <PlayerChip person={person} />
+                  </li>
+                ))}
+              </ul>
+              <ul className="flex flex-wrap gap-1 lg:gap-2">
+                {courts.map((court) => (
+                  <li key={court.id}>
+                    <Link
+                      href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
+                    >
+                      <span className="lg:hidden">{circleLabel(court)}</span>
+                      <span className="hidden lg:inline">{panelCourtName(court)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
         </aside>
