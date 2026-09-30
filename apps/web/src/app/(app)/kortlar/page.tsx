@@ -1,10 +1,10 @@
 "use client";
 
-import { istanbulNowParts } from "@club/shared";
+import { istanbulNowParts, type CourtPurpose } from "@club/shared";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { type DayGrid, type DaySlot, CourtDayGrid, clearReservations, groupDaySlots, paintCheckedIn, paintPurpose, restoreSlots } from "@/components/court-day-grid";
-import { type Reservation, weekdayOf } from "@/components/court-ui";
+import { type Reservation, shiftDate, weekdayOf } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -29,11 +29,15 @@ function useCurrentDay(): string {
 export default function CourtsPage() {
   const { user } = useAuth();
   const today = useCurrentDay();
+  const [selected, setSelected] = useState<string[]>(() => [istanbulNowParts().day]);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const shown = selected[0] ?? today;
   const [focus, setFocus] = useState<{ date: string; courtId: string; hour: string } | null>(null);
   const [grid, setGrid] = useState<DayGrid | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
-  const dayRef = useRef(today);
+  const dayRef = useRef(shown);
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
   const savedIds = useRef(new Map<string, string>());
@@ -49,10 +53,29 @@ export default function CourtsPage() {
   }, []);
 
   useEffect(() => {
-    dayRef.current = today;
+    const weekday = weekdayOf(today);
+    const monday = shiftDate(today, weekday === 0 ? -6 : 1 - weekday);
+    const week = Array.from({ length: 7 }, (_, index) => shiftDate(monday, index));
+    setSelected((current) => {
+      const kept = current.filter((date) => week.includes(date));
+      if (kept.length === current.length && kept.every((date, index) => date === current[index])) return current;
+      return kept.length > 0 ? kept : [today];
+    });
+  }, [today]);
+
+  function toggleDay(date: string) {
+    setSelected((current) => {
+      if (!current.includes(date)) return [...current, date];
+      if (current.length === 1) return current;
+      return current.filter((item) => item !== date);
+    });
+  }
+
+  useEffect(() => {
+    dayRef.current = shown;
     if (!user) return;
     const epoch = paintEpoch.current;
-    const requested = today;
+    const requested = shown;
     let cancel = false;
     api<DayGrid>(`/courts/day?date=${requested}`, { cache: "no-store" })
       .then((data) => {
@@ -70,7 +93,7 @@ export default function CourtsPage() {
     return () => {
       cancel = true;
     };
-  }, [today, retry, user]);
+  }, [shown, retry, user]);
 
   function showGrid(next: DayGrid | null, immediate = false) {
     if (!next || next.date !== gridRef.current?.date) return;
@@ -115,46 +138,48 @@ export default function CourtsPage() {
 
   return (
     <CourtDayGrid
-      date={today}
+      date={shown}
+      selected={selected}
+      onToggleDay={toggleDay}
       grid={grid}
       focus={focus}
       onApply={async (input) => {
         const snapshot = gridRef.current;
-        const date = snapshot?.date;
-        if (!snapshot || !date) return;
+        const visible = snapshot?.date;
+        if (!snapshot || !visible) return;
+        const dates = [...selectedRef.current];
         showGrid(paintPurpose(snapshot, input.slots, input.purpose, user.role === "ADMIN" ? "APPROVED" : "PENDING"), true);
         const pending = input.slots.map((slot) => ({ ...slot }));
         for (const span of groupDaySlots(input.slots)) {
           try {
-            const created = await api<Reservation>("/reservations", {
-              method: "POST",
-              cache: "no-store",
-              body: JSON.stringify({
-                courtId: span.courtId,
-                purpose: input.purpose,
-                startDate: date,
-                endDate: date,
-                weekdays: [weekdayOf(date)],
-                startTime: span.startTime,
-                endTime: span.endTime,
-                partnerId: null,
-              }),
-            });
-            await finishSavedSpan(created.id, span, date, snapshot);
+            const created = await postReservation(visible, span, input.purpose);
+            await finishSavedSpan(created.id, span, visible, snapshot);
             dropSpan(pending, span);
           } catch {
             const current = gridRef.current;
-            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            if (snapshot && current?.date === visible) showGrid(restoreSlots(current, snapshot, pending));
             return;
           }
         }
+        for (const date of dates) {
+          if (date === visible) continue;
+          for (const span of groupDaySlots(input.slots)) {
+            try {
+              await postReservation(date, span, input.purpose);
+            } catch {
+              continue;
+            }
+          }
+        }
       }}
-      onCancel={async (ids) => {
+      onCancel={async (ids, matchOnly) => {
         const snapshot = gridRef.current;
-        const date = snapshot?.date;
-        if (!snapshot || !date) return;
+        const visible = snapshot?.date;
+        if (!snapshot || !visible) return;
+        const dates = [...selectedRef.current];
+        const slots = ids.flatMap((id) => slotsForReservation(snapshot, id));
         showGrid(clearReservations(snapshot, ids), true);
-        const pending = ids.flatMap((id) => slotsForReservation(snapshot, id));
+        const pending = slots.map((slot) => ({ ...slot }));
         for (const id of ids) {
           const serverId = savedIds.current.get(id) ?? id;
           if (serverId.startsWith("local-")) {
@@ -167,15 +192,20 @@ export default function CourtsPage() {
             dropReservation(pending, snapshot, id);
           } catch {
             const current = gridRef.current;
-            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            if (snapshot && current?.date === visible) showGrid(restoreSlots(current, snapshot, pending));
             return;
           }
+        }
+        for (const date of dates) {
+          if (date === visible) continue;
+          for (const slot of slots) await mutateOtherDay(date, slot.courtId, slot.startTime, matchOnly ? "cancel-match" : "clear");
         }
       }}
       onCheckIn={async (slots) => {
         const snapshot = gridRef.current;
-        const date = snapshot?.date;
-        if (!snapshot || !date) return;
+        const visible = snapshot?.date;
+        if (!snapshot || !visible) return;
+        const dates = [...selectedRef.current];
         showGrid(paintCheckedIn(snapshot, slots), true);
         const pending = slots.map((slot) => ({ courtId: slot.courtId, startTime: slot.startTime }));
         for (const slot of slots) {
@@ -195,13 +225,55 @@ export default function CourtsPage() {
             if (index >= 0) pending.splice(index, 1);
           } catch {
             const current = gridRef.current;
-            if (snapshot && current?.date === date) showGrid(restoreSlots(current, snapshot, pending));
+            if (snapshot && current?.date === visible) showGrid(restoreSlots(current, snapshot, pending));
             return;
           }
+        }
+        for (const date of dates) {
+          if (date === visible) continue;
+          for (const slot of slots) await mutateOtherDay(date, slot.courtId, slot.startTime, "checkin");
         }
       }}
     />
   );
+}
+
+function postReservation(date: string, span: { courtId: string; startTime: string; endTime: string }, purpose: CourtPurpose) {
+  return api<Reservation>("/reservations", {
+    method: "POST",
+    cache: "no-store",
+    body: JSON.stringify({
+      courtId: span.courtId,
+      purpose,
+      startDate: date,
+      endDate: date,
+      weekdays: [weekdayOf(date)],
+      startTime: span.startTime,
+      endTime: span.endTime,
+      partnerId: null,
+    }),
+  });
+}
+
+async function mutateOtherDay(date: string, courtId: string, hour: string, kind: "clear" | "cancel-match" | "checkin") {
+  try {
+    const data = await api<DayGrid>(`/courts/day?date=${date}`, { cache: "no-store" });
+    const cell = data.cells.find((item) => item.courtId === courtId && item.startTime === hour);
+    const reservation = cell?.state === "busy" ? cell.reservation : null;
+    if (!reservation) return;
+    if (kind !== "clear" && reservation.purpose !== "MATCH") return;
+    if (kind === "checkin") {
+      if (reservation.checkedIn) return;
+      await api(`/reservations/${reservation.id}/check-in`, {
+        method: "POST",
+        body: JSON.stringify({ date, startTime: hour }),
+      });
+      return;
+    }
+    await api(`/reservations/${reservation.id}/cancel`, { method: "POST" });
+  } catch {
+    return;
+  }
 }
 
 function hoursInSpan(startTime: string, endTime: string): string[] {

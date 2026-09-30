@@ -46,7 +46,7 @@ const PURPOSE_OPTIONS: { purpose: CourtPurpose; word: string }[] = [
 
 const CELL_FILL: Record<CourtPurpose, string> = {
   MATCH: "#dcfce7",
-  TRAINING: "#f3e8ff",
+  TRAINING: "#e5e7eb",
   TOURNAMENT: "#dbeafe",
   MAINTENANCE: "#ffedd5",
 };
@@ -76,11 +76,11 @@ function cellKey(courtId: string, startTime: string): string {
   return `${courtId}|${startTime}`;
 }
 
-function shortCourtLabel(name: string): string {
-  const indoor = name.match(/^Kapalı\s+(\d+)$/u);
-  if (indoor?.[1]) return `K${indoor[1]}`;
-  const outdoor = name.match(/^Kort\s+(\d+)$/u);
-  if (outdoor?.[1]) return outdoor[1];
+function phoneCourtHeader(name: string): string {
+  const indoor = /^Kapalı\s*(\d+)$/u.exec(name);
+  if (indoor?.[1]) return `Kapalı ${indoor[1]}`;
+  const outdoor = /^Kort\s*(\d+)$/u.exec(name);
+  if (outdoor?.[1]) return `Kort${outdoor[1]}`;
   return name;
 }
 
@@ -222,6 +222,8 @@ type Tool = CourtPurpose | "CLEAR" | "CANCEL" | "CHECKIN";
 
 export function CourtDayGrid({
   date,
+  selected,
+  onToggleDay,
   grid,
   onApply,
   onCancel,
@@ -229,9 +231,11 @@ export function CourtDayGrid({
   focus = null,
 }: {
   date: string;
+  selected: string[];
+  onToggleDay: (date: string) => void;
   grid: DayGrid;
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
-  onCancel: (reservationIds: string[]) => Promise<void>;
+  onCancel: (reservationIds: string[], matchOnly: boolean) => Promise<void>;
   onCheckIn: (slots: { reservationId: string; courtId: string; date: string; startTime: string }[]) => Promise<void>;
   focus?: { date: string; courtId: string; hour: string } | null;
 }) {
@@ -252,12 +256,12 @@ export function CourtDayGrid({
     const reservation = cell?.state === "busy" ? cell.reservation : null;
     if (mode === "CLEAR") {
       if (!reservation) return;
-      void onCancel([reservation.id]);
+      void onCancel([reservation.id], false);
       return;
     }
     if (mode === "CANCEL") {
       if (reservation?.purpose !== "MATCH") return;
-      void onCancel([reservation.id]);
+      void onCancel([reservation.id], true);
       return;
     }
     if (mode === "CHECKIN") {
@@ -274,17 +278,17 @@ export function CourtDayGrid({
       <h1 className="text-sm font-semibold">Kortlar</h1>
       <div className="flex w-full min-w-0 items-start justify-between gap-1 text-sm" role="group" aria-label="Haftanın günleri">
         {days.map((day) => {
-          const on = day.date === date;
+          const on = selected.includes(day.date);
           return (
-            <div key={day.date} className="min-w-0 px-0.5 text-center text-[10px] leading-tight md:text-xs">
+            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className="min-w-0 flex-1 border-0 bg-transparent px-0.5 py-0 text-center text-[10px] leading-tight text-inherit md:text-xs">
               <span className={`md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
               <span className={`hidden whitespace-nowrap md:inline ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
               <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
-            </div>
+            </button>
           );
         })}
       </div>
-      <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2 md:pl-[3.25rem]" role="group" aria-label="Amaç">
+      <div className="-mx-4 flex w-[calc(100%+2rem)] min-w-0 flex-nowrap items-center gap-1 overflow-x-auto px-1 md:mx-0 md:ml-[3.25rem] md:w-auto md:gap-2 md:overflow-visible md:px-0" role="group" aria-label="Amaç">
         {PURPOSE_OPTIONS.map((option) => {
           const on = mode === option.purpose;
           return (
@@ -293,7 +297,7 @@ export function CourtDayGrid({
               type="button"
               aria-pressed={on}
               onClick={() => setMode(option.purpose)}
-              className={`court-press rounded-md border px-2 py-1 text-xs ${on ? "border-ink font-semibold" : "border-line"}`}
+              className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${on ? "border-ink font-semibold" : "border-line"}`}
               style={{ backgroundColor: CELL_FILL[option.purpose], color: "#14241c" }}
             >
               {option.word}
@@ -304,15 +308,16 @@ export function CourtDayGrid({
           type="button"
           aria-pressed={mode === "CLEAR"}
           onClick={() => setMode("CLEAR")}
-          className={`court-press rounded-md border bg-surface px-2 py-1 text-xs text-ink ${mode === "CLEAR" ? "border-ink font-semibold" : "border-line"}`}
+          className={`court-press shrink-0 rounded-md border bg-surface px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CLEAR" ? "border-ink font-semibold" : "border-line"}`}
         >
           Boş
         </button>
+        <span className="w-3 shrink-0 md:w-4" aria-hidden />
         <button
           type="button"
           aria-pressed={mode === "CANCEL"}
           onClick={() => setMode("CANCEL")}
-          className={`court-press rounded-md border px-2 py-1 text-xs text-ink ${mode === "CANCEL" ? "border-ink font-semibold" : "border-line"}`}
+          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CANCEL" ? "border-ink font-semibold" : "border-line"}`}
           style={{ backgroundColor: "#e7e5e0" }}
         >
           İptal
@@ -321,13 +326,13 @@ export function CourtDayGrid({
           type="button"
           aria-pressed={mode === "CHECKIN"}
           onClick={() => setMode("CHECKIN")}
-          className={`court-press rounded-md border px-2 py-1 text-xs text-ink ${mode === "CHECKIN" ? "border-ink font-semibold" : "border-[#86efac]"}`}
+          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CHECKIN" ? "border-ink font-semibold" : "border-[#86efac]"}`}
           style={{ backgroundColor: "#d1fae5" }}
         >
           Check-in
         </button>
       </div>
-      <div className="w-full min-w-0 overflow-x-auto">
+      <div className="mt-4 w-full min-w-0 overflow-x-auto">
         <div
           className="grid w-max gap-0.5"
           style={{ gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, 3.625rem)` }}
@@ -335,7 +340,7 @@ export function CourtDayGrid({
           <div />
           {grid.courts.map((court) => (
             <div key={court.id} className="min-w-0 whitespace-normal break-words px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
-              <span className="md:hidden">{shortCourtLabel(court.name)}</span>
+              <span className="md:hidden">{phoneCourtHeader(court.name)}</span>
               <span className="hidden md:inline">{court.name}</span>
             </div>
           ))}
