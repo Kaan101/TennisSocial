@@ -101,15 +101,15 @@ export function TakvimView() {
         <p className="min-w-0 flex-1 text-center text-xs text-muted">{data.days[0]?.date} – {data.days[6]?.date}</p>
         <button type="button" className="court-press shrink-0 py-1" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
       </div>
-      <div className="grid w-full min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-3">
-        <div className="min-w-0 overflow-x-auto lg:col-span-2">
+      <div className="flex w-full min-w-0 flex-col items-start gap-4 lg:flex-row">
+        <div className="w-full min-w-0 overflow-x-auto lg:w-auto lg:shrink-0">
           <div
-            className="grid w-max min-w-max gap-0.5 border-2 border-line p-1"
-            style={{ gridTemplateColumns: "3.25rem repeat(7, 7.25rem)", borderRadius: 4 }}
+            className="grid w-max gap-0.5 border-2 border-line p-1"
+            style={{ gridTemplateColumns: "3.25rem repeat(7, 5.5rem)", borderRadius: 4 }}
           >
             <div />
             {data.days.map((day) => (
-              <div key={day.date} className="whitespace-nowrap px-1 pb-1 text-center text-[10px] font-semibold leading-tight md:text-xs">
+              <div key={day.date} className="min-w-0 px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
                 <span className="md:hidden">{day.short}</span>
                 <span className="hidden md:inline">{day.label}</span>
                 <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
@@ -117,7 +117,7 @@ export function TakvimView() {
             ))}
             {data.hours.map((hour) => (
               <Fragment key={hour}>
-                <div className="py-1 text-[10px] font-bold text-ink">{hour}</div>
+                <div className="whitespace-nowrap py-1 text-[10px] font-bold text-ink">{hour}</div>
                 {data.days.map((day) => {
                   const cell = data.slots.find((item) => item.date === day.date && item.startTime === hour);
                   if (!cell) return <div key={day.date} />;
@@ -130,11 +130,11 @@ export function TakvimView() {
                       aria-pressed={selected}
                       aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press flex min-h-8 w-full flex-col items-stretch gap-0.5 border-2 bg-transparent p-0.5 ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex min-h-8 w-full min-w-0 flex-col items-stretch gap-0.5 border-2 bg-transparent p-0.5 ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
                     >
                       {cell.people.length > 0 ? (
-                        <span className="flex max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto">
+                        <span className="flex max-w-full flex-wrap items-center gap-0.5">
                           {cell.people.map((person) => (
                             <CellPhoto key={person.id} person={person} />
                           ))}
@@ -156,7 +156,7 @@ export function TakvimView() {
             ))}
           </div>
         </div>
-        <aside className="min-w-0 space-y-4 lg:col-span-1">
+        <aside className="w-full min-w-0 space-y-4 lg:flex-1">
           {slot ? (
             <>
               <section>
