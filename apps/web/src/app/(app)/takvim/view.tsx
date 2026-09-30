@@ -51,6 +51,12 @@ function freeCourtsOf(slot: Slot): CourtCell[] {
   return slot.courts.filter(courtIsFree).sort((left, right) => courtOrder(left) - courtOrder(right));
 }
 
+function cellFrame(freeCourts: number, players: number): string {
+  if (freeCourts < 1) return "border-line";
+  if (players > 0) return "border-court";
+  return "border-[#2563eb]";
+}
+
 export function TakvimView() {
   const { user } = useAuth();
   const params = useSearchParams();
@@ -98,8 +104,8 @@ export function TakvimView() {
       <div className="grid w-full min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <div className="min-w-0 overflow-x-auto lg:col-span-2">
           <div
-            className="grid w-max min-w-max gap-0.5 pr-0.5"
-            style={{ gridTemplateColumns: "3.25rem repeat(7, 7.25rem)" }}
+            className="grid w-max min-w-max gap-0.5 border-2 border-line p-1"
+            style={{ gridTemplateColumns: "3.25rem repeat(7, 7.25rem)", borderRadius: 4 }}
           >
             <div />
             {data.days.map((day) => (
@@ -117,7 +123,6 @@ export function TakvimView() {
                   if (!cell) return <div key={day.date} />;
                   const selected = picked?.date === day.date && picked.start === hour;
                   const freeCourts = freeCourtsOf(cell);
-                  const open = freeCourts.length > 0;
                   return (
                     <button
                       key={day.date}
@@ -125,7 +130,7 @@ export function TakvimView() {
                       aria-pressed={selected}
                       aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press flex min-h-8 w-full flex-col items-stretch gap-0.5 border-2 p-0.5 ${open ? "border-court bg-surface" : "border-line bg-surface"} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex min-h-8 w-full flex-col items-stretch gap-0.5 border-2 bg-transparent p-0.5 ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
                     >
                       {cell.people.length > 0 ? (

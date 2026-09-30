@@ -59,6 +59,13 @@ export function purposeWord(purpose: CourtPurpose): string {
   return purposeOption(purpose).word;
 }
 
+function cellMark(purpose: CourtPurpose): string {
+  if (purpose === "MATCH") return "Maç";
+  if (purpose === "TRAINING") return "Antr.";
+  if (purpose === "MAINTENANCE") return "Bakım";
+  return "Turn.";
+}
+
 function cellPaint(reservation: DayReservation | null): { backgroundColor: string; color: string } {
   if (!reservation) return { backgroundColor: "transparent", color: "#14241c" };
   if (reservation.purpose === "MATCH" && reservation.checkedIn) return { backgroundColor: "#16a34a", color: "#ffffff" };
@@ -329,11 +336,11 @@ export function CourtDayGrid({
       <div className="w-full min-w-0 overflow-x-auto">
         <div
           className="grid w-max gap-0.5"
-          style={{ gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, 7.25rem)` }}
+          style={{ gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, 3.625rem)` }}
         >
           <div />
           {grid.courts.map((court) => (
-            <div key={court.id} className="whitespace-nowrap px-1 pb-1 text-center text-[10px] font-semibold leading-tight md:text-xs">
+            <div key={court.id} className="min-w-0 whitespace-normal break-words px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
               <span className="md:hidden">{shortCourtLabel(court.name)}</span>
               <span className="hidden md:inline">{court.name}</span>
             </div>
@@ -354,9 +361,11 @@ export function CourtDayGrid({
                     aria-pressed={picked}
                     aria-label={`${court.name} ${hour} ${word}`}
                     onClick={() => onCell(court, hour)}
-                    className={`court-press block min-h-8 w-full rounded-sm border border-line ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
+                    className={`court-press flex min-h-8 w-full min-w-0 items-center justify-center rounded-sm border border-line px-0.5 text-[10px] font-semibold leading-none ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
                     style={{ ...cellPaint(reservation), borderRadius: 4 }}
-                  />
+                  >
+                    {reservation ? cellMark(reservation.purpose) : null}
+                  </button>
                 );
               })}
             </Fragment>
