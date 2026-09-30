@@ -8,6 +8,7 @@ export type WindowRow = {
   startTime: string;
   endTime: string;
   note: string | null;
+  state?: "FULL" | "MAYBE" | "BUSY";
 };
 
 export function isAvailableOn(
@@ -22,6 +23,7 @@ export function isAvailableOn(
   if (!isPlayableStatus(input.status)) return false;
   if (input.absences.some((absence) => day >= absence.startDate && day <= absence.endDate)) return false;
   return input.windows.some((window) => {
+    if (window.state && window.state !== "FULL") return false;
     if (window.kind === "ONE_OFF") return window.date === day;
     return window.weekday === weekday;
   });

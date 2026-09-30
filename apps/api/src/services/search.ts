@@ -17,6 +17,7 @@ function windowsOf(user: UserWithRelations): WindowRow[] {
     startTime: item.startTime,
     endTime: item.endTime,
     note: item.note,
+    state: item.state,
   }));
 }
 

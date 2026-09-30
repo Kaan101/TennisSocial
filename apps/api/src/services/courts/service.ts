@@ -430,7 +430,7 @@ type BoardUser = {
   boardVisible: boolean;
   profile: { firstName: string; lastName: string; playerStatus: string } | null;
   tennisProfile: { overallLevel: OverallLevel } | null;
-  availability: { kind: "WEEKLY" | "ONE_OFF"; weekday: number | null; date: Date | null; startTime: string; endTime: string }[];
+  availability: { kind: "WEEKLY" | "ONE_OFF"; weekday: number | null; date: Date | null; startTime: string; endTime: string; state: "FULL" | "MAYBE" | "BUSY" }[];
   absences: { startDate: Date; endDate: Date }[];
 };
 
@@ -443,11 +443,18 @@ function userAvailable(user: BoardUser, date: string, weekday: number, startTime
   });
   if (away) return false;
   const endTime = slotEnd(startTime);
-  return user.availability.some((window) => {
+  const covers = (window: BoardUser["availability"][number]) => {
     if (!timesOverlap(window.startTime, window.endTime, startTime, endTime)) return false;
     if (window.kind === "ONE_OFF") return dateOnly(window.date) === date;
     return window.weekday === weekday;
-  });
+  };
+  const oneOffs = user.availability.filter((window) => window.kind === "ONE_OFF" && covers(window));
+  if (oneOffs.length > 0) {
+    const exact = oneOffs.find((window) => window.startTime === startTime && window.endTime === endTime);
+    if (exact) return exact.state === "FULL";
+    return oneOffs.some((window) => window.state === "FULL");
+  }
+  return user.availability.some((window) => window.kind === "WEEKLY" && covers(window) && window.state === "FULL");
 }
 
 type ApprovedRow = Prisma.CourtReservationGetPayload<{
@@ -495,7 +502,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
         boardVisible: true,
         profile: { select: { firstName: true, lastName: true, playerStatus: true } },
         tennisProfile: { select: { overallLevel: true } },
-        availability: { where: { deletedAt: null }, select: { kind: true, weekday: true, date: true, startTime: true, endTime: true } },
+        availability: { where: { deletedAt: null }, select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true } },
         absences: { where: { deletedAt: null }, select: { startDate: true, endDate: true } },
       },
     }),

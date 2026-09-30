@@ -41,7 +41,7 @@ function toScoreProfile(user: UserWithRelations, pastMatchCount: number): ScoreP
     overallLevel: user.tennisProfile.overallLevel,
     skills,
     weekly: user.availability
-      .filter((item) => item.kind === "WEEKLY" && item.weekday !== null)
+      .filter((item) => item.kind === "WEEKLY" && item.weekday !== null && item.state === "FULL")
       .map((item) => ({ weekday: item.weekday as number, startTime: item.startTime, endTime: item.endTime })),
     district: user.profile.district,
     playPreference: user.tennisProfile.playPreference,

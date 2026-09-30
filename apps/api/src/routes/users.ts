@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
+  availabilityCellSchema,
   availabilityPutSchema,
   paginationSchema,
   privacySchema,
@@ -14,6 +15,7 @@ import { dateOnly, parseDateOnly } from "../lib/dates";
 import { AppError, forbidden, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 import { imageStorage } from "../lib/storage";
+import { availabilityWeek, paintAvailabilityCell } from "../services/availability-calendar";
 import { areFriends } from "../services/friends";
 import { toUserDetail, userInclude } from "../services/present";
 
@@ -320,6 +322,18 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       }
     });
     return { ok: true };
+  });
+
+  app.get("/api/me/availability-week", async (req) => {
+    const viewer = requireUser(req);
+    const week = (req.query as { week?: string }).week;
+    return availabilityWeek(viewer.id, week);
+  });
+
+  app.post("/api/me/availability-cells", async (req) => {
+    const viewer = requireUser(req);
+    const body = parse(availabilityCellSchema, req.body);
+    return paintAvailabilityCell(viewer.id, body);
   });
 
   app.get("/api/users/:id/privacy", async (req) => {

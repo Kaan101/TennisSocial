@@ -127,6 +127,48 @@ test("a hidden player does not count toward the green rule", async () => {
   expect(slot.people.map((person) => person.id)).not.toContain(hidden.user.id);
 });
 
+test("Tam counts for the green rule and Belki or Dolu does not", async () => {
+  const viewer = await registerUser(app);
+  const tam = await registerUser(app, { firstName: "Tam", lastName: "Oyuncu" });
+  const other = await registerUser(app, { firstName: "Belki", lastName: "Oyuncu" });
+  await setLevel(tam.token, tam.user.id, "BEGINNER");
+  await setLevel(other.token, other.user.id, "BEGINNER");
+  const paint = (token: string, state: "FULL" | "MAYBE" | "BUSY") => app.inject({
+    method: "POST",
+    url: "/api/me/availability-cells",
+    headers: auth(token),
+    payload: { date: MONDAY, startTime: "18:00", state },
+  });
+  expect((await paint(tam.token, "FULL")).statusCode).toBe(200);
+  expect((await paint(other.token, "MAYBE")).statusCode).toBe(200);
+
+  let slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(false);
+  expect(slot.people.map((person) => person.id)).toContain(tam.user.id);
+  expect(slot.people.map((person) => person.id)).not.toContain(other.user.id);
+
+  expect((await paint(other.token, "FULL")).statusCode).toBe(200);
+  slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(true);
+  expect(slot.people.map((person) => person.id).sort()).toEqual([tam.user.id, other.user.id].sort());
+
+  expect((await paint(other.token, "BUSY")).statusCode).toBe(200);
+  slot = await mondaySlot(viewer.token);
+  expect(slot.green).toBe(false);
+  expect(slot.people.map((person) => person.id)).toContain(tam.user.id);
+  expect(slot.people.map((person) => person.id)).not.toContain(other.user.id);
+
+  const week = await app.inject({
+    method: "GET",
+    url: `/api/me/availability-week?week=${MONDAY}`,
+    headers: auth(other.token),
+  });
+  expect(week.statusCode).toBe(200);
+  const cell = (week.json().cells as { date: string; startTime: string; manual: string; match: boolean }[])
+    .find((item) => item.date === MONDAY && item.startTime === "18:00");
+  expect(cell).toMatchObject({ manual: "BUSY", match: false });
+});
+
 test("three players are green when only one pair is within one level", async () => {
   const viewer = await registerUser(app);
   await player("Bir", "BEGINNER");

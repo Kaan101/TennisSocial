@@ -103,7 +103,9 @@ Diğer seed hesapları da aynı parolayı kullanır ve `@tennisclub.local` adres
 
 ## Takvim ve kortlar
 
-`/takvim` oyuncu müsaitliğidir: günler × 08:00–22:00. Yeşil saat, en az iki görünen oyuncu ve aralarında seviye farkı en fazla 1 olan bir çift demektir. Bir saate dokununca panel açılır; aynı günde bitiş saati hariç bir aralık seçilebilir (18:00–21:00, 18, 19 ve 20’yi kapsar). Aralıkta bir kort ancak her saatte boşsa boş sayılır.
+`/takvim` oyuncu müsaitliğidir: günler × 08:00–22:00. Yeşil saat, en az iki görünen oyuncu, ikisi de o saatte Tam, ve aralarında seviye farkı en fazla 1 olan bir çift demektir. Belki ve Dolu sayılmaz. Gizli oyuncu da sayılmaz.
+
+`/musaitlik` üyenin kendi haftasıdır: günler yan yana, saatler 08:00–22:00. Tam, Belki ve Dolu hücreyi boyar. Maç olan saat daha koyu yeşildir ve bu üç seçenek onu değiştirmez. Bir saate dokununca panel açılır; aynı günde bitiş saati hariç bir aralık seçilebilir (18:00–21:00, 18, 19 ve 20’yi kapsar). Aralıkta bir kort ancak her saatte boşsa boş sayılır.
 
 `/kortlar` yalnızca gün tablosudur: sütunlar Kapalı 1–3, sonra Kort 1–9; satırlar 08:00–22:00. Üstte haftanın günleri durur; önceki ve sonraki haftayı değiştirir. Geniş ekranda gün adları tam yazılır. Dar ekranda K1, K2, K3 ve 1–9 yan yana durur. Seçilen saatlere Maç, Antrenman, Bakım veya Turnuva yazılır; Boş saati bırakır. Maç rakip istemez. Üye talebi onay bekler, yöneticinin kaydı hemen onaylıdır. İptal ve Check-in aynı seçenek satırında durur. Check-in, seçili hücre maç değilse bir şey yapmaz. `/kortlar/[id]` haftası Takvim bağlantıları için durur. Takvimdeki kort adı da o kortun haftasına gider.
 

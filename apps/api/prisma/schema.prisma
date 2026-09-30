@@ -106,6 +106,12 @@ enum AvailabilityKind {
   ONE_OFF
 }
 
+enum AvailabilityState {
+  FULL
+  MAYBE
+  BUSY
+}
+
 enum GroupVisibility {
   PUBLIC
   PRIVATE
@@ -368,6 +374,7 @@ model Availability {
   date      DateTime?        @db.Date
   startTime String
   endTime   String
+  state     AvailabilityState @default(FULL)
   note      String?
   deletedAt DateTime?
   createdAt DateTime         @default(now())

@@ -20,6 +20,7 @@ import {
   GROUP_VISIBILITIES,
   COURT_PURPOSES,
   RESERVATION_STATUSES,
+  AVAILABILITY_STATES,
 } from "./constants";
 
 export const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Saat HH:mm olmalı");
@@ -132,6 +133,12 @@ export const oneOffWindowSchema = z.object({
 export const availabilityPutSchema = z.object({
   weekly: z.array(weeklyWindowSchema).max(21),
   oneOff: z.array(oneOffWindowSchema).max(30).default([]),
+});
+
+export const availabilityCellSchema = z.object({
+  date: dateSchema,
+  startTime: hourSchema,
+  state: z.enum(AVAILABILITY_STATES),
 });
 
 export const privacySchema = z.object({

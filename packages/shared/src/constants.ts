@@ -35,6 +35,9 @@ export type CourtType = (typeof COURT_TYPES)[number];
 export const PLAY_PREFERENCES = ["SINGLES", "DOUBLES", "BOTH"] as const;
 export type PlayPreference = (typeof PLAY_PREFERENCES)[number];
 
+export const AVAILABILITY_STATES = ["FULL", "MAYBE", "BUSY"] as const;
+export type AvailabilityState = (typeof AVAILABILITY_STATES)[number];
+
 export const PREFERRED_TIMES = ["MORNING", "AFTERNOON", "EVENING", "WEEKEND"] as const;
 export type PreferredTime = (typeof PREFERRED_TIMES)[number];
 

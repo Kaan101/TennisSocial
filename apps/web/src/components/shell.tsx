@@ -1,7 +1,7 @@
 "use client";
 
 import { brand } from "@club/ui";
-import { Bell, CalendarDays, CircleDot, House, LayoutGrid, Plus, Trophy, UserRound, Users, X } from "lucide-react";
+import { Bell, CalendarDays, CircleDot, Clock, House, LayoutGrid, Plus, Trophy, UserRound, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -12,6 +12,7 @@ const items = [
   { href: "/", label: "Ana Sayfa", icon: House },
   { href: "/oyna", label: "Oyna", icon: CircleDot },
   { href: "/takvim", label: "Takvim", icon: CalendarDays },
+  { href: "/musaitlik", label: "Müsaitlik", icon: Clock },
   { href: "/kortlar", label: "Kortlar", icon: LayoutGrid },
   { href: "/turnuvalar", label: "Turnuvalar", icon: Trophy },
   { href: "/oyuncular", label: "Oyuncular", icon: Users },
@@ -62,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/musaitlik");
 
   return (
     <div className={`mx-auto min-h-dvh pb-28 ${wide ? "max-w-6xl" : "max-w-lg"}`}>
@@ -137,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
-        <ul className={`mx-auto grid grid-cols-7 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+        <ul className={`mx-auto grid grid-cols-8 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;
