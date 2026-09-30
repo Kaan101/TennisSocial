@@ -1,12 +1,12 @@
 "use client";
 
 import { waLink } from "@club/shared";
+import { User } from "lucide-react";
 import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
-import { Avatar } from "@/components/player-card";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { useAuth } from "@/lib/auth";
 import { useResource } from "@/lib/use-resource";
@@ -57,6 +57,15 @@ function cellFrame(freeCourts: number, players: number): string {
   return "border-[#2563eb]";
 }
 
+function nameInitials(person: SlotPerson): string {
+  const first = Array.from(person.firstName.trim())[0];
+  const last = Array.from(person.lastName.trim())[0];
+  return [first, last]
+    .filter((letter): letter is string => Boolean(letter))
+    .map((letter) => letter.toLocaleUpperCase("tr-TR"))
+    .join(" ");
+}
+
 export function TakvimView() {
   const { user } = useAuth();
   const params = useSearchParams();
@@ -94,33 +103,39 @@ export function TakvimView() {
   const courts = slot ? freeCourtsOf(slot) : [];
 
   return (
-    <div className="flex w-full min-w-0 flex-col items-start gap-2">
-      <h1 className="text-sm font-semibold">Takvim</h1>
-      <div className="flex w-full min-w-0 items-center gap-3 text-sm">
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => { setWeek(shiftDate(data.weekStart, -7)); setPicked(null); }}>önceki</button>
+    <div className="flex h-[calc(100dvh-11rem)] w-full min-w-0 flex-col gap-1 overflow-hidden">
+      <style>{`
+        .takvim-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
+        @media (min-width: 64rem) {
+          .takvim-board { grid-template-columns: 3.25rem repeat(7, 6.25rem); }
+        }
+      `}</style>
+      <h1 className="shrink-0 text-sm font-semibold leading-none">Takvim</h1>
+      <div className="flex w-full shrink-0 items-center gap-2 text-sm leading-none">
+        <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, -7)); setPicked(null); }}>önceki</button>
         <p className="min-w-0 flex-1 text-center text-xs text-muted">{data.days[0]?.date} – {data.days[6]?.date}</p>
-        <button type="button" className="court-press shrink-0 py-1" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
+        <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
       </div>
-      <div className="flex w-full min-w-0 flex-col items-start gap-4 lg:flex-row">
-        <div className="w-full min-w-0 overflow-x-auto lg:w-auto lg:shrink-0">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-1.5 lg:flex-row lg:items-stretch">
+        <div className="min-h-0 w-full flex-1 lg:h-full lg:w-auto lg:flex-none">
           <div
-            className="grid w-max gap-0.5 border-2 border-line p-1"
-            style={{ gridTemplateColumns: "3.25rem repeat(7, 5.5rem)", borderRadius: 4 }}
+            className="takvim-board grid h-full w-full gap-x-0.5 gap-y-px lg:w-max lg:gap-0.5"
+            style={{ gridTemplateRows: `auto repeat(${data.hours.length}, minmax(0, 1fr))` }}
           >
             <div />
             {data.days.map((day) => (
-              <div key={day.date} className="min-w-0 px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
-                <span className="md:hidden">{day.short}</span>
-                <span className="hidden md:inline">{day.label}</span>
-                <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
+              <div key={day.date} className="flex min-h-0 min-w-0 flex-col items-center justify-end pb-px text-center">
+                <span className="text-[10px] font-semibold leading-none lg:hidden">{day.short}</span>
+                <span className="hidden max-w-full truncate text-[10px] font-semibold leading-none lg:block">{day.label}</span>
+                <span className="mt-px hidden text-[9px] font-normal leading-none text-muted lg:block">{day.date.slice(8)}</span>
               </div>
             ))}
             {data.hours.map((hour) => (
               <Fragment key={hour}>
-                <div className="whitespace-nowrap py-1 text-[10px] font-bold text-ink">{hour}</div>
+                <div className="flex items-center whitespace-nowrap text-[10px] font-bold leading-none text-ink">{hour}</div>
                 {data.days.map((day) => {
                   const cell = data.slots.find((item) => item.date === day.date && item.startTime === hour);
-                  if (!cell) return <div key={day.date} />;
+                  if (!cell) return <div key={day.date} className="min-h-0" />;
                   const selected = picked?.date === day.date && picked.start === hour;
                   const freeCourts = freeCourtsOf(cell);
                   return (
@@ -130,20 +145,22 @@ export function TakvimView() {
                       aria-pressed={selected}
                       aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press flex min-h-8 w-full min-w-0 flex-col items-stretch gap-0.5 border-2 bg-transparent p-0.5 ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 bg-transparent p-px lg:flex-col lg:justify-center ${cellFrame(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
                     >
                       {cell.people.length > 0 ? (
-                        <span className="flex max-w-full flex-wrap items-center gap-0.5">
+                        <User className="h-3 w-3 shrink-0 text-ink lg:hidden" aria-hidden />
+                      ) : null}
+                      {freeCourts.length > 0 ? (
+                        <span className="h-2.5 w-2.5 shrink-0 bg-[#2563eb] lg:hidden" aria-hidden />
+                      ) : null}
+                      {cell.people.length > 0 || freeCourts.length > 0 ? (
+                        <span className="hidden max-h-full min-h-0 w-full flex-wrap content-center items-center justify-center gap-px overflow-hidden lg:flex">
                           {cell.people.map((person) => (
                             <CellPhoto key={person.id} person={person} />
                           ))}
-                        </span>
-                      ) : null}
-                      {freeCourts.length > 0 ? (
-                        <span className="flex max-w-full flex-wrap items-center gap-0.5">
                           {freeCourts.map((court) => (
-                            <span key={court.id} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-[9px] font-semibold leading-none text-ink">
+                            <span key={court.id} className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line text-[8px] font-semibold leading-none text-ink">
                               {circleLabel(court)}
                             </span>
                           ))}
@@ -156,12 +173,12 @@ export function TakvimView() {
             ))}
           </div>
         </div>
-        <aside className="w-full min-w-0 space-y-4 lg:flex-1">
+        <aside className="max-h-36 w-full min-h-0 shrink overflow-y-auto lg:max-h-none lg:min-w-0 lg:flex-1">
           {slot ? (
-            <>
+            <div className="space-y-1.5 lg:space-y-3">
               <section>
-                <h2 className="text-sm font-semibold">Oyuncular</h2>
-                <ul className="mt-2 flex flex-wrap gap-2">
+                <h2 className="text-xs font-semibold lg:text-sm">Oyuncular</h2>
+                <ul className="mt-1 flex flex-wrap gap-1 lg:gap-2">
                   {slot.people.map((person) => (
                     <li key={person.id}>
                       <PlayerChip person={person} />
@@ -170,18 +187,24 @@ export function TakvimView() {
                 </ul>
               </section>
               <section>
-                <h2 className="text-sm font-semibold">Kortlar</h2>
-                <ul className="mt-2 flex flex-wrap gap-2">
+                <h2 className="text-xs font-semibold lg:text-sm">Kortlar</h2>
+                <ul className="mt-1 flex flex-wrap gap-1 lg:gap-2">
                   {courts.map((court) => (
                     <li key={court.id}>
-                      <Link href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`} className="inline-flex rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink">
-                        {panelCourtName(court)}
+                      <Link
+                        href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
+                      >
+                        <span className="lg:hidden">{circleLabel(court)}</span>
+                        <span className="hidden lg:inline">{panelCourtName(court)}</span>
                       </Link>
                     </li>
                   ))}
                 </ul>
               </section>
-            </>
+            </div>
           ) : null}
         </aside>
       </div>
@@ -204,28 +227,29 @@ function PersonFace({ person, className }: { person: SlotPerson; className: stri
 function openChat(event: MouseEvent, person: SlotPerson) {
   event.stopPropagation();
   if (!person.messageNumber) return;
-  window.location.assign(waLink(person.messageNumber, person.firstName));
+  window.open(waLink(person.messageNumber, person.firstName), "_blank", "noopener,noreferrer");
 }
 
 function CellPhoto({ person }: { person: SlotPerson }) {
   return (
     <span className="inline-flex shrink-0" onClick={(event) => openChat(event, person)}>
-      <PersonFace person={person} className="h-5 w-5 text-[8px]" />
+      <PersonFace person={person} className="h-3.5 w-3.5 text-[7px]" />
     </span>
   );
 }
 
 function PlayerChip({ person }: { person: SlotPerson }) {
-  const className = "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1";
+  const className = "inline-flex items-center gap-1 rounded-md border border-line bg-surface px-1 py-0.5 lg:gap-2 lg:px-2 lg:py-1";
   const body = (
     <>
-      <Avatar first={person.firstName} last={person.lastName} photo={person.photoUrl} className="h-8 w-8" />
-      <span className="text-sm">{fullName(person)}</span>
+      <PersonFace person={person} className="h-5 w-5 text-[8px] lg:h-8 lg:w-8 lg:text-xs" />
+      <span className="text-[11px] leading-none lg:hidden">{nameInitials(person)}</span>
+      <span className="hidden text-sm lg:inline">{fullName(person)}</span>
     </>
   );
   if (!person.messageNumber) return <span className={className}>{body}</span>;
   return (
-    <a href={waLink(person.messageNumber, person.firstName)} className={className}>
+    <a href={waLink(person.messageNumber, person.firstName)} target="_blank" rel="noopener noreferrer" className={className}>
       {body}
     </a>
   );
