@@ -38,12 +38,19 @@ export type DayGrid = {
 
 export type DaySlot = { courtId: string; startTime: string };
 
-const PURPOSE_OPTIONS: { purpose: CourtPurpose; word: string; bg: string }[] = [
-  { purpose: "MATCH", word: "Maç", bg: "bg-[#dcfce7]" },
-  { purpose: "TRAINING", word: "Antrenman", bg: "bg-[#f3e8ff]" },
-  { purpose: "MAINTENANCE", word: "Bakım", bg: "bg-[#ffedd5]" },
-  { purpose: "TOURNAMENT", word: "Turnuva", bg: "bg-[#dbeafe]" },
+const PURPOSE_OPTIONS: { purpose: CourtPurpose; word: string }[] = [
+  { purpose: "MATCH", word: "Maç" },
+  { purpose: "TRAINING", word: "Antrenman" },
+  { purpose: "MAINTENANCE", word: "Bakım" },
+  { purpose: "TOURNAMENT", word: "Turnuva" },
 ];
+
+const CELL_FILL: Record<CourtPurpose, string> = {
+  MATCH: "#dcfce7",
+  TRAINING: "#f3e8ff",
+  TOURNAMENT: "#dbeafe",
+  MAINTENANCE: "#ffedd5",
+};
 
 function purposeOption(purpose: CourtPurpose) {
   return PURPOSE_OPTIONS.find((item) => item.purpose === purpose) ?? PURPOSE_OPTIONS[1]!;
@@ -53,10 +60,10 @@ export function purposeWord(purpose: CourtPurpose): string {
   return purposeOption(purpose).word;
 }
 
-function cellTone(reservation: DayReservation | null): string {
-  if (!reservation) return "bg-surface text-ink";
-  if (reservation.purpose === "MATCH" && reservation.checkedIn) return "bg-[#22c55e] text-white";
-  return `${purposeOption(reservation.purpose).bg} text-ink`;
+function cellPaint(reservation: DayReservation | null): { backgroundColor: string; color: string } {
+  if (!reservation) return { backgroundColor: "#fffdf8", color: "#14241c" };
+  if (reservation.purpose === "MATCH" && reservation.checkedIn) return { backgroundColor: "#16a34a", color: "#ffffff" };
+  return { backgroundColor: CELL_FILL[reservation.purpose], color: "#14241c" };
 }
 
 function cellKey(courtId: string, startTime: string): string {
@@ -283,44 +290,52 @@ export function CourtDayGrid({
 
   const openCourt = grid?.courts.find((court) => court.id === openCourtId) ?? null;
 
+  const marked = (on: boolean) => (on ? "font-semibold underline underline-offset-2" : "font-normal");
+
   return (
-    <div className="w-full min-w-0 space-y-2">
-      <div className="flex min-w-0 items-start gap-2 text-xs sm:text-sm">
-        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>
-          önceki
-        </button>
+    <div className="flex w-full min-w-0 flex-col items-start gap-2">
+      <div className="flex w-full min-w-0 items-start gap-2 text-xs md:hidden">
+        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>önceki</button>
         <div className="flex min-w-0 flex-1 items-start justify-between gap-1" role="group" aria-label="Haftanın günleri">
           {days.map((day) => {
             const on = day.date === date;
             return (
-              <button
-                key={day.date}
-                type="button"
-                aria-pressed={on}
-                aria-label={day.label}
-                onClick={() => onDate(day.date)}
-                className="min-w-0 px-0.5 text-center"
-              >
-                <span className={`block truncate md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
-                <span className={`hidden whitespace-nowrap md:block ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
+              <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onDate(day.date)} className="min-w-0 px-0.5 text-center">
+                <span className={`block truncate ${marked(on)}`}>{day.short}</span>
                 <span className="block font-normal text-muted">{day.date.slice(8)}</span>
               </button>
             );
           })}
         </div>
-        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, 7))}>
-          sonraki
-        </button>
+        <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, 7))}>sonraki</button>
       </div>
 
-      <div className="flex min-w-0 flex-nowrap items-center gap-1 sm:gap-2" role="group" aria-label="Amaç">
+      <div className="hidden w-full min-w-0 md:block">
+        <div className="flex w-full min-w-0 items-start gap-3 text-sm">
+          <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, -7))}>önceki</button>
+          <div className="flex min-w-0 flex-1 items-start justify-between gap-2" role="group" aria-label="Haftanın günleri">
+            {days.map((day) => {
+              const on = day.date === date;
+              return (
+                <button key={day.date} type="button" aria-pressed={on} onClick={() => onDate(day.date)} className="shrink-0 whitespace-nowrap px-0.5 text-center">
+                  <span className={`block ${marked(on)}`}>{day.label}</span>
+                  <span className="block text-xs font-normal text-muted">{day.date.slice(8)}</span>
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" className="shrink-0 py-1" onClick={() => onDate(shiftDate(date, 7))}>sonraki</button>
+        </div>
+      </div>
+
+      <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2" role="group" aria-label="Amaç">
         {PURPOSE_OPTIONS.map((option) => (
           <button
             key={option.purpose}
             type="button"
             disabled={busy}
             onClick={() => void applyPurpose(option.purpose)}
-            className="shrink-0 rounded-lg border border-line bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-50 sm:px-2 sm:text-xs"
+            className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink disabled:opacity-50"
           >
             {option.word}
           </button>
@@ -329,18 +344,19 @@ export function CourtDayGrid({
           type="button"
           disabled={busy}
           onClick={() => void clearSelected()}
-          className="shrink-0 rounded-lg border border-line bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-50 sm:px-2 sm:text-xs"
+          className="rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink disabled:opacity-50"
         >
           Boş
         </button>
       </div>
       {showMatch ? (
-        <div className="flex items-center gap-2 pt-2">
+        <div className="inline-flex items-center justify-start gap-2 pt-1">
           <button
             type="button"
             disabled={busy}
             onClick={() => void cancelMatches()}
-            className="rounded-lg border border-line bg-[#e7e5e0] px-2 py-1 text-xs text-ink disabled:opacity-50"
+            className="rounded-md border border-line px-2 py-1 text-xs text-ink disabled:opacity-50"
+            style={{ backgroundColor: "#e7e5e0" }}
           >
             İptal
           </button>
@@ -348,7 +364,8 @@ export function CourtDayGrid({
             type="button"
             disabled={busy}
             onClick={() => void checkInSelected()}
-            className="rounded-lg border border-[#86efac] bg-[#d1fae5] px-2 py-1 text-xs text-ink disabled:opacity-50"
+            className="rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink disabled:opacity-50"
+            style={{ backgroundColor: "#d1fae5" }}
           >
             Check-in
           </button>
@@ -397,7 +414,7 @@ export function CourtDayGrid({
             ) : null}
           </div>
 
-          <div className="hidden overflow-x-auto md:block">
+          <div className="hidden w-full min-w-0 overflow-x-auto md:block">
             <p className="sr-only">{grid.label} {grid.date}, saatler 08:00–22:00</p>
             <div
               className="grid min-w-[64rem] gap-1"
@@ -459,7 +476,8 @@ function SlotButton({
       aria-pressed={selected}
       disabled={!reservation && !court.active}
       onClick={onClick}
-      className={`min-h-9 w-full rounded-lg border px-1 py-2 text-center text-[11px] focus-visible:outline-none ${cellTone(reservation)} ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
+      className={`min-h-9 w-full rounded-md border px-1 py-2 text-center text-[11px] focus-visible:outline-none ${selected ? "border-ink font-semibold underline underline-offset-2" : "border-line"}`}
+      style={{ ...cellPaint(reservation), borderRadius: 6 }}
     >
       {word}
     </button>
