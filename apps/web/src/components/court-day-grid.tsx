@@ -328,7 +328,7 @@ export function CourtDayGrid({
         </div>
       </div>
 
-      <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2" role="group" aria-label="Amaç">
+      <div className="inline-flex max-w-full flex-wrap items-center justify-start gap-2 md:pl-[4.5rem]" role="group" aria-label="Amaç">
         {PURPOSE_OPTIONS.map((option) => (
           <button
             key={option.purpose}
@@ -348,29 +348,25 @@ export function CourtDayGrid({
         >
           Boş
         </button>
+        <button
+          type="button"
+          disabled={busy || !showMatch}
+          onClick={() => void cancelMatches()}
+          className={`ml-3 rounded-md border border-line px-2 py-1 text-xs text-ink disabled:opacity-40 ${showMatch ? "" : "opacity-40"}`}
+          style={{ backgroundColor: "#e7e5e0" }}
+        >
+          İptal
+        </button>
+        <button
+          type="button"
+          disabled={busy || !showMatch}
+          onClick={() => void checkInSelected()}
+          className={`rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink disabled:opacity-40 ${showMatch ? "" : "opacity-40"}`}
+          style={{ backgroundColor: "#d1fae5" }}
+        >
+          Check-in
+        </button>
       </div>
-      {showMatch ? (
-        <div className="inline-flex items-center justify-start gap-2 pt-1">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void cancelMatches()}
-            className="rounded-md border border-line px-2 py-1 text-xs text-ink disabled:opacity-50"
-            style={{ backgroundColor: "#e7e5e0" }}
-          >
-            İptal
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void checkInSelected()}
-            className="rounded-md border border-[#86efac] px-2 py-1 text-xs text-ink disabled:opacity-50"
-            style={{ backgroundColor: "#d1fae5" }}
-          >
-            Check-in
-          </button>
-        </div>
-      ) : null}
       {actionError ? <p className="text-xs text-ink" role="alert">{actionError}</p> : null}
 
       {loading ? <LoadingBlock label="Gün tablosu yükleniyor" /> : null}
@@ -400,7 +396,7 @@ export function CourtDayGrid({
               <div className="mt-2 grid gap-1">
                 {grid.hours.map((hour) => (
                   <div key={hour} className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-stretch gap-1">
-                    <span className="py-2 text-xs text-muted">{hour}</span>
+                    <span className="py-2 text-xs font-bold text-ink">{hour}</span>
                     <SlotButton
                       court={openCourt}
                       hour={hour}
@@ -430,7 +426,7 @@ export function CourtDayGrid({
               ))}
               {grid.hours.map((hour) => (
                 <Fragment key={hour}>
-                  <div className="py-2 text-xs text-muted">{hour}</div>
+                  <div className="py-2 text-xs font-bold text-ink">{hour}</div>
                   {grid.courts.map((court) => (
                     <SlotButton
                       key={court.id}

@@ -100,15 +100,19 @@ export function levelIndexesOf(levels: OverallLevel[]): number[] {
   return levels.map((level) => levelIndex(level));
 }
 
-export function checkInWindowError(now: Date, slotStart: Date, leadHours: number): string | null {
-  const opens = new Date(slotStart.getTime() - leadHours * 60 * 60 * 1000);
-  if (now < opens) {
-    return `Check-in henüz açık değil. Kort saatinden ${leadHours} saat önce açılır.`;
-  }
-  if (now >= slotStart) {
-    return "Check-in süresi doldu. Check-in yalnızca kort saati başlayana kadar açık.";
+const CHECK_IN_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+export function checkInWindowError(now: Date, slotStart: Date): string | null {
+  const age = now.getTime() - slotStart.getTime();
+  if (age < 0 || age > CHECK_IN_LOOKBACK_MS) {
+    return "Check-in yalnızca son 24 saatte başlayan kort saati için açık.";
   }
   return null;
+}
+
+export function slotLocksCourt(now: Date, slotStart: Date, checkedIn: boolean): boolean {
+  if (checkedIn) return true;
+  return now.getTime() - slotStart.getTime() <= CHECK_IN_LOOKBACK_MS;
 }
 
 export function slotStartInstant(date: string, startTime: string): Date {

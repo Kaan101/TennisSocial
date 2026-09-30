@@ -15,6 +15,7 @@ import {
   MAX_RANGE_DAYS,
   type Span,
   checkInWindowError,
+  eachDate,
   hoursInRange,
   inclusiveDayCount,
   isHourRange,
@@ -23,6 +24,7 @@ import {
   slotCoveredBySpan,
   slotEnd,
   slotIsGreen,
+  slotLocksCourt,
   slotStartInstant,
   spansOverlap,
   timesOverlap,
@@ -138,6 +140,28 @@ function assertPurpose(viewer: CourtViewer, purpose: CourtPurpose): void {
   }
 }
 
+function hourCheckedIn(row: { checkIns: { date: Date; startTime: string }[] }, date: string, startTime: string): boolean {
+  return row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime);
+}
+
+function hourLocks(now: Date, row: { checkIns: { date: Date; startTime: string }[] }, date: string, startTime: string): boolean {
+  return slotLocksCourt(now, slotStartInstant(date, startTime), hourCheckedIn(row, date, startTime));
+}
+
+function blocksSpan(now: Date, incoming: Span, row: { checkIns: { date: Date; startTime: string }[] } & Parameters<typeof spanFromRow>[0]): boolean {
+  const existing = spanFromRow(row);
+  if (!spansOverlap(incoming, existing)) return false;
+  const startDate = incoming.startDate > existing.startDate ? incoming.startDate : existing.startDate;
+  const endDate = incoming.endDate < existing.endDate ? incoming.endDate : existing.endDate;
+  const startTime = incoming.startTime > existing.startTime ? incoming.startTime : existing.startTime;
+  const endTime = incoming.endTime < existing.endTime ? incoming.endTime : existing.endTime;
+  const shared = new Set(incoming.weekdays.filter((day) => existing.weekdays.includes(day)));
+  return eachDate(startDate, endDate).some((date) => {
+    if (!shared.has(weekdayOfDate(date))) return false;
+    return hoursInRange(startTime, endTime).some((hour) => hourLocks(now, row, date, hour));
+  });
+}
+
 async function assertNoOverlap(db: Db, courtId: string, span: Span, exceptId?: string): Promise<void> {
   const rows = await db.courtReservation.findMany({
     where: {
@@ -148,8 +172,10 @@ async function assertNoOverlap(db: Db, courtId: string, span: Span, exceptId?: s
       endDate: { gte: parseDateOnly(span.startDate) },
       ...(exceptId ? { id: { not: exceptId } } : {}),
     },
+    include: { checkIns: { select: { date: true, startTime: true } } },
   });
-  if (rows.some((row) => spansOverlap(span, spanFromRow(row)))) {
+  const now = new Date();
+  if (rows.some((row) => blocksSpan(now, span, row))) {
     throw new AppError(409, "CONFLICT", "Bu kortta çakışan bir rezervasyon talebi var");
   }
 }
@@ -400,8 +426,7 @@ export async function checkInReservation(viewer: CourtViewer, id: string, input:
   if (!slotCoveredBySpan(input.date, input.startTime, spanFromRow(reservation))) {
     throw new AppError(400, "VALIDATION_ERROR", "Bu saat rezervasyonun içinde değil");
   }
-  const lead = await getCheckInLeadHours();
-  const windowError = checkInWindowError(new Date(), slotStartInstant(input.date, input.startTime), lead);
+  const windowError = checkInWindowError(new Date(), slotStartInstant(input.date, input.startTime));
   if (windowError) throw new AppError(409, "CONFLICT", windowError);
   const existing = await prisma.reservationCheckIn.findUnique({
     where: {
@@ -522,7 +547,8 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
     const weekday = weekdayOfDate(date);
     return COURT_HOURS.map((startTime) => {
       const covering = reservations.filter((row) => slotCoveredBySpan(date, startTime, spanFromRow(row)));
-      const busy = new Set(covering.flatMap((row) => playingIds(row)));
+      const locking = covering.filter((row) => hourLocks(now, row, date, startTime));
+      const busy = new Set(locking.flatMap((row) => playingIds(row)));
       const people = (users as BoardUser[])
         .filter((user) => userAvailable(user, date, weekday, startTime) && !busy.has(user.id))
         .map((user) => {
@@ -547,10 +573,10 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
         people: people.map(({ levelIndex: _levelIndex, ...person }) => person),
         courts: courts.map((court) => {
           const identity = { id: court.id, name: court.name, kind: court.kind, kindLabel: COURT_KIND_LABELS[court.kind] };
-          const row = covering.find((item) => item.courtId === court.id);
+          const row = locking.find((item) => item.courtId === court.id);
           if (!row) return { ...identity, state: "free" as const, reservation: null };
-          const checkedIn = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime);
-          const windowError = checkInWindowError(now, slotStart, lead);
+          const checkedIn = hourCheckedIn(row, date, startTime);
+          const windowError = checkInWindowError(now, slotStart);
           const allowed = canCheckInUser(viewer.id, row);
           const already = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
           return {
@@ -646,7 +672,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
   const weekday = weekdayOfDate(date);
   const known = WEEKDAYS.find((day) => day.value === weekday);
   const showAll = viewer.role === "ADMIN";
-  const [courts, reservations, lead] = await Promise.all([
+  const [courts, reservations] = await Promise.all([
     prisma.court.findMany({
       where: { deletedAt: null, ...(showAll ? {} : { active: true }) },
       orderBy: courtOrder,
@@ -665,13 +691,12 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
       },
       orderBy: { createdAt: "asc" },
     }),
-    getCheckInLeadHours(),
   ]);
 
   const now = new Date();
   const cells = courts.flatMap((court) =>
     COURT_HOURS.map((startTime) => {
-      const covering = reservations.filter((row) => row.courtId === court.id && slotCoveredBySpan(date, startTime, spanFromRow(row)));
+      const covering = reservations.filter((row) => row.courtId === court.id && slotCoveredBySpan(date, startTime, spanFromRow(row)) && hourLocks(now, row, date, startTime));
       const row = covering.find((item) => item.status === "APPROVED") ?? covering[0];
       if (!row) {
         return {
@@ -684,8 +709,8 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
       }
       const approved = row.status === "APPROVED";
       const slotStart = slotStartInstant(date, startTime);
-      const checkedIn = approved && row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime);
-      const windowError = checkInWindowError(now, slotStart, lead);
+      const checkedIn = approved && hourCheckedIn(row, date, startTime);
+      const windowError = checkInWindowError(now, slotStart);
       const allowed = approved && canCheckInUser(viewer.id, row);
       const already = row.checkIns.some((item) => dateOnly(item.date) === date && item.startTime === startTime && item.userId === viewer.id);
       return {
