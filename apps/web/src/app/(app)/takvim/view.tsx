@@ -1,7 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { waLink } from "@club/shared";
+import { Fragment, useEffect, useState, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
 import { Avatar } from "@/components/player-card";
@@ -96,7 +98,7 @@ export function TakvimView() {
       <div className="grid w-full min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <div className="min-w-0 overflow-x-auto lg:col-span-2">
           <div
-            className="grid w-max gap-0.5"
+            className="grid w-max min-w-max gap-0.5 pr-0.5"
             style={{ gridTemplateColumns: "3.25rem repeat(7, 7.25rem)" }}
           >
             <div />
@@ -123,17 +125,25 @@ export function TakvimView() {
                       aria-pressed={selected}
                       aria-label={`${day.label} ${hour}`}
                       onClick={() => pick(day.date, hour)}
-                      className={`court-press flex min-h-8 w-full flex-wrap content-start items-center gap-0.5 border-2 p-0.5 ${open ? "border-court bg-surface" : "border-line bg-surface"} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+                      className={`court-press flex min-h-8 w-full flex-col items-stretch gap-0.5 border-2 p-0.5 ${open ? "border-court bg-surface" : "border-line bg-surface"} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
                       style={{ borderRadius: 4 }}
                     >
-                      {cell.people.map((person) => (
-                        <CellPhoto key={person.id} person={person} />
-                      ))}
-                      {freeCourts.map((court) => (
-                        <span key={court.id} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-[9px] font-semibold leading-none text-ink">
-                          {circleLabel(court)}
+                      {cell.people.length > 0 ? (
+                        <span className="flex max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto">
+                          {cell.people.map((person) => (
+                            <CellPhoto key={person.id} person={person} />
+                          ))}
                         </span>
-                      ))}
+                      ) : null}
+                      {freeCourts.length > 0 ? (
+                        <span className="flex max-w-full flex-wrap items-center gap-0.5">
+                          {freeCourts.map((court) => (
+                            <span key={court.id} className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line text-[9px] font-semibold leading-none text-ink">
+                              {circleLabel(court)}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -148,9 +158,8 @@ export function TakvimView() {
                 <h2 className="text-sm font-semibold">Oyuncular</h2>
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {slot.people.map((person) => (
-                    <li key={person.id} className="inline-flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1">
-                      <Avatar first={person.firstName} last={person.lastName} photo={person.photoUrl} className="h-8 w-8" />
-                      <span className="text-sm">{fullName(person)}</span>
+                    <li key={person.id}>
+                      <PlayerChip person={person} />
                     </li>
                   ))}
                 </ul>
@@ -159,8 +168,10 @@ export function TakvimView() {
                 <h2 className="text-sm font-semibold">Kortlar</h2>
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {courts.map((court) => (
-                    <li key={court.id} className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink">
-                      {panelCourtName(court)}
+                    <li key={court.id}>
+                      <Link href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`} className="inline-flex rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink">
+                        {panelCourtName(court)}
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -173,14 +184,44 @@ export function TakvimView() {
   );
 }
 
-function CellPhoto({ person }: { person: SlotPerson }) {
+function PersonFace({ person, className }: { person: SlotPerson; className: string }) {
   if (person.photoUrl) {
-    return <img src={person.photoUrl} alt="" className="h-5 w-5 shrink-0 rounded-full object-cover" />; // eslint-disable-line @next/next/no-img-element
+    return <img src={person.photoUrl} alt="" className={`${className} rounded-full object-cover`} />; // eslint-disable-line @next/next/no-img-element
   }
   const letters = `${person.firstName[0] ?? ""}${person.lastName[0] ?? ""}`.toLocaleUpperCase("tr-TR");
   return (
-    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-court-deep text-[8px] font-semibold leading-none text-white">
+    <span className={`${className} inline-flex items-center justify-center rounded-full bg-court-deep font-semibold leading-none text-white`}>
       {letters}
     </span>
+  );
+}
+
+function openChat(event: MouseEvent, person: SlotPerson) {
+  event.stopPropagation();
+  if (!person.messageNumber) return;
+  window.location.assign(waLink(person.messageNumber, person.firstName));
+}
+
+function CellPhoto({ person }: { person: SlotPerson }) {
+  return (
+    <span className="inline-flex shrink-0" onClick={(event) => openChat(event, person)}>
+      <PersonFace person={person} className="h-5 w-5 text-[8px]" />
+    </span>
+  );
+}
+
+function PlayerChip({ person }: { person: SlotPerson }) {
+  const className = "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-2 py-1";
+  const body = (
+    <>
+      <Avatar first={person.firstName} last={person.lastName} photo={person.photoUrl} className="h-8 w-8" />
+      <span className="text-sm">{fullName(person)}</span>
+    </>
+  );
+  if (!person.messageNumber) return <span className={className}>{body}</span>;
+  return (
+    <a href={waLink(person.messageNumber, person.firstName)} className={className}>
+      {body}
+    </a>
   );
 }

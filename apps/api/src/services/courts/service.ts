@@ -1,9 +1,9 @@
-import type { CourtKind, CourtPurpose, OverallLevel, Role } from "@club/shared";
+import type { CourtKind, CourtPurpose, OverallLevel, Role, Visibility } from "@club/shared";
 import { CLUB_COURTS, COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
 import type { Prisma } from "@prisma/client";
 import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
-import { isPlayableStatus } from "../../lib/privacy";
+import { canViewField, isPlayableStatus } from "../../lib/privacy";
 import { prisma } from "../../lib/prisma";
 import { notify } from "../notify";
 import {
@@ -428,11 +428,16 @@ export async function checkInReservation(viewer: CourtViewer, id: string, input:
 type BoardUser = {
   id: string;
   boardVisible: boolean;
-  profile: { firstName: string; lastName: string; playerStatus: string; photoUrl: string | null } | null;
+  profile: { firstName: string; lastName: string; playerStatus: string; photoUrl: string | null; phone: string | null; whatsapp: string | null } | null;
+  privacy: { phoneVisibility: Visibility; whatsappVisibility: Visibility } | null;
   tennisProfile: { overallLevel: OverallLevel } | null;
   availability: { kind: "WEEKLY" | "ONE_OFF"; weekday: number | null; date: Date | null; startTime: string; endTime: string; state: "FULL" | "MAYBE" | "BUSY" }[];
   absences: { startDate: Date; endDate: Date }[];
 };
+
+function markedOpen(state: "FULL" | "MAYBE" | "BUSY"): boolean {
+  return state === "FULL" || state === "MAYBE";
+}
 
 function userAvailable(user: BoardUser, date: string, weekday: number, startTime: string): boolean {
   if (!user.profile || !isPlayableStatus(user.profile.playerStatus)) return false;
@@ -451,10 +456,23 @@ function userAvailable(user: BoardUser, date: string, weekday: number, startTime
   const oneOffs = user.availability.filter((window) => window.kind === "ONE_OFF" && covers(window));
   if (oneOffs.length > 0) {
     const exact = oneOffs.find((window) => window.startTime === startTime && window.endTime === endTime);
-    if (exact) return exact.state === "FULL";
-    return oneOffs.some((window) => window.state === "FULL");
+    if (exact) return markedOpen(exact.state);
+    return oneOffs.some((window) => markedOpen(window.state));
   }
-  return user.availability.some((window) => window.kind === "WEEKLY" && covers(window) && window.state === "FULL");
+  return user.availability.some((window) => window.kind === "WEEKLY" && covers(window) && markedOpen(window.state));
+}
+
+function messageNumberFor(viewer: CourtViewer, user: BoardUser, friendIds: Set<string>): string | null {
+  const profile = user.profile;
+  if (!profile) return null;
+  const gate = { id: viewer.id, role: viewer.role, email: "" };
+  const friend = friendIds.has(user.id);
+  const phoneAllowed = canViewField(user.privacy?.phoneVisibility ?? "MEMBERS", gate, user.id, friend).allowed;
+  const whatsappAllowed = canViewField(user.privacy?.whatsappVisibility ?? "MEMBERS", gate, user.id, friend).allowed;
+  const phone = phoneAllowed && profile.phone ? profile.phone : null;
+  const whatsapp = whatsappAllowed && profile.whatsapp ? profile.whatsapp : null;
+  if (phone) return whatsapp ?? phone;
+  return whatsapp;
 }
 
 type ApprovedRow = Prisma.CourtReservationGetPayload<{
@@ -491,7 +509,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
   const weekEnd = dates[6]!;
-  const [courts, users, reservations, lead, me] = await Promise.all([
+  const [courts, users, reservations, lead, me, friendRows] = await Promise.all([
     prisma.court.findMany({
       where: {
         deletedAt: null,
@@ -500,11 +518,16 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       orderBy: courtOrder,
     }),
     prisma.user.findMany({
-      where: { deletedAt: null, boardVisible: true, profile: { is: { deletedAt: null } } },
+      where: {
+        deletedAt: null,
+        profile: { is: { deletedAt: null } },
+        OR: [{ boardVisible: true }, { id: viewer.id }],
+      },
       select: {
         id: true,
         boardVisible: true,
-        profile: { select: { firstName: true, lastName: true, playerStatus: true, photoUrl: true } },
+        profile: { select: { firstName: true, lastName: true, playerStatus: true, photoUrl: true, phone: true, whatsapp: true } },
+        privacy: { select: { phoneVisibility: true, whatsappVisibility: true } },
         tennisProfile: { select: { overallLevel: true } },
         availability: { where: { deletedAt: null }, select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true } },
         absences: { where: { deletedAt: null }, select: { startDate: true, endDate: true } },
@@ -525,7 +548,12 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
     }),
     getCheckInLeadHours(),
     prisma.user.findUnique({ where: { id: viewer.id }, select: { boardVisible: true } }),
+    prisma.friendship.findMany({
+      where: { status: "ACCEPTED", OR: [{ requesterId: viewer.id }, { addresseeId: viewer.id }] },
+      select: { requesterId: true, addresseeId: true },
+    }),
   ]);
+  const friendIds = new Set(friendRows.map((row) => (row.requesterId === viewer.id ? row.addresseeId : row.requesterId)));
 
   const slots = dates.flatMap((date) => {
     const weekday = weekdayOfDate(date);
@@ -542,6 +570,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
             firstName: user.profile?.firstName ?? "",
             lastName: user.profile?.lastName ?? "",
             photoUrl: user.profile?.photoUrl ?? null,
+            messageNumber: messageNumberFor(viewer, user, friendIds),
             overallLevel: level,
             levelLabel: LEVEL_LABELS[level],
             levelIndex: levelIndex(level),

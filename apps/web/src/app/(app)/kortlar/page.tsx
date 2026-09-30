@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth";
 export default function CourtsPage() {
   const { user } = useAuth();
   const [day, setDay] = useState(() => istanbulNowParts().day);
+  const [focus, setFocus] = useState<{ date: string; courtId: string; hour: string } | null>(null);
   const [grid, setGrid] = useState<DayGrid | null>(null);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -21,6 +22,15 @@ export default function CourtsPage() {
   const savedIds = useRef(new Map<string, string>());
   const cancelAfterSave = useRef(new Set<string>());
   const checkInAfterSave = useRef(new Map<string, { courtId: string; date: string; startTime: string }>());
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const date = query.get("date");
+    const court = query.get("court");
+    const hour = query.get("hour");
+    if (date) setDay(date);
+    if (date && court && hour) setFocus({ date, courtId: court, hour });
+  }, []);
 
   useEffect(() => {
     dayRef.current = day;
@@ -92,6 +102,7 @@ export default function CourtsPage() {
       date={grid.date}
       onDate={setDay}
       grid={grid}
+      focus={focus}
       onApply={async (input) => {
         const snapshot = gridRef.current;
         const date = snapshot?.date;

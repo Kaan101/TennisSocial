@@ -127,7 +127,7 @@ test("a hidden player does not count toward the green rule", async () => {
   expect(slot.people.map((person) => person.id)).not.toContain(hidden.user.id);
 });
 
-test("Tam counts for the green rule and Belki or Dolu does not", async () => {
+test("Tam and Belki show on the board and Dolu does not", async () => {
   const viewer = await registerUser(app);
   const tam = await registerUser(app, { firstName: "Tam", lastName: "Oyuncu" });
   const other = await registerUser(app, { firstName: "Belki", lastName: "Oyuncu" });
@@ -143,9 +143,9 @@ test("Tam counts for the green rule and Belki or Dolu does not", async () => {
   expect((await paint(other.token, "MAYBE")).statusCode).toBe(200);
 
   let slot = await mondaySlot(viewer.token);
-  expect(slot.green).toBe(false);
+  expect(slot.green).toBe(true);
   expect(slot.people.map((person) => person.id)).toContain(tam.user.id);
-  expect(slot.people.map((person) => person.id)).not.toContain(other.user.id);
+  expect(slot.people.map((person) => person.id)).toContain(other.user.id);
 
   expect((await paint(other.token, "FULL")).statusCode).toBe(200);
   slot = await mondaySlot(viewer.token);
@@ -167,6 +167,44 @@ test("Tam counts for the green rule and Belki or Dolu does not", async () => {
   const cell = (week.json().cells as { date: string; startTime: string; manual: string }[])
     .find((item) => item.date === MONDAY && item.startTime === "18:00");
   expect(cell).toMatchObject({ manual: "BUSY" });
+});
+
+test("the signed-in player shows on a Wednesday marked Tam or Belki, and not when Dolu or empty", async () => {
+  const viewer = await registerUser(app, { firstName: "Ben", lastName: "Carsamba" });
+  await setLevel(viewer.token, viewer.user.id, "BEGINNER");
+  const hide = await app.inject({
+    method: "PATCH",
+    url: "/api/me/board-visibility",
+    headers: auth(viewer.token),
+    payload: { visible: false },
+  });
+  expect(hide.statusCode).toBe(200);
+  const wednesday = "2026-10-07";
+  expect(weekdayOfDate(wednesday)).toBe(3);
+  const paint = (startTime: string, state: "FULL" | "MAYBE" | "BUSY") => app.inject({
+    method: "POST",
+    url: "/api/me/availability-cells",
+    headers: auth(viewer.token),
+    payload: { date: wednesday, startTime, state },
+  });
+  expect((await paint("18:00", "MAYBE")).statusCode).toBe(200);
+  expect((await paint("19:00", "FULL")).statusCode).toBe(200);
+  expect((await paint("20:00", "BUSY")).statusCode).toBe(200);
+  const res = await app.inject({
+    method: "GET",
+    url: `/api/courts/board?week=${wednesday}`,
+    headers: auth(viewer.token),
+  });
+  expect(res.statusCode).toBe(200);
+  const peopleAt = (date: string, startTime: string) => {
+    const slot = res.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
+    return (slot?.people ?? []) as { id: string }[];
+  };
+  expect(peopleAt(wednesday, "18:00").map((person) => person.id)).toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "19:00").map((person) => person.id)).toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "20:00").map((person) => person.id)).not.toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "21:00").map((person) => person.id)).not.toContain(viewer.user.id);
+  expect(peopleAt("2026-10-06", "18:00").map((person) => person.id)).not.toContain(viewer.user.id);
 });
 
 test("next month copy repeats marked hours on the same weekday and leaves empty hours empty", async () => {

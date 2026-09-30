@@ -1,7 +1,7 @@
 "use client";
 
 import { WEEKDAYS, type CourtPurpose } from "@club/shared";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { type CourtRow, type Person, type Reservation, addHour, shiftDate, weekdayOf } from "@/components/court-ui";
 
 export type DayReservation = {
@@ -220,6 +220,7 @@ export function CourtDayGrid({
   onApply,
   onCancel,
   onCheckIn,
+  focus = null,
 }: {
   date: string;
   onDate: (date: string) => void;
@@ -227,11 +228,18 @@ export function CourtDayGrid({
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
   onCancel: (reservationIds: string[]) => Promise<void>;
   onCheckIn: (slots: { reservationId: string; courtId: string; date: string; startTime: string }[]) => Promise<void>;
+  focus?: { date: string; courtId: string; hour: string } | null;
 }) {
   const [mode, setMode] = useState<Tool | null>(null);
   const cells = new Map(grid.cells.map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
   const days = weekOf(date);
   const shown = grid.date === date;
+  const focusHere = focus && focus.date === grid.date ? focus : null;
+
+  useEffect(() => {
+    if (!focusHere) return;
+    document.getElementById(`kort-${focusHere.courtId}-${focusHere.hour}`)?.scrollIntoView({ block: "center", inline: "center" });
+  }, [focusHere]);
 
   function onCell(court: CourtRow, hour: string) {
     if (!mode || !shown) return;
@@ -337,13 +345,16 @@ export function CourtDayGrid({
                 const cell = cells.get(`${court.id}-${hour}`);
                 const reservation = cell?.state === "busy" ? cell.reservation : null;
                 const word = reservation ? purposeWord(reservation.purpose).toLocaleLowerCase("tr") : "boş";
+                const picked = focusHere?.courtId === court.id && focusHere.hour === hour;
                 return (
                   <button
                     key={court.id}
+                    id={`kort-${court.id}-${hour}`}
                     type="button"
+                    aria-pressed={picked}
                     aria-label={`${court.name} ${hour} ${word}`}
                     onClick={() => onCell(court, hour)}
-                    className="court-press block min-h-8 w-full rounded-sm border border-line"
+                    className={`court-press block min-h-8 w-full rounded-sm border border-line ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
                     style={{ ...cellPaint(reservation), borderRadius: 4 }}
                   />
                 );

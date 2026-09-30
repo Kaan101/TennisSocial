@@ -8,7 +8,7 @@ import { Input, Label, Select } from "@/components/ui/input";
 import { EmptyState } from "@/components/states";
 
 export type Person = { id: string; firstName: string; lastName: string };
-export type SlotPerson = Person & { overallLevel: string; levelLabel: string; photoUrl: string | null };
+export type SlotPerson = Person & { overallLevel: string; levelLabel: string; photoUrl: string | null; messageNumber: string | null };
 export type ReservationInfo = {
   id: string;
   purpose: CourtPurpose;
