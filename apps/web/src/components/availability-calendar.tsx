@@ -39,7 +39,7 @@ function weekRange(start: string, end: string): string {
 }
 
 const STAMP: Record<Exclude<Manual, null>, { word: string; backgroundColor: string; color: string; borderColor: string }> = {
-  FULL: { word: "Tam", backgroundColor: "green", color: "#ffffff", borderColor: "#006400" },
+  FULL: { word: "Tam", backgroundColor: "lawngreen", color: "green", borderColor: "forestgreen" },
   MAYBE: { word: "Belki", backgroundColor: "aquamarine", color: "green", borderColor: "green" },
   BUSY: { word: "Dolu", backgroundColor: "bisque", color: "red", borderColor: "red" },
 };
