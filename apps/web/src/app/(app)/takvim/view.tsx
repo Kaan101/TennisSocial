@@ -1,8 +1,8 @@
 "use client";
 
-import { waLink } from "@club/shared";
+import { istanbulNowParts, waLink } from "@club/shared";
 import { User } from "lucide-react";
-import { Fragment, memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -20,6 +20,8 @@ type Board = {
 };
 
 type Picked = { date: string; start: string };
+
+type BoardDay = Board["days"][number];
 
 function panelCourtName(court: CourtCell): string {
   const indoor = /^Kapalı\s*(\d+)$/u.exec(court.name);
@@ -125,6 +127,8 @@ export function TakvimView() {
   const queryStart = params.get("start");
   const [week, setWeek] = useState<string | undefined>(queryDate ?? undefined);
   const [picked, setPicked] = useState<Picked | null>(null);
+  const [openHour, setOpenHour] = useState<Picked | null>(null);
+  const [phoneDay, setPhoneDay] = useState<string | null>(queryDate);
   const [queryApplied, setQueryApplied] = useState(false);
   const boardQuery = new URLSearchParams();
   if (week) boardQuery.set("week", week);
@@ -145,6 +149,8 @@ export function TakvimView() {
       return;
     }
     setPicked({ date: queryDate, start: queryStart });
+    setOpenHour({ date: queryDate, start: queryStart });
+    setPhoneDay(queryDate);
     setQueryApplied(true);
   }, [queryApplied, board.data, queryDate, queryStart]);
 
@@ -156,6 +162,10 @@ export function TakvimView() {
   const onPick = useCallback((date: string, start: string) => {
     flushSync(() => setPicked({ date, start }));
   }, []);
+
+  function toggleHour(date: string, start: string) {
+    setOpenHour((current) => (current?.date === date && current.start === start ? null : { date, start }));
+  }
 
   if (!ready || board.loading || !user) return <LoadingBlock label="Takvim yükleniyor" />;
   if (board.error || !board.data) return <ErrorState message={board.error ?? "Takvim açılmadı"} onRetry={() => void board.reload()} />;
@@ -173,12 +183,24 @@ export function TakvimView() {
         }
       `}</style>
       <h1 className="shrink-0 text-sm font-semibold leading-none">Takvim</h1>
-      <div className="flex w-full shrink-0 items-center gap-2 text-sm leading-none">
+      <PhoneDay
+        days={data.days}
+        hours={data.hours}
+        slots={data.slots}
+        dayDate={phoneDay}
+        openHour={openHour}
+        onDay={(date) => {
+          setPhoneDay(date);
+          setOpenHour(null);
+        }}
+        onToggleHour={toggleHour}
+      />
+      <div className="hidden w-full shrink-0 items-center gap-2 text-sm leading-none lg:flex">
         <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, -7)); setPicked(null); }}>önceki</button>
         <p className="min-w-0 flex-1 text-center text-xs text-muted">{data.days[0]?.date} – {data.days[6]?.date}</p>
         <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
       </div>
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-1.5 lg:flex-row lg:items-stretch">
+      <div className="hidden min-h-0 w-full flex-1 lg:flex lg:flex-row lg:items-stretch lg:gap-1.5">
         <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-auto lg:h-full">
           <div
             className="takvim-board grid h-full w-full min-w-full gap-x-0.5 gap-y-px lg:gap-0.5"
@@ -240,6 +262,136 @@ export function TakvimView() {
         </aside>
       </div>
     </div>
+  );
+}
+
+function PhoneDay({
+  days,
+  hours,
+  slots,
+  dayDate,
+  openHour,
+  onDay,
+  onToggleHour,
+}: {
+  days: BoardDay[];
+  hours: string[];
+  slots: Slot[];
+  dayDate: string | null;
+  openHour: Picked | null;
+  onDay: (date: string) => void;
+  onToggleHour: (date: string, start: string) => void;
+}) {
+  const bySlot = new Map(slots.map((item) => [`${item.date}|${item.startTime}`, item]));
+  const today = istanbulNowParts().day;
+  const index = Math.max(0, days.findIndex((day) => day.date === (dayDate ?? today)));
+  const day = days[index] ?? days[0];
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  if (!day) return null;
+
+  function moveDay(direction: number) {
+    const next = days[index + direction];
+    if (!next) return;
+    onDay(next.date);
+  }
+
+  function pointerDown(event: PointerEvent<HTMLDivElement>) {
+    start.current = { x: event.clientX, y: event.clientY };
+    swiped.current = false;
+  }
+
+  function pointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (!start.current) return;
+    const dx = event.clientX - start.current.x;
+    const dy = event.clientY - start.current.y;
+    start.current = null;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy)) return;
+    swiped.current = true;
+    moveDay(dx < 0 ? 1 : -1);
+  }
+
+  return (
+    <div
+      className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto lg:hidden"
+      style={{ touchAction: "pan-y" }}
+      onPointerDown={pointerDown}
+      onPointerUp={pointerUp}
+      onClickCapture={(event) => {
+        if (!swiped.current) return;
+        event.preventDefault();
+        event.stopPropagation();
+        swiped.current = false;
+      }}
+    >
+      <div className="flex items-baseline justify-between py-2">
+        <span className="text-sm font-semibold">{day.label}</span>
+        <span className="text-xs text-muted">{day.date.slice(8)}</span>
+      </div>
+      {hours.map((hour) => {
+        const cell = bySlot.get(`${day.date}|${hour}`);
+        const freeCourts = cell ? freeCourtsOf(cell) : [];
+        const players = cell?.people ?? [];
+        const hourOpen = openHour?.date === day.date && openHour.start === hour;
+        const ball = players.length > 0 && freeCourts.length > 0;
+        return (
+          <div key={hour} className="border-t border-line">
+            <button
+              type="button"
+              aria-expanded={hourOpen}
+              aria-label={`${day.label} ${hour}`}
+              onClick={() => onToggleHour(day.date, hour)}
+              className="court-press flex w-full items-center gap-2 py-1.5 text-left text-xs font-bold leading-none"
+            >
+              <span>{hour}</span>
+              {ball ? <TennisBall /> : null}
+            </button>
+            {hourOpen && cell ? (
+              <div className="space-y-2 py-2">
+                <ul className="flex max-w-full flex-wrap gap-1">
+                  {freeCourts.map((court) => (
+                    <li key={court.id}>
+                      <PhoneCourtLink court={court} date={day.date} hour={hour} />
+                    </li>
+                  ))}
+                </ul>
+                <ul className="flex max-w-full flex-wrap gap-1">
+                  {players.map((person) => (
+                    <li key={person.id}>
+                      <PlayerChip person={person} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PhoneCourtLink({ court, date, hour }: { court: CourtCell; date: string; hour: string }) {
+  const indoor = court.kind === "BALLOON" || court.name.startsWith("Kapalı");
+  return (
+    <Link
+      href={`/kortlar?date=${date}&court=${court.id}&hour=${hour}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-none ${indoor ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb]" : "border-[#d1d5db] bg-transparent text-ink"}`}
+    >
+      {court.name}
+    </Link>
+  );
+}
+
+function TennisBall() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" aria-hidden>
+      <circle cx="8" cy="8" r="7" fill="#d6f25c" />
+      <path d="M3.2 3.4c2 1.5 3.1 3.3 3.1 4.6s-1.1 3.1-3.1 4.6" fill="none" stroke="#fff" strokeWidth="1.2" />
+      <path d="M12.8 3.4c-2 1.5-3.1 3.3-3.1 4.6s1.1 3.1 3.1 4.6" fill="none" stroke="#fff" strokeWidth="1.2" />
+    </svg>
   );
 }
 
