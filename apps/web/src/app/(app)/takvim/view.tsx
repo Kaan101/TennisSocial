@@ -53,17 +53,6 @@ function freeCourtsOf(slot: Slot): CourtCell[] {
   return slot.courts.filter(courtIsFree).sort((left, right) => courtOrder(left) - courtOrder(right));
 }
 
-function phoneFace(freeCourts: number): string {
-  if (freeCourts < 1) return "border-line bg-transparent";
-  return "border-court bg-[#dcfce7]";
-}
-
-function desktopFace(freeCourts: number, players: number): string {
-  if (freeCourts < 1) return "lg:border-line lg:bg-transparent";
-  if (players > 0) return "lg:border-court lg:bg-transparent";
-  return "lg:border-[#2563eb] lg:bg-transparent";
-}
-
 const WeekCell = memo(function WeekCell({
   dayLabel,
   date,
@@ -87,7 +76,7 @@ const WeekCell = memo(function WeekCell({
       aria-pressed={selected}
       aria-label={`${dayLabel} ${hour}`}
       onClick={() => onPick(date, hour)}
-      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 p-px lg:flex-col lg:justify-center ${phoneFace(freeCourts.length)} ${desktopFace(freeCourts.length, slot.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 border-[#d1d5db] bg-[#f3f4f6] p-px lg:flex-col lg:justify-center ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
       style={{ borderRadius: 4 }}
     >
       <HourCounts players={slot.people.length} courts={freeCourts.length} compact />
@@ -374,7 +363,7 @@ function PhoneCourtLink({ court, date, hour }: { court: CourtCell; date: string;
       href={`/kortlar?date=${date}&court=${court.id}&hour=${hour}`}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-1 text-[11px] font-semibold leading-none ${indoor ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb]" : "border-[#d1d5db] bg-transparent text-ink"}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-1.5 py-1 text-sm font-semibold leading-none ${indoor ? "border-[#2563eb] bg-[#eff6ff] text-[#2563eb]" : "border-[#d1d5db] bg-transparent text-ink"}`}
     >
       {court.name}
     </Link>
