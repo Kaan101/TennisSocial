@@ -223,7 +223,7 @@ export function TakvimView() {
                       href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d1d5db] bg-transparent text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
                     >
                       <span className="lg:hidden">{circleLabel(court)}</span>
                       <span className="hidden lg:inline">{panelCourtName(court)}</span>
@@ -414,7 +414,7 @@ function PersonFace({ person, className }: { person: SlotPerson; className: stri
 }
 
 function PlayerChip({ person }: { person: SlotPerson }) {
-  const className = "inline-flex items-center gap-1 rounded-md border border-line bg-surface px-1 py-0.5 lg:gap-2 lg:px-2 lg:py-1";
+  const className = "inline-flex items-center gap-1 rounded-md border border-line bg-surface px-1 py-0.5 lg:gap-2 lg:border-[#d1d5db] lg:bg-transparent lg:px-2 lg:py-1";
   const body = (
     <>
       <PersonFace person={person} className="h-5 w-5 text-[8px] lg:h-8 lg:w-8 lg:text-xs" />
