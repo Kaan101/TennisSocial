@@ -217,19 +217,22 @@ export function TakvimView() {
                 ))}
               </ul>
               <ul className="flex flex-wrap gap-1 lg:gap-2">
-                {courts.map((court) => (
-                  <li key={court.id}>
-                    <Link
-                      href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d1d5db] bg-transparent text-[9px] font-semibold leading-none text-ink lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm"
-                    >
-                      <span className="lg:hidden">{circleLabel(court)}</span>
-                      <span className="hidden lg:inline">{panelCourtName(court)}</span>
-                    </Link>
-                  </li>
-                ))}
+                {courts.map((court) => {
+                  const indoor = court.kind === "BALLOON" || court.name.startsWith("Kapalı");
+                  return (
+                    <li key={court.id}>
+                      <Link
+                        href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-semibold leading-none lg:h-auto lg:w-auto lg:rounded-md lg:px-2 lg:py-1 lg:text-sm ${indoor ? "border-[#000080] bg-[#add8e6] text-[#000080]" : "border-[#d1d5db] bg-transparent text-ink"}`}
+                      >
+                        <span className="lg:hidden">{circleLabel(court)}</span>
+                        <span className="hidden lg:inline">{panelCourtName(court)}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}
@@ -383,8 +386,11 @@ function HourCounts({
 }) {
   if (players < 1 && courts < 1) return null;
   const size = compact
-    ? "h-3.5 min-w-3.5 px-0.5 text-[9px]"
+    ? "h-5 min-w-5 px-1 text-xs"
     : "h-5 min-w-5 px-1 text-[11px]";
+  const courtFace = compact
+    ? "border border-[#808080] bg-[#d3d3d3] text-white"
+    : "bg-[#6D28D9] text-white";
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       {players > 0 ? (
@@ -393,7 +399,7 @@ function HourCounts({
         </span>
       ) : null}
       {courts > 0 ? (
-        <span className={`inline-flex items-center justify-center rounded-full bg-[#6D28D9] font-semibold leading-none text-white ${size}`}>
+        <span className={`inline-flex items-center justify-center rounded-full font-semibold leading-none ${courtFace} ${size}`}>
           {courts}
         </span>
       ) : null}
