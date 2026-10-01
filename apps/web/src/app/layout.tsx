@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Outfit } from "next/font/google";
 import { ServiceWorkerRegister } from "@/components/pwa";
 import { AuthProvider } from "@/lib/auth";
+import { ClubProvider } from "@/lib/club";
 import "./globals.css";
 
 const outfit = Outfit({ subsets: ["latin", "latin-ext"], variable: "--font-outfit" });
@@ -25,8 +26,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="tr">
       <body className={`${outfit.variable} antialiased`}>
         <AuthProvider>
-          <ServiceWorkerRegister />
-          {children}
+          <ClubProvider>
+            <ServiceWorkerRegister />
+            {children}
+          </ClubProvider>
         </AuthProvider>
       </body>
     </html>

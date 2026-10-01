@@ -4,7 +4,6 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { CLUB_COURTS, istanbulNowParts } from "@club/shared";
 import { prisma } from "../src/lib/prisma";
-import { ensureClubCourts } from "../src/services/courts/service";
 import { addDays, hoursInRange, slotIsGreen, spansOverlap, weekdayOfDate, COURT_HOURS } from "../src/services/courts/rules";
 import { auth, makeApp, registerUser } from "./helpers";
 
@@ -33,6 +32,14 @@ test("the migration inserts Kapalı 1–3 and Kort 1–9 and the seed does not r
   expect(sql).toContain("'BALLOON'");
   expect(sql).not.toContain("açık");
   expect(seed).not.toContain('["Kort 1", "Kort 2", "Kort 3"]');
+});
+
+test("the club migration removes the seeded courts and does not recreate them", () => {
+  const sql = readFileSync(fileURLToPath(new URL("../prisma/migrations/20261001030000_clubs/migration.sql", import.meta.url)), "utf8");
+  expect(sql).toContain('DELETE FROM "Court"');
+  expect(sql).toContain('DELETE FROM "CourtReservation"');
+  expect(sql).not.toContain('INSERT INTO "Court"');
+  expect(sql).not.toContain('INSERT INTO "Club"');
 });
 
 test("green rule counts only a visible pair within one level", () => {
@@ -77,10 +84,12 @@ async function player(firstName: string, level: string) {
   return user;
 }
 
-async function mondaySlot(token: string) {
+async function mondaySlot(token: string, clubId?: string) {
+  const query = new URLSearchParams({ week: MONDAY });
+  if (clubId) query.set("club", clubId);
   const res = await app.inject({
     method: "GET",
-    url: `/api/courts/board?week=${MONDAY}`,
+    url: `/api/courts/board?${query.toString()}`,
     headers: auth(token),
   });
   expect(res.statusCode).toBe(200);
@@ -317,15 +326,35 @@ async function asAdmin() {
   return admin;
 }
 
-async function addCourt(token: string, name: string) {
+async function addClub(token: string, name: string) {
   const res = await app.inject({
     method: "POST",
-    url: "/api/courts",
+    url: "/api/clubs",
     headers: auth(token),
     payload: { name },
   });
   expect(res.statusCode).toBe(201);
   return res.json() as { id: string; name: string };
+}
+
+async function addCourt(token: string, name: string, clubId?: string, kind: "BALLOON" | "OUTDOOR" = "OUTDOOR") {
+  const club = clubId ?? (await addClub(token, "Enka")).id;
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/courts",
+    headers: auth(token),
+    payload: { name, clubId: club, kind },
+  });
+  expect(res.statusCode).toBe(201);
+  return { ...(res.json() as { id: string; name: string }), clubId: club };
+}
+
+async function defineClub(token: string, name: string) {
+  const club = await addClub(token, name);
+  for (const court of CLUB_COURTS) {
+    await addCourt(token, court.name, club.id, court.kind);
+  }
+  return club.id;
 }
 
 test("a pending reservation takes the court on the board, and overlap is rejected", async () => {
@@ -345,7 +374,7 @@ test("a pending reservation takes the court on the board, and overlap is rejecte
   expect(pending.statusCode).toBe(201);
   expect(pending.json().status).toBe("PENDING");
 
-  const before = await mondaySlot(member.token);
+  const before = await mondaySlot(member.token, court.clubId);
   expect(before.courts.find((item) => item.name === "Kort 1")?.state).toBe("reserved");
   expect(before.courts.find((item) => item.name === "Kort 1")?.reservation?.purposeLabel).toBe("antrenman");
 
@@ -361,7 +390,7 @@ test("a pending reservation takes the court on the board, and overlap is rejecte
   expect(approved.statusCode).toBe(200);
   expect(approved.json().status).toBe("APPROVED");
 
-  const after = await mondaySlot(member.token);
+  const after = await mondaySlot(member.token, court.clubId);
   const reserved = after.courts.find((item) => item.name === "Kort 1");
   expect(reserved?.state).toBe("reserved");
   expect(reserved?.reservation?.purposeLabel).toBe("antrenman");
@@ -419,7 +448,7 @@ test("check-in marks a future maç and still refuses a stranger", async () => {
 test("accepting a slot offer books one free court and leaves the hour open", async () => {
   const admin = await asAdmin();
   const first = await addCourt(admin.token, "Kort A");
-  const second = await addCourt(admin.token, "Kort B");
+  const second = await addCourt(admin.token, "Kort B", first.clubId);
   const alpha = await player("Alpha", "INTERMEDIATE");
   const beta = await player("Beta", "INTERMEDIATE");
   const gamma = await player("Gamma", "INTERMEDIATE_PLUS");
@@ -443,7 +472,7 @@ test("accepting a slot offer books one free court and leaves the hour open", asy
   expect(accepted.json().courtId).toBe(first.id);
   expect(accepted.json().courtName).toBe("Kort A");
 
-  const midway = await mondaySlot(gamma.token);
+  const midway = await mondaySlot(gamma.token, first.clubId);
   expect(midway.green).toBe(true);
   expect(midway.people.map((person) => person.id)).not.toContain(alpha.user.id);
   expect(midway.people.map((person) => person.id)).not.toContain(beta.user.id);
@@ -537,9 +566,9 @@ test("purpose rights follow role and admin maintenance is stored approved", asyn
 });
 
 test("lists Kapalı 1–3 then Kort 1–9, and the balloon courts are not açık", async () => {
-  await ensureClubCourts();
   const viewer = await registerUser(app);
-  const res = await app.inject({ method: "GET", url: "/api/courts", headers: auth(viewer.token) });
+  const clubId = await defineClub(viewer.token, "Enka");
+  const res = await app.inject({ method: "GET", url: `/api/courts?club=${clubId}`, headers: auth(viewer.token) });
   expect(res.statusCode).toBe(200);
   const data = res.json().data as { name: string; kind: string; kindLabel: string }[];
   expect(data.map((court) => court.name)).toEqual(CLUB_COURTS.map((court) => court.name));
@@ -551,9 +580,9 @@ test("lists Kapalı 1–3 then Kort 1–9, and the balloon courts are not açık
 });
 
 test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async () => {
-  await ensureClubCourts();
   const admin = await asAdmin();
-  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(admin.token) });
+  const clubId = await defineClub(admin.token, "Enka");
+  const listed = await app.inject({ method: "GET", url: `/api/courts?club=${clubId}`, headers: auth(admin.token) });
   const kort1 = (listed.json().data as { id: string; name: string }[]).find((court) => court.name === "Kort 1");
   expect(kort1).toBeTruthy();
   const day = "2026-10-07";
@@ -577,7 +606,7 @@ test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async (
 
   const res = await app.inject({
     method: "GET",
-    url: `/api/courts/range?date=${day}&start=18:00&end=21:00`,
+    url: `/api/courts/range?date=${day}&start=18:00&end=21:00&club=${clubId}`,
     headers: auth(admin.token),
   });
   expect(res.statusCode).toBe(200);
@@ -597,14 +626,14 @@ test("a court free at 18 and 19 but busy at 20 is not free for 18–21", async (
 });
 
 test("day grid and the Takvim board mark maç, antrenman, bakım, and turnuva as taken", async () => {
-  await ensureClubCourts();
   const admin = await asAdmin();
+  const clubId = await defineClub(admin.token, "Enka");
   const member = await registerUser(app, { firstName: "Gun", lastName: "Izgara" });
   const partner = await registerUser(app, { firstName: "Rakip", lastName: "Gun" });
   const tournament = await registerUser(app, { firstName: "Turnuva", lastName: "Gun" });
   await prisma.user.update({ where: { id: tournament.user.id }, data: { role: "TOURNAMENT_MANAGER" } });
   const stranger = await registerUser(app, { firstName: "Baska", lastName: "Uye" });
-  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(member.token) });
+  const listed = await app.inject({ method: "GET", url: `/api/courts?club=${clubId}`, headers: auth(member.token) });
   const courts = listed.json().data as { id: string; name: string }[];
   const id = (name: string) => {
     const court = courts.find((item) => item.name === name);
@@ -656,7 +685,7 @@ test("day grid and the Takvim board mark maç, antrenman, bakım, and turnuva as
   });
   expect(reject.statusCode).toBe(200);
 
-  const res = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(stranger.token) });
+  const res = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${clubId}`, headers: auth(stranger.token) });
   expect(res.statusCode).toBe(200);
   const body = res.json() as {
     date: string;
@@ -692,7 +721,7 @@ test("day grid and the Takvim board mark maç, antrenman, bakım, and turnuva as
   expect(cell("Kort 1", "08:00")).toMatchObject({ state: "free", reservation: null });
   expect(cell("Kort 9", "22:00")?.state).toBe("free");
 
-  const board = await app.inject({ method: "GET", url: `/api/courts/board?week=${day}`, headers: auth(stranger.token) });
+  const board = await app.inject({ method: "GET", url: `/api/courts/board?week=${day}&club=${clubId}`, headers: auth(stranger.token) });
   expect(board.statusCode).toBe(200);
   const slots = board.json().slots as { date: string; startTime: string; courts: { name: string; state: string }[] }[];
   const boardCell = (name: string, startTime: string) =>
@@ -707,10 +736,10 @@ test("day grid and the Takvim board mark maç, antrenman, bakım, and turnuva as
 });
 
 test("maç without an opponent is stored, and iptal frees the hour", async () => {
-  await ensureClubCourts();
   const admin = await asAdmin();
+  const clubId = await defineClub(admin.token, "Enka");
   const member = await registerUser(app, { firstName: "Mac", lastName: "Yok" });
-  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(member.token) });
+  const listed = await app.inject({ method: "GET", url: `/api/courts?club=${clubId}`, headers: auth(member.token) });
   const courts = listed.json().data as { id: string; name: string }[];
   const kort = courts.find((court) => court.name === "Kort 3");
   expect(kort).toBeTruthy();
@@ -754,7 +783,7 @@ test("maç without an opponent is stored, and iptal frees the hour", async () =>
   expect(approved.json().status).toBe("APPROVED");
   expect(approved.json().partner).toBeNull();
 
-  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(member.token) });
+  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${clubId}`, headers: auth(member.token) });
   const beforeCells = before.json().cells as { courtId: string; startTime: string; state: string }[];
   expect(beforeCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")?.state).toBe("busy");
 
@@ -773,17 +802,17 @@ test("maç without an opponent is stored, and iptal frees the hour", async () =>
   });
   expect(cancelled.statusCode).toBe(200);
   expect(cancelled.json().status).toBe("REJECTED");
-  const after = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(member.token) });
+  const after = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${clubId}`, headers: auth(member.token) });
   const afterCells = after.json().cells as { courtId: string; startTime: string; state: string; reservation: { status: string } | null }[];
   expect(afterCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")).toMatchObject({ state: "free", reservation: null });
   expect(afterCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "11:00")?.reservation?.status).toBe("APPROVED");
 });
 
 test("an old maç stays locked, and check-in still marks it", async () => {
-  await ensureClubCourts();
   const admin = await asAdmin();
+  const clubId = await defineClub(admin.token, "Enka");
   const member = await registerUser(app, { firstName: "Eski", lastName: "Mac" });
-  const listed = await app.inject({ method: "GET", url: "/api/courts", headers: auth(member.token) });
+  const listed = await app.inject({ method: "GET", url: `/api/courts?club=${clubId}`, headers: auth(member.token) });
   const kort = (listed.json().data as { id: string; name: string }[]).find((court) => court.name === "Kort 4");
   expect(kort).toBeTruthy();
   const day = addDays(istanbulNowParts().day, -3);
@@ -811,7 +840,7 @@ test("an old maç stays locked, and check-in still marks it", async () => {
   });
   expect(checked.statusCode).toBe(200);
 
-  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(admin.token) });
+  const before = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${clubId}`, headers: auth(admin.token) });
   const beforeCells = before.json().cells as { courtId: string; startTime: string; state: string; reservation: { checkedIn: boolean; purpose: string } | null }[];
   expect(beforeCells.find((cell) => cell.courtId === kort!.id && cell.startTime === "10:00")).toMatchObject({
     state: "busy",
@@ -871,8 +900,35 @@ test("an old maç stays locked, and check-in still marks it", async () => {
     },
   });
   expect(blocked.statusCode).toBe(409);
-  const after = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}`, headers: auth(admin.token) });
+  const after = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${clubId}`, headers: auth(admin.token) });
   const locked = (after.json().cells as { courtId: string; startTime: string; state: string; reservation: { checkedIn: boolean; purpose: string } | null }[])
     .find((cell) => cell.courtId === kort!.id && cell.startTime === "15:00");
   expect(locked).toMatchObject({ state: "busy", reservation: { checkedIn: true, purpose: "MATCH" } });
+});
+
+test("Enka and Ted each show only their own courts", async () => {
+  const user = await registerUser(app);
+  const enka = await addClub(user.token, "Enka");
+  const ted = await addClub(user.token, "Ted");
+  await addCourt(user.token, "Kapalı 1", enka.id, "BALLOON");
+  await addCourt(user.token, "Kort1", ted.id, "OUTDOOR");
+
+  const enkaCourts = await app.inject({ method: "GET", url: `/api/courts?club=${enka.id}`, headers: auth(user.token) });
+  expect(enkaCourts.statusCode).toBe(200);
+  expect((enkaCourts.json().data as { name: string }[]).map((court) => court.name)).toEqual(["Kapalı 1"]);
+
+  const tedDay = await app.inject({ method: "GET", url: `/api/courts/day?club=${ted.id}`, headers: auth(user.token) });
+  expect(tedDay.statusCode).toBe(200);
+  expect((tedDay.json().courts as { name: string }[]).map((court) => court.name)).toEqual(["Kort1"]);
+
+  const enkaBoard = await app.inject({ method: "GET", url: `/api/courts/board?club=${enka.id}`, headers: auth(user.token) });
+  expect(enkaBoard.statusCode).toBe(200);
+  const names = new Set(
+    (enkaBoard.json().slots as { courts: { name: string }[] }[]).flatMap((slot) => slot.courts.map((court) => court.name)),
+  );
+  expect([...names]).toEqual(["Kapalı 1"]);
+
+  const empty = await app.inject({ method: "GET", url: "/api/courts/day", headers: auth(user.token) });
+  expect(empty.statusCode).toBe(200);
+  expect(empty.json().courts).toEqual([]);
 });

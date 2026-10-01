@@ -1,5 +1,5 @@
 import type { CourtKind, CourtPurpose, OverallLevel, Role, Visibility } from "@club/shared";
-import { CLUB_COURTS, COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
+import { COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
 import type { Prisma } from "@prisma/client";
 import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
@@ -41,9 +41,10 @@ type Person = {
 
 const courtOrder = [{ sortOrder: "asc" as const }, { name: "asc" as const }];
 
-function presentCourt(row: { id: string; name: string; active: boolean; kind: CourtKind; sortOrder: number }) {
+function presentCourt(row: { id: string; clubId: string; name: string; active: boolean; kind: CourtKind; sortOrder: number }) {
   return {
     id: row.id,
+    clubId: row.clubId,
     name: row.name,
     active: row.active,
     kind: row.kind,
@@ -52,22 +53,29 @@ function presentCourt(row: { id: string; name: string; active: boolean; kind: Co
   };
 }
 
-export async function ensureClubCourts(db: Db = prisma): Promise<void> {
-  for (const court of CLUB_COURTS) {
-    const existing = await db.court.findFirst({ where: { name: court.name, deletedAt: null } });
-    if (!existing) {
-      await db.court.create({
-        data: { name: court.name, kind: court.kind, sortOrder: court.sortOrder, active: true },
-      });
-      continue;
-    }
-    if (existing.kind !== court.kind || existing.sortOrder !== court.sortOrder) {
-      await db.court.update({
-        where: { id: existing.id },
-        data: { kind: court.kind, sortOrder: court.sortOrder },
-      });
-    }
-  }
+function presentClub(row: { id: string; name: string; hasRestaurant: boolean; hasFitness: boolean }) {
+  return {
+    id: row.id,
+    name: row.name,
+    hasRestaurant: row.hasRestaurant,
+    hasFitness: row.hasFitness,
+  };
+}
+
+function courtsOf(clubId?: string, options?: { includeInactive?: boolean; extraCourtIds?: string[] }) {
+  if (!clubId) return { id: { in: [] as string[] } };
+  const extraCourtIds = options?.extraCourtIds ?? [];
+  return {
+    deletedAt: null,
+    clubId,
+    ...(options?.includeInactive
+      ? {}
+      : { OR: [{ active: true }, ...(extraCourtIds.length > 0 ? [{ id: { in: extraCourtIds } }] : [])] }),
+  };
+}
+
+export async function ensureClubCourts(_db: Db = prisma): Promise<void> {
+  return;
 }
 
 const personSelect = {
@@ -179,30 +187,72 @@ export async function setBoardVisible(viewer: CourtViewer, visible: boolean): Pr
   return { visible };
 }
 
-export async function listCourts(viewer: CourtViewer, includeInactive: boolean) {
+export async function listClubs() {
+  const rows = await prisma.club.findMany({ orderBy: { createdAt: "asc" } });
+  return { data: rows.map(presentClub) };
+}
+
+export async function createClub(input: { name: string; hasRestaurant?: boolean; hasFitness?: boolean }) {
+  const club = await prisma.club.create({
+    data: {
+      name: input.name,
+      hasRestaurant: input.hasRestaurant ?? false,
+      hasFitness: input.hasFitness ?? false,
+    },
+  });
+  return presentClub(club);
+}
+
+export async function updateClub(id: string, input: { name?: string; hasRestaurant?: boolean; hasFitness?: boolean }) {
+  const club = await prisma.club.findUnique({ where: { id } });
+  if (!club) throw notFound("Kulüp bulunamadı");
+  const updated = await prisma.club.update({
+    where: { id },
+    data: {
+      name: input.name,
+      hasRestaurant: input.hasRestaurant,
+      hasFitness: input.hasFitness,
+    },
+  });
+  return presentClub(updated);
+}
+
+export async function listCourts(viewer: CourtViewer, includeInactive: boolean, clubId?: string) {
   const showAll = includeInactive && viewer.role === "ADMIN";
   const rows = await prisma.court.findMany({
-    where: { deletedAt: null, ...(showAll ? {} : { active: true }) },
+    where: courtsOf(clubId, { includeInactive: showAll }),
     orderBy: courtOrder,
   });
   return { data: rows.map(presentCourt) };
 }
 
-export async function createCourt(viewer: CourtViewer, name: string) {
-  if (viewer.role !== "ADMIN") throw forbidden("Kortu yalnızca yönetici ekler");
-  const court = await prisma.court.create({ data: { name, active: true, kind: "OUTDOOR", sortOrder: 1000 } });
+export async function createCourt(viewer: CourtViewer, input: { name: string; clubId: string; kind?: CourtKind }) {
+  void viewer;
+  const club = await prisma.club.findUnique({ where: { id: input.clubId } });
+  if (!club) throw notFound("Kulüp bulunamadı");
+  const court = await prisma.court.create({
+    data: { name: input.name, clubId: club.id, active: true, kind: input.kind ?? "OUTDOOR", sortOrder: 1000 },
+  });
   return presentCourt(court);
 }
 
-export async function updateCourt(viewer: CourtViewer, id: string, input: { name?: string; active?: boolean }) {
-  if (viewer.role !== "ADMIN") throw forbidden("Kortu yalnızca yönetici düzenler");
+export async function updateCourt(viewer: CourtViewer, id: string, input: { name?: string; active?: boolean; kind?: CourtKind }) {
+  void viewer;
   const court = await prisma.court.findFirst({ where: { id, deletedAt: null } });
   if (!court) throw notFound("Kort bulunamadı");
   const updated = await prisma.court.update({
     where: { id },
-    data: { name: input.name, active: input.active },
+    data: { name: input.name, active: input.active, kind: input.kind },
   });
   return presentCourt(updated);
+}
+
+export async function deleteCourt(viewer: CourtViewer, id: string) {
+  void viewer;
+  const court = await prisma.court.findFirst({ where: { id, deletedAt: null } });
+  if (!court) throw notFound("Kort bulunamadı");
+  await prisma.court.update({ where: { id }, data: { deletedAt: new Date(), active: false } });
+  return { ok: true };
 }
 
 const reservationInclude = {
@@ -563,17 +613,14 @@ function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: numb
   return bucket;
 }
 
-export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = []) {
+export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = [], clubId?: string) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
   const weekEnd = dates[6]!;
   const [courts, users, reservations, lead, me, friendRows] = await Promise.all([
     prisma.court.findMany({
-      where: {
-        deletedAt: null,
-        OR: [{ active: true }, ...(extraCourtIds.length > 0 ? [{ id: { in: extraCourtIds } }] : [])],
-      },
+      where: courtsOf(clubId, { extraCourtIds }),
       orderBy: courtOrder,
     }),
     prisma.user.findMany({
@@ -691,11 +738,11 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   };
 }
 
-export async function rangeFor(viewer: CourtViewer, input: { date: string; start: string; end: string }) {
+export async function rangeFor(viewer: CourtViewer, input: { date: string; start: string; end: string; club?: string }) {
   if (!isHourRange(input.start, input.end)) {
     throw new AppError(400, "VALIDATION_ERROR", "Saat aralığı aynı gün içinde 08:00 ile 23:00 arasında olmalı");
   }
-  const board = await boardFor(viewer, input.date);
+  const board = await boardFor(viewer, input.date, [], input.club);
   const wanted = hoursInRange(input.start, input.end);
   const hours = wanted.map((startTime) => board.slots.find((slot) => slot.date === input.date && slot.startTime === startTime));
   if (hours.some((slot) => !slot)) {
@@ -719,7 +766,7 @@ export async function courtWeekFor(viewer: CourtViewer, courtId: string, weekInp
   const court = await prisma.court.findFirst({ where: { id: courtId, deletedAt: null } });
   if (!court) throw notFound("Kort bulunamadı");
   if (!court.active && viewer.role !== "ADMIN") throw notFound("Kort bulunamadı");
-  const board = await boardFor(viewer, weekInput, [court.id]);
+  const board = await boardFor(viewer, weekInput, [court.id], court.clubId);
   return {
     court: presentCourt(court),
     weekStart: board.weekStart,
@@ -742,14 +789,14 @@ export async function courtWeekFor(viewer: CourtViewer, courtId: string, weekInp
   };
 }
 
-export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
+export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId?: string) {
   const date = dateInput ?? istanbulNowParts().day;
   const weekday = weekdayOfDate(date);
   const known = WEEKDAYS.find((day) => day.value === weekday);
   const showAll = viewer.role === "ADMIN";
   const [courts, reservations] = await Promise.all([
     prisma.court.findMany({
-      where: { deletedAt: null, ...(showAll ? {} : { active: true }) },
+      where: courtsOf(clubId, { includeInactive: showAll }),
       orderBy: courtOrder,
     }),
     prisma.courtReservation.findMany({

@@ -3,6 +3,8 @@ import {
   boardVisibilitySchema,
   boardWeekSchema,
   checkInLeadSchema,
+  clubCreateSchema,
+  clubUpdateSchema,
   courtDaySchema,
   courtSlotSchema,
   courtCreateSchema,
@@ -24,13 +26,16 @@ import {
   cancelReservation,
   checkInReservation,
   courtWeekFor,
+  createClub,
   createCourt,
   dayGridFor,
+  deleteCourt,
   slotAt,
   createReservation,
   createSlotOffer,
   declineSlotOffer,
   getCheckInLeadHours,
+  listClubs,
   listCourts,
   listReservations,
   listSlotOffers,
@@ -38,20 +43,45 @@ import {
   rejectReservation,
   setBoardVisible,
   setCheckInLeadHours,
+  updateClub,
   updateCourt,
 } from "../services/courts/service";
 
 export async function courtRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/clubs", async (req) => {
+    requireUser(req);
+    return listClubs();
+  });
+
+  app.post("/api/clubs", async (req, reply) => {
+    requireUser(req);
+    const body = parse(clubCreateSchema, req.body);
+    return reply.status(201).send(await createClub(body));
+  });
+
+  app.patch("/api/clubs/:id", async (req) => {
+    requireUser(req);
+    const { id } = req.params as { id: string };
+    const body = parse(clubUpdateSchema, req.body);
+    return updateClub(id, body);
+  });
+
   app.get("/api/courts", async (req) => {
     const viewer = requireUser(req);
-    const query = parse(z.object({ all: z.string().optional() }), req.query);
-    return listCourts(viewer, query.all === "true");
+    const query = parse(z.object({ all: z.string().optional(), club: z.string().min(1).optional() }), req.query);
+    return listCourts(viewer, query.all === "true", query.club);
   });
 
   app.post("/api/courts", async (req, reply) => {
     const viewer = requireUser(req);
     const body = parse(courtCreateSchema, req.body);
-    return reply.status(201).send(await createCourt(viewer, body.name));
+    return reply.status(201).send(await createCourt(viewer, body));
+  });
+
+  app.delete("/api/courts/:id", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    return deleteCourt(viewer, id);
   });
 
   app.patch("/api/courts/:id", async (req) => {
@@ -64,7 +94,7 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/courts/board", async (req) => {
     const viewer = requireUser(req);
     const query = parse(boardWeekSchema, req.query);
-    return boardFor(viewer, query.week);
+    return boardFor(viewer, query.week, [], query.club);
   });
 
   app.get("/api/courts/range", async (req) => {
@@ -76,7 +106,7 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/courts/day", async (req) => {
     const viewer = requireUser(req);
     const query = parse(courtDaySchema, req.query);
-    return dayGridFor(viewer, query.date);
+    return dayGridFor(viewer, query.date, query.club);
   });
 
   app.get("/api/courts/slot", async (req) => {

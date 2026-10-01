@@ -8,6 +8,7 @@ import { type Reservation, shiftDate, weekdayOf } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useClub } from "@/lib/club";
 
 function useCurrentDay(): string {
   const [day, setDay] = useState(() => istanbulNowParts().day);
@@ -28,6 +29,7 @@ function useCurrentDay(): string {
 
 export default function CourtsPage() {
   const { user } = useAuth();
+  const { clubId, ready } = useClub();
   const today = useCurrentDay();
   const [selected, setSelected] = useState<string[]>(() => [istanbulNowParts().day]);
   const selectedRef = useRef(selected);
@@ -38,6 +40,9 @@ export default function CourtsPage() {
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const dayRef = useRef(shown);
+  const clubRef = useRef(clubId);
+  clubRef.current = clubId;
+  const seenClub = useRef(clubId);
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
   const savedIds = useRef(new Map<string, string>());
@@ -51,6 +56,13 @@ export default function CourtsPage() {
     const hour = query.get("hour");
     if (date && court && hour && date === istanbulNowParts().day) setFocus({ date, courtId: court, hour });
   }, []);
+
+  useEffect(() => {
+    if (seenClub.current === clubId) return;
+    seenClub.current = clubId;
+    gridRef.current = null;
+    setGrid(null);
+  }, [clubId]);
 
   useEffect(() => {
     const weekday = weekdayOf(today);
@@ -73,13 +85,16 @@ export default function CourtsPage() {
 
   useEffect(() => {
     dayRef.current = shown;
-    if (!user) return;
+    if (!user || !ready) return;
     const epoch = paintEpoch.current;
     const requested = shown;
+    const requestedClub = clubId;
     let cancel = false;
-    api<DayGrid>(`/courts/day?date=${requested}`, { cache: "no-store" })
+    const query = new URLSearchParams({ date: requested });
+    if (requestedClub) query.set("club", requestedClub);
+    api<DayGrid>(`/courts/day?${query.toString()}`, { cache: "no-store" })
       .then((data) => {
-        if (cancel || dayRef.current !== requested) return;
+        if (cancel || dayRef.current !== requested || clubRef.current !== requestedClub) return;
         const sameDay = gridRef.current?.date === data.date;
         if (sameDay && paintEpoch.current !== epoch) return;
         gridRef.current = data;
@@ -87,13 +102,13 @@ export default function CourtsPage() {
         setFailed(false);
       })
       .catch(() => {
-        if (cancel || dayRef.current !== requested || gridRef.current) return;
+        if (cancel || dayRef.current !== requested || clubRef.current !== requestedClub || gridRef.current) return;
         setFailed(true);
       });
     return () => {
       cancel = true;
     };
-  }, [shown, retry, user]);
+  }, [shown, retry, user, ready, clubId]);
 
   function showGrid(next: DayGrid | null, immediate = false) {
     if (!next || next.date !== gridRef.current?.date) return;

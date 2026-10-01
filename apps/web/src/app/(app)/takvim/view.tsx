@@ -9,6 +9,7 @@ import { useSearchParams } from "next/navigation";
 import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { useAuth } from "@/lib/auth";
+import { useClub } from "@/lib/club";
 import { useResource } from "@/lib/use-resource";
 
 type Board = {
@@ -118,13 +119,19 @@ function nameInitials(person: SlotPerson): string {
 
 export function TakvimView() {
   const { user } = useAuth();
+  const { clubId, ready } = useClub();
   const params = useSearchParams();
   const queryDate = params.get("date");
   const queryStart = params.get("start");
   const [week, setWeek] = useState<string | undefined>(queryDate ?? undefined);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [queryApplied, setQueryApplied] = useState(false);
-  const board = useResource<Board>(user ? `/courts/board${week ? `?week=${week}` : ""}` : null);
+  const boardQuery = new URLSearchParams();
+  if (week) boardQuery.set("week", week);
+  if (clubId) boardQuery.set("club", clubId);
+  const boardQueryText = boardQuery.toString();
+  const boardPath = boardQueryText ? `/courts/board?${boardQueryText}` : "/courts/board";
+  const board = useResource<Board>(user && ready ? boardPath : null);
 
   useEffect(() => {
     if (queryApplied || !board.data || !queryDate || !queryStart) return;
@@ -150,7 +157,7 @@ export function TakvimView() {
     flushSync(() => setPicked({ date, start }));
   }, []);
 
-  if (board.loading || !user) return <LoadingBlock label="Takvim yükleniyor" />;
+  if (!ready || board.loading || !user) return <LoadingBlock label="Takvim yükleniyor" />;
   if (board.error || !board.data) return <ErrorState message={board.error ?? "Takvim açılmadı"} onRetry={() => void board.reload()} />;
 
   const data = board.data;

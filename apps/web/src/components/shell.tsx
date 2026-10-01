@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { useClub } from "@/lib/club";
 import { useResource } from "@/lib/use-resource";
 
 const items = [
@@ -25,6 +26,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, offline } = useAuth();
+  const { clubs, club, clubId, selectClub } = useClub();
   const notes = useResource<{ meta: { unread: number } }>(user ? `/notifications?pageSize=1&path=${encodeURIComponent(pathname)}` : null);
   const unread = notes.data?.meta.unread ?? 0;
   const [open, setOpen] = useState(false);
@@ -70,9 +72,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <a href="#icerik" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-3 focus:py-2">
         İçeriğe geç
       </a>
-      <div className="flex items-center justify-between px-5 pt-4">
-        <p className="text-xs font-semibold tracking-[0.22em] text-court-deep uppercase">{brand.name}</p>
-        <Link href="/bildirimler" aria-label={unread ? `Bildirimler, ${unread} okunmamış` : "Bildirimler"} className="relative grid h-10 w-10 place-items-center rounded-full bg-surface">
+      <div className="flex items-center gap-2 px-5 pt-4">
+        <p className="shrink-0 text-xs font-semibold tracking-[0.22em] text-court-deep uppercase">{brand.name}</p>
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto text-[11px] leading-none whitespace-nowrap">
+          <label className="flex items-center gap-1">
+            <span>Kulüp</span>
+            <select
+              aria-label="Kulüp"
+              value={clubId ?? ""}
+              onChange={(event) => {
+                if (event.target.value) selectClub(event.target.value);
+              }}
+              className="h-7 max-w-28 rounded-md border border-line bg-surface px-1 text-[11px]"
+            >
+              {clubs.length === 0 ? <option value=""> </option> : null}
+              {clubs.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+          {club ? (
+            <>
+              <span>Restoran {club.hasRestaurant ? "Evet" : "Hayır"}</span>
+              <span>Fitness {club.hasFitness ? "Evet" : "Hayır"}</span>
+            </>
+          ) : null}
+          <Link href="/kort-tanimi" className="font-semibold">Kort tanımı</Link>
+        </div>
+        <Link href="/bildirimler" aria-label={unread ? `Bildirimler, ${unread} okunmamış` : "Bildirimler"} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface">
           <Bell className="h-5 w-5" />
           {unread > 0 ? <span className="absolute top-1 right-1 grid h-4 min-w-4 place-items-center rounded-full bg-clay px-1 text-[10px] font-semibold text-white">{unread > 9 ? "9+" : unread}</span> : null}
         </Link>

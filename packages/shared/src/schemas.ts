@@ -18,6 +18,7 @@ import {
   TOURNAMENT_STATUSES,
   VISIBILITIES,
   GROUP_VISIBILITIES,
+  COURT_KINDS,
   COURT_PURPOSES,
   RESERVATION_STATUSES,
   AVAILABILITY_STATES,
@@ -311,13 +312,28 @@ export const friendRequestSchema = z.object({
   userId: z.string().min(1),
 });
 
+export const clubCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  hasRestaurant: z.boolean().optional(),
+  hasFitness: z.boolean().optional(),
+});
+
+export const clubUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  hasRestaurant: z.boolean().optional(),
+  hasFitness: z.boolean().optional(),
+});
+
 export const courtCreateSchema = z.object({
   name: z.string().trim().min(1).max(40),
+  clubId: z.string().min(1),
+  kind: z.enum(COURT_KINDS).optional(),
 });
 
 export const courtUpdateSchema = z.object({
   name: z.string().trim().min(1).max(40).optional(),
   active: z.boolean().optional(),
+  kind: z.enum(COURT_KINDS).optional(),
 });
 
 export const courtReservationSchema = z.object({
@@ -343,16 +359,19 @@ export const reservationCheckInSchema = z.object({
 
 export const boardWeekSchema = z.object({
   week: dateSchema.optional(),
+  club: z.string().min(1).optional(),
 });
 
 export const courtRangeSchema = z.object({
   date: dateSchema,
   start: hourSchema,
   end: hourSchema,
+  club: z.string().min(1).optional(),
 });
 
 export const courtDaySchema = z.object({
   date: dateSchema.optional(),
+  club: z.string().min(1).optional(),
 });
 
 export const courtSlotSchema = z.object({
