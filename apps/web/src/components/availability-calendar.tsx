@@ -40,8 +40,8 @@ function weekRange(start: string, end: string): string {
 
 const STAMP: Record<Exclude<Manual, null>, { word: string; backgroundColor: string; color: string; borderColor: string }> = {
   FULL: { word: "Tam", backgroundColor: "green", color: "#ffffff", borderColor: "#006400" },
-  MAYBE: { word: "Belki", backgroundColor: "DimGray", color: "#ffffff", borderColor: "#3d3d3d" },
-  BUSY: { word: "Dolu", backgroundColor: "DarkGoldenRod", color: "#ffffff", borderColor: "#6e5206" },
+  MAYBE: { word: "Belki", backgroundColor: "aquamarine", color: "green", borderColor: "green" },
+  BUSY: { word: "Dolu", backgroundColor: "bisque", color: "red", borderColor: "red" },
 };
 
 const MODES = (Object.keys(STAMP) as Exclude<Manual, null>[]).map((state) => ({ state, ...STAMP[state] }));
