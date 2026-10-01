@@ -169,7 +169,7 @@ export default function AvailabilityCalendarPage() {
   if (!grid) return null;
 
   return (
-    <div className="-mx-4 flex h-[calc(100dvh-11rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible">
+    <div className="-mx-4 flex h-[calc(100dvh-13.25rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible">
       <style>{`
         .musait-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
         @media (max-width: 63.99rem) {

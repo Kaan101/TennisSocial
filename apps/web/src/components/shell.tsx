@@ -68,37 +68,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/musaitlik");
 
   return (
-    <div className={`mx-auto min-h-dvh pb-28 ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+    <div className={`mx-auto min-h-dvh pb-[9.25rem] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
       <a href="#icerik" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-3 focus:py-2">
         İçeriğe geç
       </a>
       <div className="flex items-center gap-2 px-5 pt-4">
         <p className="shrink-0 text-xs font-semibold tracking-[0.22em] text-court-deep uppercase">{brand.name}</p>
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto text-[11px] leading-none whitespace-nowrap">
-          <label className="flex items-center gap-1">
-            <span>Kulüp</span>
-            <select
-              aria-label="Kulüp"
-              value={clubId ?? ""}
-              onChange={(event) => {
-                if (event.target.value) selectClub(event.target.value);
-              }}
-              className="h-7 max-w-28 rounded-md border border-line bg-surface px-1 text-[11px]"
-            >
-              {clubs.length === 0 ? <option value=""> </option> : null}
-              {clubs.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </label>
-          {club ? (
-            <>
-              <span>Restoran {club.hasRestaurant ? "Evet" : "Hayır"}</span>
-              <span>Fitness {club.hasFitness ? "Evet" : "Hayır"}</span>
-            </>
-          ) : null}
-          <Link href="/kort-tanimi" className="font-semibold">Kort tanımı</Link>
-        </div>
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold">{club?.name ?? "Kulüp yok"}</p>
+        <select
+          aria-label="Kulüp"
+          value={clubId ?? ""}
+          onChange={(event) => {
+            if (event.target.value) selectClub(event.target.value);
+          }}
+          className="h-8 w-[40%] max-w-40 shrink-0 truncate rounded-md border border-line bg-surface px-1 text-xs"
+        >
+          {clubs.length === 0 ? <option value=""> </option> : null}
+          {clubs.map((item) => (
+            <option key={item.id} value={item.id}>{item.name}</option>
+          ))}
+        </select>
         <Link href="/bildirimler" aria-label={unread ? `Bildirimler, ${unread} okunmamış` : "Bildirimler"} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface">
           <Bell className="h-5 w-5" />
           {unread > 0 ? <span className="absolute top-1 right-1 grid h-4 min-w-4 place-items-center rounded-full bg-clay px-1 text-[10px] font-semibold text-white">{unread > 9 ? "9+" : unread}</span> : null}
@@ -146,7 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
       </main>
       {open ? (
-        <div className="fixed right-4 bottom-28 z-50 w-52 rounded-3xl border border-line bg-surface p-2 shadow-xl">
+        <div className="fixed right-4 bottom-[9.25rem] z-50 w-52 rounded-3xl border border-line bg-surface p-2 shadow-xl">
           <Link href="/maclar/yeni" onClick={() => setOpen(false)} className="block rounded-2xl px-3 py-3 text-sm font-semibold hover:bg-paper">
             Yeni maç
           </Link>
@@ -160,11 +149,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-expanded={open}
         aria-label={open ? "Kapat" : "Yeni maç veya defi"}
         onClick={() => setOpen((value) => !value)}
-        className="fixed right-4 bottom-24 z-50 grid h-14 w-14 place-items-center rounded-full bg-clay text-white shadow-lg"
+        className="fixed right-4 bottom-[8.25rem] z-50 grid h-14 w-14 place-items-center rounded-full bg-clay text-white shadow-lg"
       >
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
+        <div className={`mx-auto grid grid-cols-2 border-b border-line ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+          {[
+            { href: "/kulup-tanimi", label: "Kulüp tanımı" },
+            { href: "/kort-tanimi", label: "Kort tanımı" },
+          ].map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`px-2 py-2 text-center text-sm font-semibold ${active ? "text-court" : "text-ink"}`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
         <ul className={`mx-auto grid grid-cols-8 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);

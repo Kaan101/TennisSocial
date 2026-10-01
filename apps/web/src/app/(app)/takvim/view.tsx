@@ -165,7 +165,7 @@ export function TakvimView() {
   const courts = slot ? freeCourtsOf(slot) : [];
 
   return (
-    <div className="flex h-[calc(100dvh-11rem)] w-full min-w-0 flex-col gap-1 overflow-hidden">
+    <div className="flex h-[calc(100dvh-13.25rem)] w-full min-w-0 flex-col gap-1 overflow-hidden">
       <style>{`
         .takvim-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
         @media (min-width: 64rem) {
