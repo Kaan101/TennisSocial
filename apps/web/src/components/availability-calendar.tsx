@@ -40,7 +40,7 @@ function weekRange(start: string, end: string): string {
 
 const STAMP: Record<Exclude<Manual, null>, { word: string; backgroundColor: string; color: string; borderColor: string }> = {
   FULL: { word: "Tam", backgroundColor: "green", color: "#ffffff", borderColor: "#006400" },
-  MAYBE: { word: "Belki", backgroundColor: "silver", color: "#ffffff", borderColor: "#4b5563" },
+  MAYBE: { word: "Belki", backgroundColor: "silver", color: "#000000", borderColor: "#4b5563" },
   BUSY: { word: "Dolu", backgroundColor: "DarkGoldenRod", color: "#ffffff", borderColor: "#6e5206" },
 };
 
@@ -83,7 +83,7 @@ const StampCell = memo(function StampCell({
       type="button"
       aria-label={`${label} ${hour} ${word}`}
       onClick={() => onPress(date, hour)}
-      className="court-press flex h-full min-h-0 w-full items-center justify-center border px-0.5 text-[10px] font-semibold leading-none lg:min-h-8 lg:text-xs"
+      className="court-press flex h-full min-h-0 w-full items-center justify-center border px-0.5 text-[10px] font-normal leading-none lg:min-h-8 lg:text-xs"
       style={{ backgroundColor: paint.backgroundColor, color: paint.color, borderColor: paint.borderColor, borderRadius: 4 }}
     >
       {cell?.manual ? STAMP[cell.manual].word : null}
