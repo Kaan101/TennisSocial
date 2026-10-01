@@ -390,7 +390,7 @@ export function CourtDayGrid({
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-sm font-bold whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
+              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-sm font-normal whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
               {grid.courts.map((court) => (
                 <CourtSlot
                   key={court.id}

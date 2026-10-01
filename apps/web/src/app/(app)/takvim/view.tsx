@@ -190,7 +190,7 @@ export function TakvimView() {
             ))}
             {data.hours.map((hour) => (
               <Fragment key={hour}>
-                <div className="flex items-center whitespace-nowrap text-[10px] font-bold leading-none text-ink">{hour}</div>
+                <div className="flex items-center whitespace-nowrap text-[10px] font-normal leading-none text-ink">{hour}</div>
                 {data.days.map((day) => (
                   <WeekCell
                     key={day.date}
@@ -324,7 +324,7 @@ function PhoneDay({
                   aria-expanded={hourOpen}
                   aria-label={`${day.label} ${hour}`}
                   onClick={() => onToggleHour(day.date, hour)}
-                  className={`court-press flex w-full items-center px-1 py-2 text-left text-base font-bold leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
+                  className={`court-press flex w-full items-center px-1 py-2 text-left text-base font-normal leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
                 >
                   <span>{hour}</span>
                   <HourCounts players={players.length} courts={freeCourts.length} className="ml-[2.5ch]" />
@@ -393,7 +393,7 @@ function HourCounts({
         </span>
       ) : null}
       {courts > 0 ? (
-        <span className={`inline-flex items-center justify-center rounded-full bg-[#6B2430] font-semibold leading-none text-white ${size}`}>
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#6D28D9] font-semibold leading-none text-white ${size}`}>
           {courts}
         </span>
       ) : null}

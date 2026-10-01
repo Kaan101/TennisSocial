@@ -38,11 +38,13 @@ function weekRange(start: string, end: string): string {
   return `${startNum} ${startName} ${startYear} – ${endNum} ${endName} ${endYear}`;
 }
 
-const MODES: { state: AvailabilityState; word: string; backgroundColor: string; color: string }[] = [
-  { state: "FULL", word: "Tam", backgroundColor: "#16a34a", color: "#ffffff" },
-  { state: "MAYBE", word: "Belki", backgroundColor: "#bbf7d0", color: "#14241c" },
-  { state: "BUSY", word: "Dolu", backgroundColor: "#fecaca", color: "#14241c" },
-];
+const STAMP: Record<Exclude<Manual, null>, { word: string; backgroundColor: string; color: string; borderColor: string }> = {
+  FULL: { word: "Tam", backgroundColor: "#86efac", color: "#166534", borderColor: "#166534" },
+  MAYBE: { word: "Belki", backgroundColor: "#bbf7d0", color: "#15803d", borderColor: "#15803d" },
+  BUSY: { word: "Dolu", backgroundColor: "#fecaca", color: "#b91c1c", borderColor: "#b91c1c" },
+};
+
+const MODES = (Object.keys(STAMP) as Exclude<Manual, null>[]).map((state) => ({ state, ...STAMP[state] }));
 
 function paintCell(grid: WeekGrid, date: string, startTime: string, manual: Manual): WeekGrid {
   return {
@@ -51,17 +53,13 @@ function paintCell(grid: WeekGrid, date: string, startTime: string, manual: Manu
   };
 }
 
-function cellFill(cell: Cell): { backgroundColor: string; color: string } {
-  if (cell.manual === "FULL") return { backgroundColor: "#16a34a", color: "#ffffff" };
-  if (cell.manual === "MAYBE") return { backgroundColor: "#bbf7d0", color: "#14241c" };
-  if (cell.manual === "BUSY") return { backgroundColor: "#fecaca", color: "#14241c" };
-  return { backgroundColor: "transparent", color: "#14241c" };
+function cellFill(cell: Cell): { backgroundColor: string; color: string; borderColor: string } {
+  if (cell.manual) return STAMP[cell.manual];
+  return { backgroundColor: "transparent", color: "#14241c", borderColor: "#d1d5db" };
 }
 
 function cellWord(cell: Cell): string {
-  if (cell.manual === "FULL") return "tam";
-  if (cell.manual === "MAYBE") return "belki";
-  if (cell.manual === "BUSY") return "dolu";
+  if (cell.manual) return STAMP[cell.manual].word;
   return "boş";
 }
 
@@ -79,14 +77,17 @@ const StampCell = memo(function StampCell({
   onPress: (date: string, hour: string) => void;
 }) {
   const word = cell ? cellWord(cell) : "boş";
+  const paint = cell ? cellFill(cell) : { backgroundColor: "transparent", color: "#14241c", borderColor: "#d1d5db" };
   return (
     <button
       type="button"
       aria-label={`${label} ${hour} ${word}`}
       onClick={() => onPress(date, hour)}
-      className="court-press block h-full min-h-0 w-full border border-[#d1d5db] lg:min-h-8"
-      style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
-    />
+      className="court-press flex h-full min-h-0 w-full items-center justify-center border px-0.5 text-[10px] font-semibold leading-none lg:min-h-8 lg:text-xs"
+      style={{ backgroundColor: paint.backgroundColor, color: paint.color, borderColor: paint.borderColor, borderRadius: 4 }}
+    >
+      {cell?.manual ? STAMP[cell.manual].word : null}
+    </button>
   );
 });
 
@@ -192,7 +193,7 @@ export function AvailabilityCalendar({
   if (!grid) return null;
 
   return (
-    <div className={flow ? "flex w-full min-w-0 flex-col gap-1 lg:gap-2" : "-mx-4 flex h-[calc(100dvh-13.25rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible"}>
+    <div className={flow ? "flex w-full min-w-0 flex-col gap-1 rounded-xl border border-[#d1d5db] p-2 lg:gap-2" : "-mx-4 flex h-[calc(100dvh-13.25rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible"}>
       <style>{`
         .musait-board { grid-template-columns: 3.5rem repeat(7, minmax(0, 1fr)); }
         @media (max-width: 63.99rem) {
@@ -219,8 +220,8 @@ export function AvailabilityCalendar({
               type="button"
               aria-pressed={on}
               onClick={() => setMode(option.state)}
-              className={`court-press rounded-md border px-2 py-1 text-xs ${on ? "border-ink font-semibold" : "border-line"}`}
-              style={{ backgroundColor: option.backgroundColor, color: option.color }}
+              className={`court-press rounded-md border px-2 py-1 text-xs ${on ? "font-semibold" : ""}`}
+              style={{ backgroundColor: option.backgroundColor, color: option.color, borderColor: option.borderColor }}
             >
               {option.word}
             </button>
@@ -230,12 +231,13 @@ export function AvailabilityCalendar({
           type="button"
           aria-pressed={mode === "CLEAR"}
           onClick={() => setMode("CLEAR")}
-          className={`court-press rounded-md border bg-surface px-2 py-1 text-xs text-ink ${mode === "CLEAR" ? "border-ink font-semibold" : "border-line"}`}
+          className={`court-press rounded-md border bg-surface px-2 py-1 text-xs ${mode === "CLEAR" ? "font-semibold" : ""}`}
+          style={{ color: "#4b5563", borderColor: "#6b7280" }}
         >
           Boş
         </button>
       </div>
-      <div className={`min-h-0 w-full lg:mx-auto lg:w-[70%] lg:overflow-x-auto ${flow ? "" : "flex-1 lg:flex-none"}`}>
+      <div className={`min-h-0 w-full lg:mx-auto lg:overflow-x-auto ${flow ? "lg:w-[95%]" : "lg:w-[70%] flex-1 lg:flex-none"}`}>
         <div
           className={`musait-board grid w-full min-w-full gap-x-1 gap-y-0.5 lg:h-auto lg:min-w-0 lg:w-full lg:gap-1 ${shortDays ? "musait-board-short" : ""} ${flow ? "h-auto" : "h-full"}`}
           style={{ "--musait-rows": String(grid.hours.length) } as CSSProperties}
@@ -256,7 +258,7 @@ export function AvailabilityCalendar({
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="flex items-center pl-0.5 whitespace-nowrap text-sm font-bold leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
+              <div className="flex items-center pl-0.5 whitespace-nowrap text-sm font-normal leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
               {grid.days.map((day) => (
                 <StampCell
                   key={day.date}
