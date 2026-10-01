@@ -393,7 +393,7 @@ function HourCounts({
         </span>
       ) : null}
       {courts > 0 ? (
-        <span className={`inline-flex items-center justify-center rounded-full bg-[#2563eb] font-semibold leading-none text-white ${size}`}>
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#6B2430] font-semibold leading-none text-white ${size}`}>
           {courts}
         </span>
       ) : null}

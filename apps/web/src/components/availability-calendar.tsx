@@ -107,7 +107,15 @@ function useCurrentDay(): string {
   return day;
 }
 
-export function AvailabilityCalendar({ heading = true, flow = false }: { heading?: boolean; flow?: boolean }) {
+export function AvailabilityCalendar({
+  heading = true,
+  flow = false,
+  shortDays = false,
+}: {
+  heading?: boolean;
+  flow?: boolean;
+  shortDays?: boolean;
+}) {
   const today = useCurrentDay();
   const [grid, setGrid] = useState<WeekGrid | null>(null);
   const [mode, setMode] = useState<Tool | null>(null);
@@ -193,6 +201,10 @@ export function AvailabilityCalendar({ heading = true, flow = false }: { heading
         @media (min-width: 64rem) {
           .musait-board { grid-template-columns: 3.75rem repeat(7, minmax(0, 1fr)); }
         }
+        .musait-board-short { grid-template-columns: 3.5rem repeat(7, minmax(2.25rem, 1fr)); }
+        @media (min-width: 64rem) {
+          .musait-board-short { grid-template-columns: 3.75rem repeat(7, minmax(2.25rem, 1fr)); }
+        }
       `}</style>
       <div className={`flex shrink-0 items-baseline gap-3 ${flow ? "" : "px-4 lg:px-0"} ${heading ? "justify-between" : "justify-end"}`}>
         {heading ? <h1 className="shrink-0 text-lg font-semibold leading-none">Müsaitlik</h1> : null}
@@ -225,15 +237,21 @@ export function AvailabilityCalendar({ heading = true, flow = false }: { heading
       </div>
       <div className={`min-h-0 w-full lg:mx-auto lg:w-[70%] lg:overflow-x-auto ${flow ? "" : "flex-1 lg:flex-none"}`}>
         <div
-          className={`musait-board grid w-full min-w-full gap-x-1 gap-y-0.5 lg:h-auto lg:min-w-0 lg:w-full lg:gap-1 ${flow ? "h-auto" : "h-full"}`}
+          className={`musait-board grid w-full min-w-full gap-x-1 gap-y-0.5 lg:h-auto lg:min-w-0 lg:w-full lg:gap-1 ${shortDays ? "musait-board-short" : ""} ${flow ? "h-auto" : "h-full"}`}
           style={{ "--musait-rows": String(grid.hours.length) } as CSSProperties}
         >
           <div />
           {grid.days.map((day) => (
-            <div key={day.date} className="flex min-h-0 min-w-0 flex-col items-center justify-end pb-px text-center">
-              <span className="text-xs font-semibold leading-none lg:hidden">{day.short}</span>
-              <span className="hidden max-w-full truncate text-sm font-semibold leading-none lg:block">{day.label}</span>
-              <span className="mt-px hidden text-[9px] font-normal leading-none text-muted lg:block">{day.date.slice(8)}</span>
+            <div key={day.date} className="flex min-h-0 min-w-0 flex-col items-center justify-end overflow-visible pb-px text-center">
+              {shortDays ? (
+                <span className="whitespace-nowrap text-xs font-semibold leading-none">{day.short}</span>
+              ) : (
+                <>
+                  <span className="text-xs font-semibold leading-none lg:hidden">{day.short}</span>
+                  <span className="hidden max-w-full truncate text-sm font-semibold leading-none lg:block">{day.label}</span>
+                  <span className="mt-px hidden text-[9px] font-normal leading-none text-muted lg:block">{day.date.slice(8)}</span>
+                </>
+              )}
             </div>
           ))}
           {grid.hours.map((hour) => (
