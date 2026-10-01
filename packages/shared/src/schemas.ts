@@ -355,6 +355,12 @@ export const courtDaySchema = z.object({
   date: dateSchema.optional(),
 });
 
+export const courtSlotSchema = z.object({
+  date: dateSchema,
+  courtId: z.string().min(1),
+  hour: hourSchema,
+});
+
 export const boardVisibilitySchema = z.object({
   visible: z.boolean(),
 });

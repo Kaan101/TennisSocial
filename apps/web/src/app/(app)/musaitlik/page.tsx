@@ -2,7 +2,7 @@
 
 import type { AvailabilityState } from "@club/shared";
 import { istanbulNowParts } from "@club/shared";
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
@@ -49,6 +49,31 @@ function cellWord(cell: Cell): string {
   if (cell.manual === "BUSY") return "dolu";
   return "boş";
 }
+
+const StampCell = memo(function StampCell({
+  label,
+  date,
+  hour,
+  cell,
+  onPress,
+}: {
+  label: string;
+  date: string;
+  hour: string;
+  cell: Cell | undefined;
+  onPress: (date: string, hour: string) => void;
+}) {
+  const word = cell ? cellWord(cell) : "boş";
+  return (
+    <button
+      type="button"
+      aria-label={`${label} ${hour} ${word}`}
+      onClick={() => onPress(date, hour)}
+      className="court-press block h-full min-h-0 w-full border border-line lg:min-h-8"
+      style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
+    />
+  );
+});
 
 function useCurrentDay(): string {
   const [day, setDay] = useState(() => istanbulNowParts().day);
@@ -105,6 +130,17 @@ export default function AvailabilityCalendarPage() {
     flushSync(() => setGrid(next));
   }
 
+  const marks = useMemo(() => {
+    const map = new Map<string, Cell>();
+    for (const cell of grid?.cells ?? []) map.set(`${cell.date}|${cell.startTime}`, cell);
+    return map;
+  }, [grid]);
+
+  const onCellRef = useRef<(date: string, startTime: string) => void>(() => {});
+  const onPress = useCallback((date: string, hour: string) => {
+    onCellRef.current(date, hour);
+  }, []);
+
   function onCell(date: string, startTime: string) {
     if (!mode) return;
     const snapshot = gridRef.current;
@@ -125,6 +161,7 @@ export default function AvailabilityCalendarPage() {
       setGrid(restored);
     });
   }
+  onCellRef.current = onCell;
 
   if (!grid && !failed) return <LoadingBlock label="Müsaitlik yükleniyor" />;
   if (!grid && failed) return <ErrorState message="Müsaitlik yüklenemedi" onRetry={() => setRetry((value) => value + 1)} />;
@@ -185,20 +222,16 @@ export default function AvailabilityCalendarPage() {
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
               <div className="flex items-center pl-1 whitespace-nowrap text-[10px] font-bold leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
-              {grid.days.map((day) => {
-                const cell = grid.cells.find((item) => item.date === day.date && item.startTime === hour);
-                const word = cell ? cellWord(cell) : "boş";
-                return (
-                  <button
-                    key={day.date}
-                    type="button"
-                    aria-label={`${day.label} ${hour} ${word}`}
-                    onClick={() => onCell(day.date, hour)}
-                    className="court-press block h-full min-h-0 w-full border border-line lg:min-h-8"
-                    style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
-                  />
-                );
-              })}
+              {grid.days.map((day) => (
+                <StampCell
+                  key={day.date}
+                  label={day.label}
+                  date={day.date}
+                  hour={hour}
+                  cell={marks.get(`${day.date}|${hour}`)}
+                  onPress={onPress}
+                />
+              ))}
             </Fragment>
           ))}
         </div>

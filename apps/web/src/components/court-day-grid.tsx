@@ -1,7 +1,7 @@
 "use client";
 
 import { WEEKDAYS, type CourtPurpose } from "@club/shared";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useRef, useState } from "react";
 import { type CourtRow, type Person, type Reservation, addHour, shiftDate, weekdayOf } from "@/components/court-ui";
 
 export type DayReservation = {
@@ -220,6 +220,36 @@ export function paintDayGrid(grid: DayGrid, created: Reservation): DayGrid {
 
 type Tool = CourtPurpose | "CLEAR" | "CANCEL" | "CHECKIN";
 
+const CourtSlot = memo(function CourtSlot({
+  court,
+  hour,
+  cell,
+  picked,
+  onPress,
+}: {
+  court: CourtRow;
+  hour: string;
+  cell: DayCell | undefined;
+  picked: boolean;
+  onPress: (court: CourtRow, hour: string) => void;
+}) {
+  const reservation = cell?.state === "busy" ? cell.reservation : null;
+  const word = reservation ? purposeWord(reservation.purpose).toLocaleLowerCase("tr") : "boş";
+  return (
+    <button
+      id={`kort-${court.id}-${hour}`}
+      type="button"
+      aria-pressed={picked}
+      aria-label={`${court.name} ${hour} ${word}`}
+      onClick={() => onPress(court, hour)}
+      className={`court-press flex min-h-8 w-full min-w-0 items-center justify-center rounded-sm border border-line px-0.5 text-[10px] font-semibold leading-none ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
+      style={{ ...cellPaint(reservation), borderRadius: 4 }}
+    >
+      {reservation ? cellMark(reservation.purpose) : null}
+    </button>
+  );
+});
+
 export function CourtDayGrid({
   date,
   selected,
@@ -250,7 +280,8 @@ export function CourtDayGrid({
     document.getElementById(`kort-${focusHere.courtId}-${focusHere.hour}`)?.scrollIntoView({ block: "center", inline: "center" });
   }, [focusHere]);
 
-  function onCell(court: CourtRow, hour: string) {
+  const pressRef = useRef<(court: CourtRow, hour: string) => void>(() => {});
+  pressRef.current = (court, hour) => {
     if (!mode || !shown) return;
     const cell = cells.get(`${court.id}-${hour}`);
     const reservation = cell?.state === "busy" ? cell.reservation : null;
@@ -271,7 +302,10 @@ export function CourtDayGrid({
     }
     if (!court.active || cell?.state === "busy") return;
     void onApply({ purpose: mode, slots: [{ courtId: court.id, startTime: hour }] });
-  }
+  };
+  const onPress = useCallback((court: CourtRow, hour: string) => {
+    pressRef.current(court, hour);
+  }, []);
 
   return (
     <div className="flex w-full min-w-0 flex-col items-start gap-2">
@@ -347,26 +381,16 @@ export function CourtDayGrid({
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
               <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-[10px] font-bold whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
-              {grid.courts.map((court) => {
-                const cell = cells.get(`${court.id}-${hour}`);
-                const reservation = cell?.state === "busy" ? cell.reservation : null;
-                const word = reservation ? purposeWord(reservation.purpose).toLocaleLowerCase("tr") : "boş";
-                const picked = focusHere?.courtId === court.id && focusHere.hour === hour;
-                return (
-                  <button
-                    key={court.id}
-                    id={`kort-${court.id}-${hour}`}
-                    type="button"
-                    aria-pressed={picked}
-                    aria-label={`${court.name} ${hour} ${word}`}
-                    onClick={() => onCell(court, hour)}
-                    className={`court-press flex min-h-8 w-full min-w-0 items-center justify-center rounded-sm border border-line px-0.5 text-[10px] font-semibold leading-none ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
-                    style={{ ...cellPaint(reservation), borderRadius: 4 }}
-                  >
-                    {reservation ? cellMark(reservation.purpose) : null}
-                  </button>
-                );
-              })}
+              {grid.courts.map((court) => (
+                <CourtSlot
+                  key={court.id}
+                  court={court}
+                  hour={hour}
+                  cell={cells.get(`${court.id}-${hour}`)}
+                  picked={focusHere?.courtId === court.id && focusHere.hour === hour}
+                  onPress={onPress}
+                />
+              ))}
             </Fragment>
           ))}
         </div>

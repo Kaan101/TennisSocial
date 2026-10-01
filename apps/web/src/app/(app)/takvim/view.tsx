@@ -2,7 +2,7 @@
 
 import { waLink } from "@club/shared";
 import { User } from "lucide-react";
-import { Fragment, useEffect, useState, type MouseEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -62,6 +62,51 @@ function desktopFace(freeCourts: number, players: number): string {
   return "lg:border-[#2563eb] lg:bg-transparent";
 }
 
+const WeekCell = memo(function WeekCell({
+  dayLabel,
+  date,
+  hour,
+  slot,
+  selected,
+  onPick,
+}: {
+  dayLabel: string;
+  date: string;
+  hour: string;
+  slot: Slot | undefined;
+  selected: boolean;
+  onPick: (date: string, start: string) => void;
+}) {
+  if (!slot) return <div className="min-h-0" />;
+  const freeCourts = freeCourtsOf(slot);
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={`${dayLabel} ${hour}`}
+      onClick={() => onPick(date, hour)}
+      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 p-px lg:flex-col lg:justify-center ${phoneFace(freeCourts.length)} ${desktopFace(freeCourts.length, slot.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+      style={{ borderRadius: 4 }}
+    >
+      {slot.people.length > 0 ? (
+        <User className="h-3 w-3 shrink-0 text-ink lg:hidden" aria-hidden />
+      ) : null}
+      {slot.people.length > 0 || freeCourts.length > 0 ? (
+        <span className="hidden max-h-full min-h-0 w-full flex-wrap content-center items-center justify-center gap-px overflow-hidden lg:flex">
+          {slot.people.map((person) => (
+            <CellPhoto key={person.id} person={person} />
+          ))}
+          {freeCourts.map((court) => (
+            <span key={court.id} className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line text-[8px] font-semibold leading-none text-ink">
+              {circleLabel(court)}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </button>
+  );
+});
+
 function nameInitials(person: SlotPerson): string {
   const first = Array.from(person.firstName.trim())[0];
   const last = Array.from(person.lastName.trim())[0];
@@ -96,15 +141,20 @@ export function TakvimView() {
     setQueryApplied(true);
   }, [queryApplied, board.data, queryDate, queryStart]);
 
-  function pick(date: string, start: string) {
+  const slots = useMemo(() => {
+    const map = new Map<string, Slot>();
+    for (const item of board.data?.slots ?? []) map.set(`${item.date}|${item.startTime}`, item);
+    return map;
+  }, [board.data]);
+  const onPick = useCallback((date: string, start: string) => {
     flushSync(() => setPicked({ date, start }));
-  }
+  }, []);
 
   if (board.loading || !user) return <LoadingBlock label="Takvim yükleniyor" />;
   if (board.error || !board.data) return <ErrorState message={board.error ?? "Takvim açılmadı"} onRetry={() => void board.reload()} />;
 
   const data = board.data;
-  const slot = picked ? data.slots.find((item) => item.date === picked.date && item.startTime === picked.start) ?? null : null;
+  const slot = picked ? slots.get(`${picked.date}|${picked.start}`) ?? null : null;
   const courts = slot ? freeCourtsOf(slot) : [];
 
   return (
@@ -138,39 +188,17 @@ export function TakvimView() {
             {data.hours.map((hour) => (
               <Fragment key={hour}>
                 <div className="flex items-center whitespace-nowrap text-[10px] font-bold leading-none text-ink">{hour}</div>
-                {data.days.map((day) => {
-                  const cell = data.slots.find((item) => item.date === day.date && item.startTime === hour);
-                  if (!cell) return <div key={day.date} className="min-h-0" />;
-                  const selected = picked?.date === day.date && picked.start === hour;
-                  const freeCourts = freeCourtsOf(cell);
-                  return (
-                    <button
-                      key={day.date}
-                      type="button"
-                      aria-pressed={selected}
-                      aria-label={`${day.label} ${hour}`}
-                      onClick={() => pick(day.date, hour)}
-                      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 p-px lg:flex-col lg:justify-center ${phoneFace(freeCourts.length)} ${desktopFace(freeCourts.length, cell.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
-                      style={{ borderRadius: 4 }}
-                    >
-                      {cell.people.length > 0 ? (
-                        <User className="h-3 w-3 shrink-0 text-ink lg:hidden" aria-hidden />
-                      ) : null}
-                      {cell.people.length > 0 || freeCourts.length > 0 ? (
-                        <span className="hidden max-h-full min-h-0 w-full flex-wrap content-center items-center justify-center gap-px overflow-hidden lg:flex">
-                          {cell.people.map((person) => (
-                            <CellPhoto key={person.id} person={person} />
-                          ))}
-                          {freeCourts.map((court) => (
-                            <span key={court.id} className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line text-[8px] font-semibold leading-none text-ink">
-                              {circleLabel(court)}
-                            </span>
-                          ))}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
+                {data.days.map((day) => (
+                  <WeekCell
+                    key={day.date}
+                    dayLabel={day.label}
+                    date={day.date}
+                    hour={hour}
+                    slot={slots.get(`${day.date}|${hour}`)}
+                    selected={picked?.date === day.date && picked.start === hour}
+                    onPick={onPick}
+                  />
+                ))}
               </Fragment>
             ))}
           </div>

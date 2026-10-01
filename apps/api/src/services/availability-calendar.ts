@@ -20,10 +20,16 @@ type WindowRow = {
   state: AvailabilityState;
 };
 
-function paintedState(windows: WindowRow[], date: string, startTime: string): AvailabilityState | null {
-  const endTime = slotEnd(startTime);
-  const exact = windows.find((window) => window.kind === "ONE_OFF" && dateOnly(window.date) === date && window.startTime === startTime && window.endTime === endTime);
-  return exact?.state ?? null;
+function exactMarks(windows: WindowRow[]): Map<string, AvailabilityState> {
+  const marks = new Map<string, AvailabilityState>();
+  for (const window of windows) {
+    if (window.kind !== "ONE_OFF") continue;
+    const date = dateOnly(window.date);
+    if (!date || window.endTime !== slotEnd(window.startTime)) continue;
+    const key = `${date}|${window.startTime}`;
+    if (!marks.has(key)) marks.set(key, window.state);
+  }
+  return marks;
 }
 
 export function sameWeekdayNextMonth(date: string): string | null {
@@ -70,10 +76,11 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
     select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true },
   });
 
+  const marks = exactMarks(windows);
   const cells: CalendarCell[] = dates.flatMap((date) => COURT_HOURS.map((startTime) => ({
     date,
     startTime,
-    manual: paintedState(windows, date, startTime),
+    manual: marks.get(`${date}|${startTime}`) ?? null,
   })));
 
   return {

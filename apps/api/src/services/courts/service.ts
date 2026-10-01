@@ -439,28 +439,6 @@ function markedOpen(state: "FULL" | "MAYBE" | "BUSY"): boolean {
   return state === "FULL" || state === "MAYBE";
 }
 
-function userAvailable(user: BoardUser, date: string, weekday: number, startTime: string): boolean {
-  if (!user.profile || !isPlayableStatus(user.profile.playerStatus)) return false;
-  const away = user.absences.some((absence) => {
-    const start = dateOnly(absence.startDate);
-    const end = dateOnly(absence.endDate);
-    return Boolean(start && end && date >= start && date <= end);
-  });
-  if (away) return false;
-  const endTime = slotEnd(startTime);
-  const covers = (window: BoardUser["availability"][number]) => {
-    if (!timesOverlap(window.startTime, window.endTime, startTime, endTime)) return false;
-    if (window.kind === "ONE_OFF") return dateOnly(window.date) === date;
-    return window.weekday === weekday;
-  };
-  const oneOffs = user.availability.filter((window) => window.kind === "ONE_OFF" && covers(window));
-  if (oneOffs.length > 0) {
-    const exact = oneOffs.find((window) => window.startTime === startTime && window.endTime === endTime);
-    if (exact) return markedOpen(exact.state);
-    return oneOffs.some((window) => markedOpen(window.state));
-  }
-  return user.availability.some((window) => window.kind === "WEEKLY" && covers(window) && markedOpen(window.state));
-}
 
 function messageNumberFor(viewer: CourtViewer, user: BoardUser, friendIds: Set<string>): string | null {
   const profile = user.profile;
@@ -502,6 +480,87 @@ function namesFor(
 
 function courtPurposeTakesCourt(purpose: CourtPurpose): boolean {
   return purpose === "MATCH" || purpose === "TRAINING" || purpose === "TOURNAMENT" || purpose === "MAINTENANCE";
+}
+
+const courtHourSet = new Set(COURT_HOURS);
+
+function coveredHours(span: Span, date: string): string[] {
+  if (date < span.startDate || date > span.endDate) return [];
+  if (!span.weekdays.includes(weekdayOfDate(date))) return [];
+  return hoursInRange(span.startTime, span.endTime).filter((hour) => courtHourSet.has(hour));
+}
+
+function indexSpans<T extends { startDate: Date; endDate: Date; weekdays: number[]; startTime: string; endTime: string }>(
+  rows: T[],
+  dates: string[],
+  keyFor: (row: T, date: string, hour: string) => string,
+): Map<string, T[]> {
+  const bucket = new Map<string, T[]>();
+  for (const row of rows) {
+    const span = spanFromRow(row);
+    for (const date of dates) {
+      for (const hour of coveredHours(span, date)) {
+        const key = keyFor(row, date, hour);
+        const list = bucket.get(key);
+        if (list) list.push(row);
+        else bucket.set(key, [row]);
+      }
+    }
+  }
+  return bucket;
+}
+
+function slotOpen(oneOffs: BoardUser["availability"], weekly: BoardUser["availability"], startTime: string): boolean {
+  const endTime = slotEnd(startTime);
+  const covering = oneOffs.filter((window) => timesOverlap(window.startTime, window.endTime, startTime, endTime));
+  if (covering.length > 0) {
+    const exact = covering.find((window) => window.startTime === startTime && window.endTime === endTime);
+    if (exact) return markedOpen(exact.state);
+    return covering.some((window) => markedOpen(window.state));
+  }
+  return weekly.some((window) => timesOverlap(window.startTime, window.endTime, startTime, endTime) && markedOpen(window.state));
+}
+
+function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: number }[]): Map<string, BoardUser[]> {
+  const ranked = users
+    .filter((user) => user.profile && isPlayableStatus(user.profile.playerStatus))
+    .sort((left, right) => (left.profile?.lastName ?? "").localeCompare(right.profile?.lastName ?? "", "tr"));
+  const bucket = new Map<string, BoardUser[]>();
+  for (const user of ranked) {
+    const absences = user.absences.flatMap((absence) => {
+      const start = dateOnly(absence.startDate);
+      const end = dateOnly(absence.endDate);
+      return start && end ? [{ start, end }] : [];
+    });
+    const oneOffByDate = new Map<string, BoardUser["availability"]>();
+    const weeklyByDay = new Map<number, BoardUser["availability"]>();
+    for (const window of user.availability) {
+      if (window.kind === "ONE_OFF") {
+        const markDate = dateOnly(window.date);
+        if (!markDate) continue;
+        const list = oneOffByDate.get(markDate);
+        if (list) list.push(window);
+        else oneOffByDate.set(markDate, [window]);
+      } else if (window.weekday !== null) {
+        const list = weeklyByDay.get(window.weekday);
+        if (list) list.push(window);
+        else weeklyByDay.set(window.weekday, [window]);
+      }
+    }
+    for (const { date, weekday } of days) {
+      if (absences.some((absence) => date >= absence.start && date <= absence.end)) continue;
+      const oneOffs = oneOffByDate.get(date) ?? [];
+      const weekly = weeklyByDay.get(weekday) ?? [];
+      for (const startTime of COURT_HOURS) {
+        if (!slotOpen(oneOffs, weekly, startTime)) continue;
+        const key = `${date}|${startTime}`;
+        const list = bucket.get(key);
+        if (list) list.push(user);
+        else bucket.set(key, [user]);
+      }
+    }
+  }
+  return bucket;
 }
 
 export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = []) {
@@ -555,14 +614,17 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   ]);
   const friendIds = new Set(friendRows.map((row) => (row.requesterId === viewer.id ? row.addresseeId : row.requesterId)));
 
-  const slots = dates.flatMap((date) => {
-    const weekday = weekdayOfDate(date);
-    return COURT_HOURS.map((startTime) => {
-      const covering = reservations.filter((row) => slotCoveredBySpan(date, startTime, spanFromRow(row)));
+  const dayMeta = dates.map((date) => ({ date, weekday: weekdayOfDate(date) }));
+  const coveringBySlot = indexSpans(reservations, dates, (_row, date, hour) => `${date}|${hour}`);
+  const openBySlot = openUsersBySlot(users as BoardUser[], dayMeta);
+  const slots = dayMeta.flatMap(({ date, weekday }) =>
+    COURT_HOURS.map((startTime) => {
+      const key = `${date}|${startTime}`;
+      const covering = coveringBySlot.get(key) ?? [];
       const approvedCovering = covering.filter((row) => row.status === "APPROVED");
       const busy = new Set(approvedCovering.flatMap((row) => playingIds(row)));
-      const people = (users as BoardUser[])
-        .filter((user) => userAvailable(user, date, weekday, startTime) && !busy.has(user.id))
+      const people = (openBySlot.get(key) ?? [])
+        .filter((user) => !busy.has(user.id))
         .map((user) => {
           const level = user.tennisProfile?.overallLevel ?? "INTERMEDIATE";
           return {
@@ -575,8 +637,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
             levelLabel: LEVEL_LABELS[level],
             levelIndex: levelIndex(level),
           };
-        })
-        .sort((a, b) => a.lastName.localeCompare(b.lastName, "tr"));
+        });
       return {
         date,
         weekday,
@@ -608,8 +669,8 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
           };
         }),
       };
-    });
-  });
+    }),
+  );
 
   return {
     weekStart,
@@ -707,9 +768,10 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
     }),
   ]);
 
+  const bySlot = indexSpans(reservations, [date], (row, _day, hour) => `${row.courtId}|${hour}`);
   const cells = courts.flatMap((court) =>
     COURT_HOURS.map((startTime) => {
-      const covering = reservations.filter((row) => row.courtId === court.id && slotCoveredBySpan(date, startTime, spanFromRow(row)));
+      const covering = bySlot.get(`${court.id}|${startTime}`) ?? [];
       const row = covering.find((item) => item.status === "APPROVED") ?? covering[0];
       if (!row) {
         return {
@@ -756,6 +818,41 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string) {
       purposes: purposesForRole(viewer.role),
     },
     cells,
+  };
+}
+
+export async function slotAt(_viewer: CourtViewer, date: string, courtId: string, hour: string) {
+  if (!courtHourSet.has(hour)) throw new AppError(400, "VALIDATION_ERROR", "Saat kort aralığında olmalı");
+  const rows = await prisma.courtReservation.findMany({
+    where: {
+      courtId,
+      deletedAt: null,
+      status: { in: ["PENDING", "APPROVED"] },
+      startDate: { lte: parseDateOnly(date) },
+      endDate: { gte: parseDateOnly(date) },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      purpose: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      weekdays: true,
+      startTime: true,
+      endTime: true,
+      checkIns: { where: { date: parseDateOnly(date), startTime: hour }, select: { startTime: true } },
+    },
+  });
+  const covering = rows.filter((row) => slotCoveredBySpan(date, hour, spanFromRow(row)));
+  const row = covering.find((item) => item.status === "APPROVED") ?? covering[0];
+  if (!row) return { reservation: null };
+  return {
+    reservation: {
+      id: row.id,
+      purpose: row.purpose,
+      checkedIn: row.status === "APPROVED" && row.checkIns.length > 0,
+    },
   };
 }
 

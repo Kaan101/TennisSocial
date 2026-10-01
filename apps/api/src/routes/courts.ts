@@ -4,6 +4,7 @@ import {
   boardWeekSchema,
   checkInLeadSchema,
   courtDaySchema,
+  courtSlotSchema,
   courtCreateSchema,
   courtRangeSchema,
   courtReservationSchema,
@@ -25,6 +26,7 @@ import {
   courtWeekFor,
   createCourt,
   dayGridFor,
+  slotAt,
   createReservation,
   createSlotOffer,
   declineSlotOffer,
@@ -75,6 +77,12 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const query = parse(courtDaySchema, req.query);
     return dayGridFor(viewer, query.date);
+  });
+
+  app.get("/api/courts/slot", async (req) => {
+    const viewer = requireUser(req);
+    const query = parse(courtSlotSchema, req.query);
+    return slotAt(viewer, query.date, query.courtId, query.hour);
   });
 
   app.get("/api/courts/:id/week", async (req) => {

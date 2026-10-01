@@ -161,16 +161,9 @@ export default function CourtsPage() {
             return;
           }
         }
-        for (const date of dates) {
-          if (date === visible) continue;
-          for (const span of groupDaySlots(input.slots)) {
-            try {
-              await postReservation(date, span, input.purpose);
-            } catch {
-              continue;
-            }
-          }
-        }
+        await writeOtherDays(dates, visible, (date) =>
+          groupDaySlots(input.slots).map((span) => postReservation(date, span, input.purpose).then(() => undefined)),
+        );
       }}
       onCancel={async (ids, matchOnly) => {
         const snapshot = gridRef.current;
@@ -196,10 +189,7 @@ export default function CourtsPage() {
             return;
           }
         }
-        for (const date of dates) {
-          if (date === visible) continue;
-          for (const slot of slots) await mutateOtherDay(date, slot.courtId, slot.startTime, matchOnly ? "cancel-match" : "clear");
-        }
+        await writeOtherDays(dates, visible, (date) => slots.map((slot) => mutateOtherDay(date, slot.courtId, slot.startTime, matchOnly ? "cancel-match" : "clear")));
       }}
       onCheckIn={async (slots) => {
         const snapshot = gridRef.current;
@@ -229,10 +219,7 @@ export default function CourtsPage() {
             return;
           }
         }
-        for (const date of dates) {
-          if (date === visible) continue;
-          for (const slot of slots) await mutateOtherDay(date, slot.courtId, slot.startTime, "checkin");
-        }
+        await writeOtherDays(dates, visible, (date) => slots.map((slot) => mutateOtherDay(date, slot.courtId, slot.startTime, "checkin")));
       }}
     />
   );
@@ -255,25 +242,26 @@ function postReservation(date: string, span: { courtId: string; startTime: strin
   });
 }
 
+function writeOtherDays(dates: string[], visible: string, jobs: (date: string) => Promise<void>[]): Promise<void> {
+  const pending = dates.flatMap((date) => (date === visible ? [] : jobs(date).map((job) => job.catch(() => undefined))));
+  return Promise.all(pending).then(() => undefined);
+}
+
 async function mutateOtherDay(date: string, courtId: string, hour: string, kind: "clear" | "cancel-match" | "checkin") {
-  try {
-    const data = await api<DayGrid>(`/courts/day?date=${date}`, { cache: "no-store" });
-    const cell = data.cells.find((item) => item.courtId === courtId && item.startTime === hour);
-    const reservation = cell?.state === "busy" ? cell.reservation : null;
-    if (!reservation) return;
-    if (kind !== "clear" && reservation.purpose !== "MATCH") return;
-    if (kind === "checkin") {
-      if (reservation.checkedIn) return;
-      await api(`/reservations/${reservation.id}/check-in`, {
-        method: "POST",
-        body: JSON.stringify({ date, startTime: hour }),
-      });
-      return;
-    }
-    await api(`/reservations/${reservation.id}/cancel`, { method: "POST" });
-  } catch {
+  const query = new URLSearchParams({ date, courtId, hour });
+  const data = await api<{ reservation: { id: string; purpose: CourtPurpose; checkedIn: boolean } | null }>(`/courts/slot?${query.toString()}`, { cache: "no-store" });
+  const reservation = data.reservation;
+  if (!reservation) return;
+  if (kind !== "clear" && reservation.purpose !== "MATCH") return;
+  if (kind === "checkin") {
+    if (reservation.checkedIn) return;
+    await api(`/reservations/${reservation.id}/check-in`, {
+      method: "POST",
+      body: JSON.stringify({ date, startTime: hour }),
+    });
     return;
   }
+  await api(`/reservations/${reservation.id}/cancel`, { method: "POST" });
 }
 
 function hoursInSpan(startTime: string, endTime: string): string[] {
