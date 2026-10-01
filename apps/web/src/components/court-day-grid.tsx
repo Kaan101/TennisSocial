@@ -368,8 +368,11 @@ export function CourtDayGrid({
       </div>
       <div className="mt-4 w-full min-w-0 overflow-x-auto">
         <div
-          className="grid w-max gap-0.5"
-          style={{ gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, 3.625rem)` }}
+          className="grid w-full gap-0.5"
+          style={{
+            gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, minmax(3.625rem, 1fr))`,
+            minWidth: `calc(3.25rem + ${grid.courts.length} * 3.625rem)`,
+          }}
         >
           <div />
           {grid.courts.map((court) => (

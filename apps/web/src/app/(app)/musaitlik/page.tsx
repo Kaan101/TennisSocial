@@ -176,7 +176,7 @@ export default function AvailabilityCalendarPage() {
           .musait-board { grid-template-rows: auto repeat(var(--musait-rows), minmax(0, 1fr)); }
         }
         @media (min-width: 64rem) {
-          .musait-board { grid-template-columns: 3.25rem repeat(7, 7.25rem); }
+          .musait-board { grid-template-columns: 3.25rem repeat(7, minmax(7.25rem, 1fr)); }
         }
       `}</style>
       <h1 className="shrink-0 px-4 text-sm font-semibold leading-none lg:px-0">Müsaitlik</h1>
@@ -208,7 +208,7 @@ export default function AvailabilityCalendarPage() {
       </div>
       <div className="min-h-0 w-full flex-1 lg:flex-none lg:overflow-x-auto">
         <div
-          className="musait-board grid h-full w-full gap-x-0.5 gap-y-px lg:h-auto lg:w-max lg:gap-0.5"
+          className="musait-board grid h-full w-full min-w-full gap-x-0.5 gap-y-px lg:h-auto lg:min-w-max lg:gap-0.5"
           style={{ "--musait-rows": String(grid.hours.length) } as CSSProperties}
         >
           <div />

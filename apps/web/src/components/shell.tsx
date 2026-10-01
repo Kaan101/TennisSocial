@@ -65,10 +65,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/musaitlik");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/musaitlik") || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi");
+  const frame = `mx-auto w-[90%] lg:w-full ${wide ? "lg:max-w-6xl" : "lg:max-w-lg"}`;
 
   return (
-    <div className={`mx-auto min-h-dvh pb-[9.25rem] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+    <div className={`${frame} min-h-dvh pb-[9.25rem]`}>
       <a href="#icerik" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-white focus:px-3 focus:py-2">
         İçeriğe geç
       </a>
@@ -154,7 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
-        <div className={`mx-auto grid grid-cols-2 border-b border-line ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+        <div className={`${frame} grid grid-cols-2 border-b border-line`}>
           {[
             { href: "/kulup-tanimi", label: "Kulüp tanımı" },
             { href: "/kort-tanimi", label: "Kort tanımı" },
@@ -172,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </div>
-        <ul className={`mx-auto grid grid-cols-8 pb-[env(safe-area-inset-bottom)] ${wide ? "max-w-6xl" : "max-w-lg"}`}>
+        <ul className={`${frame} grid grid-cols-8 pb-[env(safe-area-inset-bottom)]`}>
           {items.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;

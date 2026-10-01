@@ -169,7 +169,7 @@ export function TakvimView() {
       <style>{`
         .takvim-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
         @media (min-width: 64rem) {
-          .takvim-board { grid-template-columns: 3.25rem repeat(7, 6.25rem); }
+          .takvim-board { grid-template-columns: 3.25rem repeat(7, minmax(6.25rem, 1fr)); }
         }
       `}</style>
       <h1 className="shrink-0 text-sm font-semibold leading-none">Takvim</h1>
@@ -179,9 +179,9 @@ export function TakvimView() {
         <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
       </div>
       <div className="flex min-h-0 w-full flex-1 flex-col gap-1.5 lg:flex-row lg:items-stretch">
-        <div className="min-h-0 w-full flex-1 lg:h-full lg:w-auto lg:flex-none">
+        <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-auto lg:h-full">
           <div
-            className="takvim-board grid h-full w-full gap-x-0.5 gap-y-px lg:w-max lg:gap-0.5"
+            className="takvim-board grid h-full w-full min-w-full gap-x-0.5 gap-y-px lg:gap-0.5"
             style={{ gridTemplateRows: `auto repeat(${data.hours.length}, minmax(0, 1fr))` }}
           >
             <div />
@@ -210,7 +210,7 @@ export function TakvimView() {
             ))}
           </div>
         </div>
-        <aside className="h-36 w-full shrink-0 overflow-y-auto lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1">
+        <aside className="h-36 w-full shrink-0 overflow-y-auto lg:h-auto lg:w-64 lg:shrink-0">
           {slot ? (
             <div className="space-y-1.5 lg:space-y-3">
               <ul className="flex flex-wrap gap-1 lg:gap-2">
