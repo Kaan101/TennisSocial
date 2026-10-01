@@ -194,9 +194,11 @@ export default function AvailabilityCalendarPage() {
           .musait-board { grid-template-columns: 3.75rem repeat(7, minmax(7.25rem, 1fr)); }
         }
       `}</style>
-      <h1 className="shrink-0 px-4 text-sm font-semibold leading-none lg:px-0">Müsaitlik</h1>
-      <p className="shrink-0 px-4 text-center text-sm leading-none text-muted lg:px-0">{weekRange(grid.days[0]?.date ?? "", grid.days[6]?.date ?? "")}</p>
-      <div className="inline-flex max-w-full shrink-0 flex-wrap items-center justify-start gap-2 px-4 lg:ml-[3.75rem] lg:px-0" role="group" aria-label="Müsaitlik">
+      <div className="flex shrink-0 items-baseline justify-between gap-3 px-4 lg:px-0">
+        <h1 className="shrink-0 text-lg font-semibold leading-none">Müsaitlik</h1>
+        <p className="min-w-0 text-right text-sm leading-tight text-muted">{weekRange(grid.days[0]?.date ?? "", grid.days[6]?.date ?? "")}</p>
+      </div>
+      <div className="mb-3 flex w-full max-w-full shrink-0 flex-wrap items-center justify-center gap-2 px-4 lg:px-0" role="group" aria-label="Müsaitlik">
         {MODES.map((option) => {
           const on = mode === option.state;
           return (

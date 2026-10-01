@@ -156,7 +156,7 @@ export function TakvimView() {
           .takvim-board { grid-template-columns: 3.25rem repeat(7, minmax(6.25rem, 1fr)); }
         }
       `}</style>
-      <h1 className="shrink-0 text-sm font-semibold leading-none">Takvim</h1>
+      <h1 className="shrink-0 text-lg font-semibold leading-none">Takvim</h1>
       <PhoneDay
         days={data.days}
         hours={data.hours}
@@ -327,7 +327,7 @@ function PhoneDay({
                   className={`court-press flex w-full items-center px-1 py-2 text-left text-base font-bold leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
                 >
                   <span>{hour}</span>
-                  <HourCounts players={players.length} courts={freeCourts.length} className="ml-1.5" />
+                  <HourCounts players={players.length} courts={freeCourts.length} className="ml-[2.5ch]" />
                 </button>
                 {hourOpen && cell ? (
                   <div className="space-y-2 bg-[#ddd9d2] px-1 py-2">

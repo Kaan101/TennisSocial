@@ -309,20 +309,20 @@ export function CourtDayGrid({
 
   return (
     <div className="flex w-full min-w-0 flex-col items-start gap-2">
-      <h1 className="text-sm font-semibold">Kortlar</h1>
+      <h1 className="text-lg font-semibold leading-none">Kortlar</h1>
       <div className="flex w-full min-w-0 items-start justify-between gap-1 text-sm" role="group" aria-label="Haftanın günleri">
         {days.map((day) => {
           const on = selected.includes(day.date);
           return (
-            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className="min-w-0 flex-1 border-0 bg-transparent px-0.5 py-0 text-center text-[10px] leading-tight text-inherit md:text-xs">
-              <span className={`md:hidden ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.short}</span>
-              <span className={`hidden whitespace-nowrap md:inline ${on ? "font-semibold underline underline-offset-2" : "font-normal"}`}>{day.label}</span>
-              <span className="mt-0.5 block font-normal text-muted">{day.date.slice(8)}</span>
+            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className="min-w-0 flex-1 border-0 bg-transparent px-0.5 py-0 text-center leading-tight text-inherit">
+              <span className={`block text-xs font-bold leading-tight md:hidden ${on ? "underline underline-offset-2" : ""}`}>{day.short}</span>
+              <span className={`hidden text-sm font-bold leading-tight whitespace-nowrap md:inline ${on ? "underline underline-offset-2" : ""}`}>{day.label}</span>
+              <span className="mt-0.5 block text-[10px] font-normal text-muted md:text-xs">{day.date.slice(8)}</span>
             </button>
           );
         })}
       </div>
-      <div className="-mx-4 flex w-[calc(100%+2rem)] min-w-0 flex-nowrap items-center gap-1 overflow-x-auto px-1 md:mx-0 md:ml-[3.25rem] md:w-auto md:gap-2 md:overflow-visible md:px-0" role="group" aria-label="Amaç">
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-1 overflow-x-auto px-1 md:flex-nowrap md:gap-2 md:overflow-visible md:px-0" role="group" aria-label="Amaç">
         {PURPOSE_OPTIONS.map((option) => {
           const on = mode === option.purpose;
           return (
@@ -366,12 +366,12 @@ export function CourtDayGrid({
           Check-in
         </button>
       </div>
-      <div className="mt-4 w-full min-w-0 overflow-x-auto">
+      <div className="mt-6 w-full min-w-0 overflow-x-auto">
         <div
           className="grid w-full gap-0.5"
           style={{
-            gridTemplateColumns: `3.25rem repeat(${grid.courts.length}, minmax(3.625rem, 1fr))`,
-            minWidth: `calc(3.25rem + ${grid.courts.length} * 3.625rem)`,
+            gridTemplateColumns: `3.5rem repeat(${grid.courts.length}, minmax(3.625rem, 1fr))`,
+            minWidth: `calc(3.5rem + ${grid.courts.length} * 3.625rem)`,
           }}
         >
           <div />
@@ -383,7 +383,7 @@ export function CourtDayGrid({
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-[10px] font-bold whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
+              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-sm font-bold whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
               {grid.courts.map((court) => (
                 <CourtSlot
                   key={court.id}
