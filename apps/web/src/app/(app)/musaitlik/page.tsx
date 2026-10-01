@@ -23,6 +23,21 @@ type WeekGrid = {
   cells: Cell[];
 };
 
+const TR_MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+function weekRange(start: string, end: string): string {
+  const [startYear, startMonth, startDay] = start.split("-");
+  const [endYear, endMonth, endDay] = end.split("-");
+  const startName = TR_MONTHS[Number(startMonth) - 1] ?? "";
+  const endName = TR_MONTHS[Number(endMonth) - 1] ?? "";
+  const startNum = Number(startDay);
+  const endNum = Number(endDay);
+  if (!startName || !endName) return "";
+  if (startYear === endYear && startMonth === endMonth) return `${startNum}–${endNum} ${startName} ${startYear}`;
+  if (startYear === endYear) return `${startNum} ${startName} – ${endNum} ${endName} ${startYear}`;
+  return `${startNum} ${startName} ${startYear} – ${endNum} ${endName} ${endYear}`;
+}
+
 const MODES: { state: AvailabilityState; word: string; backgroundColor: string; color: string }[] = [
   { state: "FULL", word: "Tam", backgroundColor: "#16a34a", color: "#ffffff" },
   { state: "MAYBE", word: "Belki", backgroundColor: "#bbf7d0", color: "#14241c" },
@@ -69,7 +84,7 @@ const StampCell = memo(function StampCell({
       type="button"
       aria-label={`${label} ${hour} ${word}`}
       onClick={() => onPress(date, hour)}
-      className="court-press block h-full min-h-0 w-full border border-line lg:min-h-8"
+      className="court-press block h-full min-h-0 w-full border border-[#d1d5db] lg:min-h-8"
       style={cell ? { ...cellFill(cell), borderRadius: 4 } : { backgroundColor: "transparent", borderRadius: 4 }}
     />
   );
@@ -171,17 +186,17 @@ export default function AvailabilityCalendarPage() {
   return (
     <div className="-mx-4 flex h-[calc(100dvh-13.25rem)] w-[calc(100%+2rem)] min-w-0 flex-col gap-1 overflow-hidden lg:mx-0 lg:h-auto lg:w-full lg:gap-2 lg:overflow-visible">
       <style>{`
-        .musait-board { grid-template-columns: 2.75rem repeat(7, minmax(0, 1fr)); }
+        .musait-board { grid-template-columns: 3.5rem repeat(7, minmax(0, 1fr)); }
         @media (max-width: 63.99rem) {
           .musait-board { grid-template-rows: auto repeat(var(--musait-rows), minmax(0, 1fr)); }
         }
         @media (min-width: 64rem) {
-          .musait-board { grid-template-columns: 3.25rem repeat(7, minmax(7.25rem, 1fr)); }
+          .musait-board { grid-template-columns: 3.75rem repeat(7, minmax(7.25rem, 1fr)); }
         }
       `}</style>
       <h1 className="shrink-0 px-4 text-sm font-semibold leading-none lg:px-0">Müsaitlik</h1>
-      <p className="shrink-0 px-4 text-center text-xs leading-none text-muted lg:px-0">{grid.days[0]?.date} – {grid.days[6]?.date}</p>
-      <div className="inline-flex max-w-full shrink-0 flex-wrap items-center justify-start gap-2 px-4 lg:ml-[3.25rem] lg:px-0" role="group" aria-label="Müsaitlik">
+      <p className="shrink-0 px-4 text-center text-sm leading-none text-muted lg:px-0">{weekRange(grid.days[0]?.date ?? "", grid.days[6]?.date ?? "")}</p>
+      <div className="inline-flex max-w-full shrink-0 flex-wrap items-center justify-start gap-2 px-4 lg:ml-[3.75rem] lg:px-0" role="group" aria-label="Müsaitlik">
         {MODES.map((option) => {
           const on = mode === option.state;
           return (
@@ -208,20 +223,20 @@ export default function AvailabilityCalendarPage() {
       </div>
       <div className="min-h-0 w-full flex-1 lg:flex-none lg:overflow-x-auto">
         <div
-          className="musait-board grid h-full w-full min-w-full gap-x-0.5 gap-y-px lg:h-auto lg:min-w-max lg:gap-0.5"
+          className="musait-board grid h-full w-full min-w-full gap-x-1 gap-y-0.5 lg:h-auto lg:min-w-max lg:gap-1"
           style={{ "--musait-rows": String(grid.hours.length) } as CSSProperties}
         >
           <div />
           {grid.days.map((day) => (
             <div key={day.date} className="flex min-h-0 min-w-0 flex-col items-center justify-end pb-px text-center">
-              <span className="text-[10px] font-semibold leading-none lg:hidden">{day.short}</span>
-              <span className="hidden max-w-full truncate text-[10px] font-semibold leading-none lg:block lg:text-xs">{day.label}</span>
+              <span className="text-xs font-semibold leading-none lg:hidden">{day.short}</span>
+              <span className="hidden max-w-full truncate text-sm font-semibold leading-none lg:block">{day.label}</span>
               <span className="mt-px hidden text-[9px] font-normal leading-none text-muted lg:block">{day.date.slice(8)}</span>
             </div>
           ))}
           {grid.hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="flex items-center pl-1 whitespace-nowrap text-[10px] font-bold leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
+              <div className="flex items-center pl-0.5 whitespace-nowrap text-sm font-bold leading-none text-ink lg:py-1 lg:pl-0">{hour}</div>
               {grid.days.map((day) => (
                 <StampCell
                   key={day.date}
