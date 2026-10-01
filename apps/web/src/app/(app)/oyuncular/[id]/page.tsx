@@ -21,6 +21,11 @@ export default function PlayerPage() {
   if (loading) return <LoadingBlock />;
   if (error || !data) return <ErrorState message={error ?? "Profil açılmadı"} onRetry={reload} />;
   const name = `${data.profile.firstName} ${data.profile.lastName}`.trim();
+  const whatsappHref =
+    data.permissions.canWhatsapp && data.profile.whatsapp
+      ? waLink(data.profile.whatsapp, data.profile.firstName)
+      : null;
+  const callHref = data.permissions.canCall && data.profile.phone ? telLink(data.profile.phone) : null;
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-4">
@@ -37,11 +42,11 @@ export default function PlayerPage() {
         {data.permissions.canChallenge ? (
           <Link href={`/defiler/yeni?recipientId=${data.id}`} className="rounded-full bg-court px-4 py-2 text-sm font-semibold text-white">Defi</Link>
         ) : null}
-        {data.permissions.canWhatsapp && data.profile.whatsapp ? (
-          <a className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold" href={waLink(data.profile.whatsapp, data.profile.firstName)}>WhatsApp</a>
+        {whatsappHref ? (
+          <a className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold" href={whatsappHref}>WhatsApp</a>
         ) : null}
-        {data.permissions.canCall && data.profile.phone ? (
-          <a className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold" href={telLink(data.profile.phone)}>Ara</a>
+        {callHref ? (
+          <a className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold" href={callHref}>Ara</a>
         ) : null}
         {user && user.id !== data.id ? (
           <Link href={`/karsilastir?b=${data.id}`} className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold">Karşılaştır</Link>

@@ -422,7 +422,9 @@ function PersonFace({ person, className }: { person: SlotPerson; className: stri
 function openChat(event: MouseEvent, person: SlotPerson) {
   event.stopPropagation();
   if (!person.messageNumber) return;
-  window.open(waLink(person.messageNumber, person.firstName), "_blank", "noopener,noreferrer");
+  const href = waLink(person.messageNumber, person.firstName);
+  if (!href) return;
+  window.open(href, "_blank", "noopener,noreferrer");
 }
 
 function CellPhoto({ person }: { person: SlotPerson }) {
@@ -442,9 +444,10 @@ function PlayerChip({ person }: { person: SlotPerson }) {
       <span className="hidden text-sm lg:inline">{fullName(person)}</span>
     </>
   );
-  if (!person.messageNumber) return <span className={className}>{body}</span>;
+  const href = person.messageNumber ? waLink(person.messageNumber, person.firstName) : null;
+  if (!href) return <span className={className}>{body}</span>;
   return (
-    <a href={waLink(person.messageNumber, person.firstName)} target="_blank" rel="noopener noreferrer" className={className}>
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
       {body}
     </a>
   );

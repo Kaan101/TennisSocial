@@ -56,17 +56,44 @@ test("hidden phone stays hidden, friends can see a friends-only number, admin ov
 
   const asFriend = await app.inject({ method: "GET", url: `/api/users/${owner.user.id}`, headers: auth(other.token) });
   expect(asFriend.json().profile.phone).toBeNull();
-  expect(asFriend.json().profile.whatsapp).toBe("+905551112233");
+  expect(asFriend.json().profile.whatsapp).toBe("905551112233");
   expect(asFriend.json().permissions.canWhatsapp).toBe(true);
   expect(asFriend.json().profile.address).toBeNull();
 
   const asAdmin = await app.inject({ method: "GET", url: `/api/users/${owner.user.id}`, headers: auth(admin.token) });
-  expect(asAdmin.json().profile.phone).toBe("+905551112233");
+  expect(asAdmin.json().profile.phone).toBe("905551112233");
   expect(asAdmin.json().profile.address).toBe("Gizli Sokak 1");
   const audit = await prisma.auditLog.findFirst({
     where: { action: "PRIVACY_OVERRIDE_READ", entityId: owner.user.id, actorId: admin.user.id },
   });
   expect(audit).toBeTruthy();
+});
+
+test("saved Turkish numbers become 90 plus the last ten digits", async () => {
+  const owner = await registerUser(app, { firstName: "Hat", lastName: "Norm" });
+  const samples = ["+90 532 111 22 33", "05321112233", "5321112233", "905321112233", "532-111-22-33"];
+  for (const sample of samples) {
+    const saved = await app.inject({
+      method: "PATCH",
+      url: `/api/users/${owner.user.id}`,
+      headers: auth(owner.token),
+      payload: { phone: sample, whatsapp: sample },
+    });
+    expect(saved.statusCode).toBe(200);
+    const profile = await prisma.profile.findUnique({ where: { userId: owner.user.id } });
+    expect(profile?.phone).toBe("905321112233");
+    expect(profile?.whatsapp).toBe("905321112233");
+  }
+  const short = await app.inject({
+    method: "PATCH",
+    url: `/api/users/${owner.user.id}`,
+    headers: auth(owner.token),
+    payload: { phone: "53211", whatsapp: "12 34" },
+  });
+  expect(short.statusCode).toBe(200);
+  const kept = await prisma.profile.findUnique({ where: { userId: owner.user.id } });
+  expect(kept?.phone).toBe("53211");
+  expect(kept?.whatsapp).toBe("12 34");
 });
 
 test("district stays visible when the street address is hidden", async () => {

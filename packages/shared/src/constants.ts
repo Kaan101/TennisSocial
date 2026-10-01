@@ -399,14 +399,23 @@ export function istanbulNowParts(now = new Date()): { day: string; weekday: numb
   return { day, weekday: map[weekdayName] ?? 0 };
 }
 
-export function waLink(number: string, name: string): string {
-  const digits = number.replace(/[^\d]/g, "");
+export function canonicalTrPhone(value: string): string | null {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+  return `90${digits.slice(-10)}`;
+}
+
+export function waLink(number: string, name: string): string | null {
+  const digits = canonicalTrPhone(number);
+  if (!digits) return null;
   const text = encodeURIComponent(
     `Merhaba ${name}, Kort uygulamasından yazıyorum. Maç için uygun musun?`,
   );
   return `https://wa.me/${digits}?text=${text}`;
 }
 
-export function telLink(number: string): string {
-  return `tel:${number.replace(/[^\d+]/g, "")}`;
+export function telLink(number: string): string | null {
+  const digits = canonicalTrPhone(number);
+  if (!digits) return null;
+  return `tel:+${digits}`;
 }

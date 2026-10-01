@@ -36,7 +36,9 @@ function whatsappMessageNumber(player: Card): string | null {
 export function PlayerCard({ player }: { player: Card }) {
   const name = `${player.firstName} ${player.lastName}`.trim();
   const messageNumber = whatsappMessageNumber(player);
-const callNumber = player.canCall && player.phone ? player.phone : null;
+  const callNumber = player.canCall && player.phone ? player.phone : null;
+  const callHref = callNumber ? telLink(callNumber) : null;
+  const messageHref = messageNumber ? waLink(messageNumber, player.firstName) : null;
   return (
     <article className="rounded-3xl border border-line bg-surface p-4">
       <Link href={`/oyuncular/${player.id}`} className="flex gap-3">
@@ -63,16 +65,16 @@ const callNumber = player.canCall && player.phone ? player.phone : null;
             <Swords className="h-3.5 w-3.5" aria-hidden /> Defi
           </Link>
         ) : null}
-  {callNumber ? (
-  <a href={telLink(callNumber)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
-    <Phone className="h-3.5 w-3.5" aria-hidden /> Ara
-  </a>
-) : null}
-{messageNumber ? (
-  <a href={waLink(messageNumber, player.firstName)} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
-    <MessageCircle className="h-3.5 w-3.5" aria-hidden /> Mesaj
-  </a>
-) : null}
+        {callHref ? (
+          <a href={callHref} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
+            <Phone className="h-3.5 w-3.5" aria-hidden /> Ara
+          </a>
+        ) : null}
+        {messageHref ? (
+          <a href={messageHref} className="inline-flex h-9 items-center gap-1 rounded-full border border-line px-3 text-xs font-semibold">
+            <MessageCircle className="h-3.5 w-3.5" aria-hidden /> Mesaj
+          </a>
+        ) : null}
       </div>
     </article>
   );

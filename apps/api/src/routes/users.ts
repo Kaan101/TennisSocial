@@ -3,6 +3,7 @@ import {
   availabilityCellSchema,
   availabilityMonthCopySchema,
   availabilityPutSchema,
+  canonicalTrPhone,
   paginationSchema,
   privacySchema,
   profileUpdateSchema,
@@ -27,6 +28,11 @@ async function loadUser(id: string) {
   });
   if (!user || !user.profile) throw notFound("Üye bulunamadı");
   return user;
+}
+
+function keepPhone(value: string | null | undefined): string | null | undefined {
+  if (value == null) return value;
+  return canonicalTrPhone(value) ?? value;
 }
 
 export async function userRoutes(app: FastifyInstance): Promise<void> {
@@ -95,8 +101,8 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         lastName: body.lastName,
         birthYear: body.birthYear,
         gender: body.gender,
-        phone: body.phone,
-        whatsapp: body.whatsapp,
+        phone: keepPhone(body.phone),
+        whatsapp: keepPhone(body.whatsapp),
         address: body.address,
         district: body.district,
         city: body.city,
