@@ -288,11 +288,13 @@ function PhoneDay({
   const day = days[index] ?? days[0];
   const start = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
+  const [slide, setSlide] = useState<0 | 1 | -1>(0);
   if (!day) return null;
 
   function moveDay(direction: number) {
     const next = days[index + direction];
     if (!next) return;
+    setSlide(direction > 0 ? 1 : -1);
     onDay(next.date);
   }
 
@@ -324,49 +326,59 @@ function PhoneDay({
         swiped.current = false;
       }}
     >
-      <div className="flex items-baseline justify-between py-2">
-        <span className="text-sm font-semibold">{day.label}</span>
-        <span className="text-xs text-muted">{day.date.slice(8)}</span>
-      </div>
-      {hours.map((hour) => {
-        const cell = bySlot.get(`${day.date}|${hour}`);
-        const freeCourts = cell ? freeCourtsOf(cell) : [];
-        const players = cell?.people ?? [];
-        const hourOpen = openHour?.date === day.date && openHour.start === hour;
-        const ball = players.length > 0 && freeCourts.length > 0;
-        return (
-          <div key={hour} className="border-t border-line">
-            <button
-              type="button"
-              aria-expanded={hourOpen}
-              aria-label={`${day.label} ${hour}`}
-              onClick={() => onToggleHour(day.date, hour)}
-              className="court-press flex w-full items-center gap-2 py-1.5 text-left text-xs font-bold leading-none"
-            >
-              <span>{hour}</span>
-              {ball ? <TennisBall /> : null}
-            </button>
-            {hourOpen && cell ? (
-              <div className="space-y-2 py-2">
-                <ul className="flex max-w-full flex-wrap gap-1">
-                  {freeCourts.map((court) => (
-                    <li key={court.id}>
-                      <PhoneCourtLink court={court} date={day.date} hour={hour} />
-                    </li>
-                  ))}
-                </ul>
-                <ul className="flex max-w-full flex-wrap gap-1">
-                  {players.map((person) => (
-                    <li key={person.id}>
-                      <PlayerChip person={person} />
-                    </li>
-                  ))}
-                </ul>
+      <style>{`
+        .takvim-day-next { animation: takvim-slide-next 180ms ease; }
+        .takvim-day-prev { animation: takvim-slide-prev 180ms ease; }
+        @keyframes takvim-slide-next { from { transform: translateX(2rem); } to { transform: translateX(0); } }
+        @keyframes takvim-slide-prev { from { transform: translateX(-2rem); } to { transform: translateX(0); } }
+      `}</style>
+      <div key={day.date} className={slide === 1 ? "takvim-day-next" : slide === -1 ? "takvim-day-prev" : undefined}>
+        <div className="py-2 text-center">
+          <p className="text-lg font-semibold leading-tight">{day.label}</p>
+          <p className="text-xs text-muted">{day.date.slice(8)}</p>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          {hours.map((hour) => {
+            const cell = bySlot.get(`${day.date}|${hour}`);
+            const freeCourts = cell ? freeCourtsOf(cell) : [];
+            const players = cell?.people ?? [];
+            const hourOpen = openHour?.date === day.date && openHour.start === hour;
+            const ball = players.length > 0 && freeCourts.length > 0;
+            return (
+              <div key={hour} className={`border-t border-line ${hourOpen ? "bg-[#ddd9d2]" : ""}`}>
+                <button
+                  type="button"
+                  aria-expanded={hourOpen}
+                  aria-label={`${day.label} ${hour}`}
+                  onClick={() => onToggleHour(day.date, hour)}
+                  className={`court-press flex w-full items-center gap-2 px-1 py-2 text-left text-base font-bold leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
+                >
+                  <span>{hour}</span>
+                  {ball ? <TennisBall /> : null}
+                </button>
+                {hourOpen && cell ? (
+                  <div className="space-y-2 bg-[#ddd9d2] px-1 py-2">
+                    <ul className="flex max-w-full flex-wrap gap-1">
+                      {freeCourts.map((court) => (
+                        <li key={court.id}>
+                          <PhoneCourtLink court={court} date={day.date} hour={hour} />
+                        </li>
+                      ))}
+                    </ul>
+                    <ul className="flex max-w-full flex-wrap gap-1">
+                      {players.map((person) => (
+                        <li key={person.id}>
+                          <PlayerChip person={person} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
