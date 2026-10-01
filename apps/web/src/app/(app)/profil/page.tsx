@@ -5,6 +5,7 @@ import type { UserDetail } from "@club/types";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AvailabilityCalendar } from "@/components/availability-calendar";
 import { MatchStats } from "@/components/match-stats";
 import { Avatar } from "@/components/player-card";
 import { SkillRadar } from "@/components/radar";
@@ -94,7 +95,6 @@ export default function ProfilePage() {
       </label>
       <div className="grid grid-cols-3 gap-2 text-center text-sm">
         <Link href="/profil/tenis" className="rounded-2xl bg-surface p-3 font-semibold">Tenis</Link>
-        <Link href="/profil/musaitlik" className="rounded-2xl bg-surface p-3 font-semibold">Müsaitlik</Link>
         <Link href="/profil/gizlilik" className="rounded-2xl bg-surface p-3 font-semibold">Gizlilik</Link>
         <Link href="/gruplar" className="rounded-2xl bg-surface p-3 font-semibold">Gruplar</Link>
         <Link href="/merdiven" className="rounded-2xl bg-surface p-3 font-semibold">Merdiven</Link>
@@ -103,6 +103,7 @@ export default function ProfilePage() {
           <Link href="/analiz" className="rounded-2xl bg-surface p-3 font-semibold">Kulüp özeti</Link>
         ) : null}
       </div>
+      <AvailabilityCalendar flow heading={false} />
       {data.tennis ? <div className="rounded-3xl bg-surface p-2"><SkillRadar series={[{ name: data.profile.firstName, color: "#0f6e49", data: data.tennis.radar }]} /></div> : null}
       {data.stats ? <MatchStats stats={data.stats} /> : null}
       <form onSubmit={save} className="space-y-3">

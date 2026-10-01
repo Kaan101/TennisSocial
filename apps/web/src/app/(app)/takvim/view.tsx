@@ -76,7 +76,7 @@ const WeekCell = memo(function WeekCell({
       aria-pressed={selected}
       aria-label={`${dayLabel} ${hour}`}
       onClick={() => onPick(date, hour)}
-      className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 border-[#d1d5db] bg-[#f3f4f6] p-px lg:flex-col lg:justify-center ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
+      className={`court-press flex h-full min-h-0 w-full min-w-0 cursor-pointer flex-row items-center justify-center gap-0.5 overflow-hidden border-2 border-[#d1d5db] bg-transparent p-px lg:flex-col lg:justify-center ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
       style={{ borderRadius: 4 }}
     >
       <HourCounts players={slot.people.length} courts={freeCourts.length} compact />

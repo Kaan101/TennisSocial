@@ -51,6 +51,13 @@ const CELL_FILL: Record<CourtPurpose, string> = {
   MAINTENANCE: "#ffedd5",
 };
 
+const CELL_INK: Record<CourtPurpose, string> = {
+  MATCH: "#15803d",
+  TRAINING: "#374151",
+  TOURNAMENT: "#1d4ed8",
+  MAINTENANCE: "#c2410c",
+};
+
 function purposeOption(purpose: CourtPurpose) {
   return PURPOSE_OPTIONS.find((item) => item.purpose === purpose) ?? PURPOSE_OPTIONS[1]!;
 }
@@ -66,10 +73,10 @@ function cellMark(purpose: CourtPurpose): string {
   return "Turn.";
 }
 
-function cellPaint(reservation: DayReservation | null): { backgroundColor: string; color: string } {
-  if (!reservation) return { backgroundColor: "transparent", color: "#14241c" };
-  if (reservation.purpose === "MATCH" && reservation.checkedIn) return { backgroundColor: "#16a34a", color: "#ffffff" };
-  return { backgroundColor: CELL_FILL[reservation.purpose], color: "#14241c" };
+function cellPaint(reservation: DayReservation | null): { backgroundColor: string; color: string; borderColor: string } {
+  if (!reservation) return { backgroundColor: "transparent", color: "#14241c", borderColor: "#e0d8c8" };
+  if (reservation.purpose === "MATCH" && reservation.checkedIn) return { backgroundColor: "#16a34a", color: "#ffffff", borderColor: "#166534" };
+  return { backgroundColor: CELL_FILL[reservation.purpose], color: CELL_INK[reservation.purpose], borderColor: CELL_INK[reservation.purpose] };
 }
 
 function cellKey(courtId: string, startTime: string): string {
@@ -331,8 +338,8 @@ export function CourtDayGrid({
               type="button"
               aria-pressed={on}
               onClick={() => setMode(option.purpose)}
-              className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${on ? "border-ink font-semibold" : "border-line"}`}
-              style={{ backgroundColor: CELL_FILL[option.purpose], color: "#14241c" }}
+              className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${on ? "font-semibold" : ""}`}
+              style={{ backgroundColor: CELL_FILL[option.purpose], color: CELL_INK[option.purpose], borderColor: CELL_INK[option.purpose] }}
             >
               {option.word}
             </button>
@@ -351,8 +358,8 @@ export function CourtDayGrid({
           type="button"
           aria-pressed={mode === "CANCEL"}
           onClick={() => setMode("CANCEL")}
-          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CANCEL" ? "border-ink font-semibold" : "border-line"}`}
-          style={{ backgroundColor: "#e7e5e0" }}
+          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${mode === "CANCEL" ? "font-semibold" : ""}`}
+          style={{ backgroundColor: "#e7e5e0", color: "#44403c", borderColor: "#44403c" }}
         >
           İptal
         </button>
@@ -360,8 +367,8 @@ export function CourtDayGrid({
           type="button"
           aria-pressed={mode === "CHECKIN"}
           onClick={() => setMode("CHECKIN")}
-          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CHECKIN" ? "border-ink font-semibold" : "border-[#86efac]"}`}
-          style={{ backgroundColor: "#d1fae5" }}
+          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${mode === "CHECKIN" ? "font-semibold" : ""}`}
+          style={{ backgroundColor: "#d1fae5", color: "#047857", borderColor: "#047857" }}
         >
           Check-in
         </button>
