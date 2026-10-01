@@ -1,8 +1,7 @@
 "use client";
 
 import { istanbulNowParts, waLink } from "@club/shared";
-import { User } from "lucide-react";
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -91,21 +90,7 @@ const WeekCell = memo(function WeekCell({
       className={`court-press flex h-full min-h-0 w-full min-w-0 flex-row items-center justify-center gap-0.5 overflow-hidden border-2 p-px lg:flex-col lg:justify-center ${phoneFace(freeCourts.length)} ${desktopFace(freeCourts.length, slot.people.length)} ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
       style={{ borderRadius: 4 }}
     >
-      {slot.people.length > 0 ? (
-        <User className="h-3 w-3 shrink-0 text-ink lg:hidden" aria-hidden />
-      ) : null}
-      {slot.people.length > 0 || freeCourts.length > 0 ? (
-        <span className="hidden max-h-full min-h-0 w-full flex-wrap content-center items-center justify-center gap-px overflow-hidden lg:flex">
-          {slot.people.map((person) => (
-            <CellPhoto key={person.id} person={person} />
-          ))}
-          {freeCourts.map((court) => (
-            <span key={court.id} className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-line text-[8px] font-semibold leading-none text-ink">
-              {circleLabel(court)}
-            </span>
-          ))}
-        </span>
-      ) : null}
+      <HourCounts players={slot.people.length} courts={freeCourts.length} compact />
     </button>
   );
 });
@@ -343,7 +328,6 @@ function PhoneDay({
             const freeCourts = cell ? freeCourtsOf(cell) : [];
             const players = cell?.people ?? [];
             const hourOpen = openHour?.date === day.date && openHour.start === hour;
-            const ball = players.length > 0 && freeCourts.length > 0;
             return (
               <div key={hour} className={`border-t border-line ${hourOpen ? "bg-[#ddd9d2]" : ""}`}>
                 <button
@@ -351,10 +335,10 @@ function PhoneDay({
                   aria-expanded={hourOpen}
                   aria-label={`${day.label} ${hour}`}
                   onClick={() => onToggleHour(day.date, hour)}
-                  className={`court-press flex w-full items-center gap-2 px-1 py-2 text-left text-base font-bold leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
+                  className={`court-press flex w-full items-center px-1 py-2 text-left text-base font-bold leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
                 >
                   <span>{hour}</span>
-                  {ball ? <TennisBall /> : null}
+                  <HourCounts players={players.length} courts={freeCourts.length} className="ml-1.5" />
                 </button>
                 {hourOpen && cell ? (
                   <div className="space-y-2 bg-[#ddd9d2] px-1 py-2">
@@ -397,13 +381,34 @@ function PhoneCourtLink({ court, date, hour }: { court: CourtCell; date: string;
   );
 }
 
-function TennisBall() {
+function HourCounts({
+  players,
+  courts,
+  compact = false,
+  className = "",
+}: {
+  players: number;
+  courts: number;
+  compact?: boolean;
+  className?: string;
+}) {
+  if (players < 1 && courts < 1) return null;
+  const size = compact
+    ? "h-3.5 min-w-3.5 px-0.5 text-[9px]"
+    : "h-5 min-w-5 px-1 text-[11px]";
   return (
-    <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 shrink-0" aria-hidden>
-      <circle cx="8" cy="8" r="7" fill="#d6f25c" />
-      <path d="M3.2 3.4c2 1.5 3.1 3.3 3.1 4.6s-1.1 3.1-3.1 4.6" fill="none" stroke="#fff" strokeWidth="1.2" />
-      <path d="M12.8 3.4c-2 1.5-3.1 3.3-3.1 4.6s1.1 3.1 3.1 4.6" fill="none" stroke="#fff" strokeWidth="1.2" />
-    </svg>
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+      {players > 0 ? (
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#0f6e49] font-semibold leading-none text-white ${size}`}>
+          {players}
+        </span>
+      ) : null}
+      {courts > 0 ? (
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#2563eb] font-semibold leading-none text-white ${size}`}>
+          {courts}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -415,22 +420,6 @@ function PersonFace({ person, className }: { person: SlotPerson; className: stri
   return (
     <span className={`${className} inline-flex items-center justify-center rounded-full bg-court-deep font-semibold leading-none text-white`}>
       {letters}
-    </span>
-  );
-}
-
-function openChat(event: MouseEvent, person: SlotPerson) {
-  event.stopPropagation();
-  if (!person.messageNumber) return;
-  const href = waLink(person.messageNumber, person.firstName);
-  if (!href) return;
-  window.open(href, "_blank", "noopener,noreferrer");
-}
-
-function CellPhoto({ person }: { person: SlotPerson }) {
-  return (
-    <span className="inline-flex shrink-0" onClick={(event) => openChat(event, person)}>
-      <PersonFace person={person} className="h-3.5 w-3.5 text-[7px]" />
     </span>
   );
 }
