@@ -406,7 +406,7 @@ function CountCell({
       aria-pressed={selected}
       aria-label={`${day.label} ${hour}, ${facts.free} boş kort, ${facts.players} oyuncu`}
       onClick={() => onPick(day.date, hour)}
-      className="court-press flex min-h-11 items-center justify-center rounded-lg px-1"
+      className="court-press flex min-h-11 items-center justify-center rounded-lg px-1 lg:h-8 lg:min-h-8"
       style={{ backgroundColor: selected ? SELECTED_FILL : TONE_FILL[facts.tone], color: selected ? "#ffffff" : TONE_INK[facts.tone] }}
     >
       <Counts free={facts.free} players={facts.players} ink={selected ? "#ffffff" : TONE_INK[facts.tone]} />
