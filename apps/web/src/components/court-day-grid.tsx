@@ -259,7 +259,7 @@ const CourtSlot = memo(function CourtSlot({
       aria-pressed={picked}
       aria-label={`${court.name} ${hour} ${word}`}
       onClick={() => onPress(court, hour)}
-      className={`court-press @container flex min-h-9 w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border px-px text-center leading-tight ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
+      className={`court-press @container flex min-h-9 w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border px-px text-center leading-tight lg:h-[1.95rem] lg:min-h-[1.95rem] ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
       style={cellStyle(reservation)}
     >
       {reservation ? <span className="whitespace-nowrap font-semibold text-[clamp(8px,18cqi,12px)]">{purposeWord(reservation.purpose)}</span> : null}
@@ -476,11 +476,11 @@ export function CourtDayGrid({
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 lg:ml-[calc(50%-50vw+1rem)] lg:w-[calc(100vw-2rem)]">
+    <div className="flex w-full min-w-0 flex-col gap-3 lg:ml-[calc(50%-45vw)] lg:w-[90vw]">
       <h1 className="text-2xl font-semibold tracking-tight">Kortlar</h1>
       <DateBar date={date} today={today} onDate={moveDay} />
       <PurposeChips value={mode} onChange={setMode} />
-      <div className="flex w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="flex w-full min-w-0 flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-start">
         <div className="min-w-0 flex-1">
           {failed && !active ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
           {!failed && !active ? <LoadingBlock label="Gün yükleniyor" /> : null}
@@ -493,21 +493,19 @@ export function CourtDayGrid({
             <DayTable courts={courts} hours={hours} day={active} picked={picked} onPress={pressDay} />
           ) : null}
         </div>
-        {picked && pickedCourt ? (
-          <SlotPanel
-            date={picked.date}
-            hour={picked.hour}
-            court={pickedCourt}
-            cell={pickedCell}
-            reservation={pickedReservation}
-            draft={draft}
-            panel={panel}
-            saving={saving}
-            onPanel={setPanel}
-            onDraft={setDraft}
-            onSave={() => void save()}
-          />
-        ) : null}
+        <SlotPanel
+          date={picked?.date ?? date}
+          hour={picked?.hour}
+          court={pickedCourt}
+          cell={pickedCell}
+          reservation={pickedReservation}
+          draft={draft}
+          panel={panel}
+          saving={saving}
+          onPanel={setPanel}
+          onDraft={setDraft}
+          onSave={() => void save()}
+        />
       </div>
     </div>
   );
@@ -531,7 +529,7 @@ function DayTable({
   return (
     <div className="w-full min-w-0 overflow-x-auto lg:overflow-x-visible">
       <div
-        className="grid w-full min-w-[var(--day-min)] gap-1 lg:min-w-0"
+        className="grid w-full min-w-[var(--day-min)] gap-x-1 gap-y-1 lg:min-w-0 lg:gap-y-0.5"
         style={{
           gridTemplateColumns: `3rem repeat(${courts.length}, minmax(0, 1fr))`,
           ["--day-min" as string]: dayMin,
@@ -575,8 +573,8 @@ function SlotPanel({
   onSave,
 }: {
   date: string;
-  hour: string;
-  court: CourtRow;
+  hour?: string;
+  court?: CourtRow;
   cell: DayCell | undefined;
   reservation: DayReservation | null;
   draft: Tool | null;
@@ -587,13 +585,13 @@ function SlotPanel({
   onSave: () => void;
 }) {
   const start = cell?.startTime ?? hour;
-  const end = cell?.endTime ?? addHour(start);
+  const end = start ? cell?.endTime ?? addHour(start) : undefined;
   const enabled = canSave(draft, court, cell) && !saving;
   return (
-    <aside className="w-full shrink-0 rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm lg:sticky lg:top-2 lg:w-80" aria-label="Seçilen saat">
+    <aside className="w-full shrink-0 self-start rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm lg:sticky lg:top-2 lg:w-80" aria-label="Seçilen saat">
       <p className="text-sm font-semibold">{longDate(date)}</p>
-      <p className="mt-1 text-sm text-[#4b5563]">{start}–{end}</p>
-      <p className="mt-1 text-sm font-semibold">{court.name}</p>
+      {start && end ? <p className="mt-1 text-sm text-[#4b5563]">{start}–{end}</p> : <p className="mt-1 text-sm text-[#6b7280]">Bir saat seçin</p>}
+      {court ? <p className="mt-1 text-sm font-semibold">{court.name}</p> : null}
       <div className="mt-3 flex gap-4 border-b border-[#e5e7eb]" role="tablist" aria-label="Saat paneli">
         {([
           ["reservation", "Rezervasyon"],
@@ -627,9 +625,9 @@ function SlotPanel({
           >
             Kaydet
           </button>
-          {reservation ? <ReservationRow reservation={reservation} start={start} end={end} /> : null}
+          {reservation && start && end ? <ReservationRow reservation={reservation} start={start} end={end} /> : null}
         </div>
-      ) : (
+      ) : court ? (
         <dl className="mt-3 space-y-2 text-sm">
           <div>
             <dt className="text-xs text-[#6b7280]">Ad</dt>
@@ -648,6 +646,8 @@ function SlotPanel({
             <dd>{court.sortOrder}</dd>
           </div>
         </dl>
+      ) : (
+        <p className="mt-3 text-sm text-[#6b7280]">Bir saat seçin</p>
       )}
     </aside>
   );
