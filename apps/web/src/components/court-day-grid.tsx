@@ -1,8 +1,9 @@
 "use client";
 
 import { WEEKDAYS, type CourtPurpose } from "@club/shared";
-import { Fragment, memo, useCallback, useEffect, useRef, useState } from "react";
-import { type CourtRow, type Person, type Reservation, addHour, shiftDate, weekdayOf } from "@/components/court-ui";
+import { Fragment, memo, useEffect, useRef, useState } from "react";
+import { type CourtRow, type Person, type Reservation, addHour, fullName, shiftDate, weekdayOf } from "@/components/court-ui";
+import { ErrorState, LoadingBlock } from "@/components/states";
 
 export type DayReservation = {
   id: string;
@@ -46,17 +47,25 @@ const PURPOSE_OPTIONS: { purpose: CourtPurpose; word: string }[] = [
 
 const CELL_FILL: Record<CourtPurpose, string> = {
   MATCH: "#dcfce7",
-  TRAINING: "#e5e7eb",
-  TOURNAMENT: "#dbeafe",
+  TRAINING: "#dbeafe",
   MAINTENANCE: "#ffedd5",
+  TOURNAMENT: "#f3e8ff",
 };
 
 const CELL_INK: Record<CourtPurpose, string> = {
   MATCH: "#15803d",
-  TRAINING: "#374151",
-  TOURNAMENT: "#1d4ed8",
+  TRAINING: "#1d4ed8",
   MAINTENANCE: "#c2410c",
+  TOURNAMENT: "#7e22ce",
 };
+
+const SELECTED_FILL = "#1e3a5f";
+const ACCENT = "#6d28d9";
+const TR_MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+type Tool = CourtPurpose | "CLEAR" | "CANCEL";
+type ViewMode = "gun" | "hafta" | "liste";
+type Picked = { courtId: string; hour: string; date: string };
 
 function purposeOption(purpose: CourtPurpose) {
   return PURPOSE_OPTIONS.find((item) => item.purpose === purpose) ?? PURPOSE_OPTIONS[1]!;
@@ -66,29 +75,8 @@ export function purposeWord(purpose: CourtPurpose): string {
   return purposeOption(purpose).word;
 }
 
-function cellMark(purpose: CourtPurpose): string {
-  if (purpose === "MATCH") return "Maç";
-  if (purpose === "TRAINING") return "Antr.";
-  if (purpose === "MAINTENANCE") return "Bakım";
-  return "Turn.";
-}
-
-function cellPaint(reservation: DayReservation | null): { backgroundColor: string; color: string; borderColor: string } {
-  if (!reservation) return { backgroundColor: "transparent", color: "#14241c", borderColor: "#e0d8c8" };
-  if (reservation.purpose === "MATCH" && reservation.checkedIn) return { backgroundColor: "#16a34a", color: "#ffffff", borderColor: "#166534" };
-  return { backgroundColor: CELL_FILL[reservation.purpose], color: CELL_INK[reservation.purpose], borderColor: CELL_INK[reservation.purpose] };
-}
-
 function cellKey(courtId: string, startTime: string): string {
   return `${courtId}|${startTime}`;
-}
-
-function phoneCourtHeader(name: string): string {
-  const indoor = /^Kapalı\s*(\d+)$/u.exec(name);
-  if (indoor?.[1]) return `Kapalı ${indoor[1]}`;
-  const outdoor = /^Kort\s*(\d+)$/u.exec(name);
-  if (outdoor?.[1]) return `Kort${outdoor[1]}`;
-  return name;
 }
 
 function weekOf(date: string): { date: string; short: string; label: string }[] {
@@ -101,6 +89,13 @@ function weekOf(date: string): { date: string; short: string; label: string }[] 
   });
 }
 
+function longDate(date: string): string {
+  const [year, month, day] = date.split("-");
+  const name = TR_MONTHS[Number(month) - 1] ?? "";
+  const label = WEEKDAYS.find((item) => item.value === weekdayOf(date))?.label ?? "";
+  return `${Number(day)} ${name} ${year}, ${label}`;
+}
+
 function hoursUntil(startTime: string, endTime: string): string[] {
   const hours: string[] = [];
   let cursor = startTime;
@@ -109,6 +104,14 @@ function hoursUntil(startTime: string, endTime: string): string[] {
     cursor = addHour(cursor);
   }
   return hours;
+}
+
+function orderedCourts(courts: CourtRow[]): CourtRow[] {
+  return [...courts].sort((a, b) => {
+    const group = Number(a.kind !== "BALLOON") - Number(b.kind !== "BALLOON");
+    if (group !== 0) return group;
+    return a.name.localeCompare(b.name, "tr", { numeric: true, sensitivity: "base" });
+  });
 }
 
 export function groupDaySlots(slots: DaySlot[]): { courtId: string; startTime: string; endTime: string }[] {
@@ -225,7 +228,59 @@ export function paintDayGrid(grid: DayGrid, created: Reservation): DayGrid {
   };
 }
 
-type Tool = CourtPurpose | "CLEAR" | "CANCEL" | "CHECKIN";
+function findCell(day: DayGrid | null | undefined, courtId: string, hour: string): DayCell | undefined {
+  return day?.cells.find((cell) => cell.courtId === courtId && cell.startTime === hour);
+}
+
+function cellStyle(reservation: DayReservation | null, selected: boolean): { backgroundColor: string; color: string; borderColor: string } {
+  if (selected) return { backgroundColor: SELECTED_FILL, color: "#ffffff", borderColor: SELECTED_FILL };
+  if (!reservation) return { backgroundColor: "#ffffff", color: "#14241c", borderColor: "#e5e7eb" };
+  return {
+    backgroundColor: CELL_FILL[reservation.purpose],
+    color: CELL_INK[reservation.purpose],
+    borderColor: CELL_FILL[reservation.purpose],
+  };
+}
+
+function canSave(draft: Tool | null, court: CourtRow | undefined, cell: DayCell | undefined): boolean {
+  if (!draft || !court) return false;
+  const reservation = cell?.state === "busy" ? cell.reservation : null;
+  if (draft === "CLEAR") return Boolean(reservation);
+  if (draft === "CANCEL") return reservation?.purpose === "MATCH";
+  return court.active && cell?.state !== "busy";
+}
+
+type DayReservationRow = {
+  id: string;
+  courtId: string;
+  courtName: string;
+  start: string;
+  end: string;
+  reservation: DayReservation;
+};
+
+function reservationsOn(day: DayGrid): DayReservationRow[] {
+  const names = new Map(day.courts.map((court) => [court.id, court.name]));
+  const grouped = new Map<string, DayReservationRow>();
+  for (const cell of day.cells) {
+    if (cell.state !== "busy" || !cell.reservation) continue;
+    const existing = grouped.get(cell.reservation.id);
+    if (!existing) {
+      grouped.set(cell.reservation.id, {
+        id: cell.reservation.id,
+        courtId: cell.courtId,
+        courtName: names.get(cell.courtId) ?? "",
+        start: cell.startTime,
+        end: cell.endTime,
+        reservation: cell.reservation,
+      });
+      continue;
+    }
+    if (cell.startTime < existing.start) existing.start = cell.startTime;
+    if (cell.endTime > existing.end) existing.end = cell.endTime;
+  }
+  return [...grouped.values()].sort((a, b) => a.start.localeCompare(b.start) || a.courtName.localeCompare(b.courtName, "tr"));
+}
 
 const CourtSlot = memo(function CourtSlot({
   court,
@@ -241,7 +296,7 @@ const CourtSlot = memo(function CourtSlot({
   onPress: (court: CourtRow, hour: string) => void;
 }) {
   const reservation = cell?.state === "busy" ? cell.reservation : null;
-  const word = reservation ? purposeWord(reservation.purpose).toLocaleLowerCase("tr") : "boş";
+  const word = reservation ? purposeWord(reservation.purpose) : "boş";
   return (
     <button
       id={`kort-${court.id}-${hour}`}
@@ -249,162 +304,549 @@ const CourtSlot = memo(function CourtSlot({
       aria-pressed={picked}
       aria-label={`${court.name} ${hour} ${word}`}
       onClick={() => onPress(court, hour)}
-      className={`court-press flex min-h-8 w-full min-w-0 items-center justify-center rounded-sm border border-line px-0.5 text-[10px] font-semibold leading-none ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
-      style={{ ...cellPaint(reservation), borderRadius: 4 }}
+      className="court-press flex min-h-9 w-full min-w-0 items-center justify-center rounded-md border px-1 text-center text-[11px] font-semibold leading-tight"
+      style={cellStyle(reservation, picked)}
     >
-      {reservation ? cellMark(reservation.purpose) : null}
+      {reservation ? purposeWord(reservation.purpose) : null}
     </button>
   );
 });
 
+function PurposeChips({
+  value,
+  onChange,
+  labelledBy,
+}: {
+  value: Tool | null;
+  onChange: (tool: Tool) => void;
+  labelledBy?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-labelledby={labelledBy} aria-label={labelledBy ? undefined : "Amaç"}>
+      {PURPOSE_OPTIONS.map((option) => {
+        const on = value === option.purpose;
+        return (
+          <button
+            key={option.purpose}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(option.purpose)}
+            className={`court-press rounded-lg border px-2.5 py-1 text-xs ${on ? "font-semibold ring-2 ring-ink ring-inset" : ""}`}
+            style={{ backgroundColor: CELL_FILL[option.purpose], color: CELL_INK[option.purpose], borderColor: CELL_INK[option.purpose] }}
+          >
+            {option.word}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        aria-pressed={value === "CLEAR"}
+        onClick={() => onChange("CLEAR")}
+        className={`court-press rounded-lg border bg-white px-2.5 py-1 text-xs text-[#4b5563] ${value === "CLEAR" ? "border-ink font-semibold ring-2 ring-ink ring-inset" : "border-[#d1d5db]"}`}
+      >
+        Boş
+      </button>
+      <span className="w-3 shrink-0" aria-hidden />
+      <button
+        type="button"
+        aria-pressed={value === "CANCEL"}
+        onClick={() => onChange("CANCEL")}
+        className={`court-press rounded-lg border bg-white px-2.5 py-1 text-xs text-[#4b5563] ${value === "CANCEL" ? "border-ink font-semibold ring-2 ring-ink ring-inset" : "border-[#d1d5db]"}`}
+      >
+        İptal
+      </button>
+    </div>
+  );
+}
+
+function DateBar({ date, today, onDate }: { date: string; today: string; onDate: (date: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" aria-label="Önceki gün" onClick={() => onDate(shiftDate(date, -1))} className="court-press grid h-8 w-8 place-items-center rounded-full border border-[#d1d5db] text-sm">‹</button>
+      <p className="min-w-0 flex-1 text-center text-sm font-semibold">{longDate(date)}</p>
+      <button type="button" aria-label="Sonraki gün" onClick={() => onDate(shiftDate(date, 1))} className="court-press grid h-8 w-8 place-items-center rounded-full border border-[#d1d5db] text-sm">›</button>
+      <button type="button" onClick={() => onDate(today)} aria-pressed={date === today} className="court-press rounded-full border border-[#d1d5db] px-3 py-1 text-sm font-semibold">Bugün</button>
+    </div>
+  );
+}
+
+function ViewSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
+  const items: { id: ViewMode; label: string }[] = [
+    { id: "gun", label: "Gün" },
+    { id: "hafta", label: "Hafta" },
+    { id: "liste", label: "Liste" },
+  ];
+  return (
+    <div className="flex w-fit gap-1 rounded-xl bg-[#f3f4f6] p-1" role="tablist" aria-label="Görünüm">
+      {items.map((item) => {
+        const on = mode === item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            onClick={() => onMode(item.id)}
+            className={`rounded-lg px-3 py-1 text-sm ${on ? "font-semibold text-white" : "text-[#374151]"}`}
+            style={on ? { backgroundColor: ACCENT } : undefined}
+          >
+            {item.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReservationRow({ reservation, start, end }: { reservation: DayReservation; start: string; end: string }) {
+  const players = reservation.players ?? [];
+  return (
+    <article
+      className="rounded-xl border px-3 py-2 text-sm"
+      style={{ backgroundColor: CELL_FILL[reservation.purpose], color: CELL_INK[reservation.purpose], borderColor: CELL_INK[reservation.purpose] }}
+    >
+      <p className="font-semibold">{purposeWord(reservation.purpose)}</p>
+      <p className="text-xs">{start}–{end}</p>
+      <p className="text-xs">{reservation.statusLabel}</p>
+      {players.length > 0 ? <p className="text-xs">{players.map((person) => fullName(person)).join(", ")}</p> : null}
+    </article>
+  );
+}
+
 export function CourtDayGrid({
   date,
-  selected,
-  onToggleDay,
+  today,
+  week,
   grid,
+  onDate,
   onApply,
   onCancel,
-  onCheckIn,
   focus = null,
+  failed = false,
+  onRetry,
 }: {
   date: string;
-  selected: string[];
-  onToggleDay: (date: string) => void;
+  today: string;
+  week: DayGrid[];
   grid: DayGrid;
-  onApply: (input: { purpose: CourtPurpose; slots: DaySlot[] }) => Promise<void>;
-  onCancel: (reservationIds: string[], matchOnly: boolean) => Promise<void>;
-  onCheckIn: (slots: { reservationId: string; courtId: string; date: string; startTime: string }[]) => Promise<void>;
+  onDate: (date: string) => void;
+  onApply: (input: { purpose: CourtPurpose; slots: DaySlot[]; date: string }) => Promise<void>;
+  onCancel: (reservationIds: string[], matchOnly: boolean, date: string) => Promise<void>;
   focus?: { date: string; courtId: string; hour: string } | null;
+  failed?: boolean;
+  onRetry?: () => void;
 }) {
   const [mode, setMode] = useState<Tool | null>(null);
-  const cells = new Map(grid.cells.map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
-  const days = weekOf(date);
-  const shown = grid.date === date;
-  const focusHere = focus && focus.date === grid.date ? focus : null;
+  const [view, setView] = useState<ViewMode>("gun");
+  const [picked, setPicked] = useState<Picked | null>(null);
+  const [draft, setDraft] = useState<Tool | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [panel, setPanel] = useState<"reservation" | "details">("reservation");
+  const appliedFocus = useRef("");
+  const scrolledFocus = useRef("");
+  const days = new Map(week.map((day) => [day.date, day]));
+  if (grid.date === date) days.set(grid.date, grid);
+  const active = days.get(date) ?? null;
+  const courts = orderedCourts(active?.courts ?? week[0]?.courts ?? []);
+  const hours = active?.hours ?? week[0]?.hours ?? [];
+  const focusHere = focus && focus.date === date ? focus : null;
+  const focusKey = focusHere ? `${focusHere.date}|${focusHere.courtId}|${focusHere.hour}` : "";
 
   useEffect(() => {
-    if (!focusHere) return;
-    document.getElementById(`kort-${focusHere.courtId}-${focusHere.hour}`)?.scrollIntoView({ block: "center", inline: "center" });
-  }, [focusHere]);
+    if (!focusHere || appliedFocus.current === focusKey) return;
+    const day = week.find((item) => item.date === focusHere.date) ?? (grid.date === focusHere.date ? grid : null);
+    if (!day) return;
+    const cell = findCell(day, focusHere.courtId, focusHere.hour);
+    appliedFocus.current = focusKey;
+    setView("gun");
+    setPicked({ courtId: focusHere.courtId, hour: focusHere.hour, date: focusHere.date });
+    setDraft(cell?.state === "busy" && cell.reservation ? cell.reservation.purpose : null);
+    setPanel("reservation");
+  }, [focusHere, focusKey, week, grid]);
 
-  const pressRef = useRef<(court: CourtRow, hour: string) => void>(() => {});
-  pressRef.current = (court, hour) => {
-    if (!mode || !shown) return;
-    const cell = cells.get(`${court.id}-${hour}`);
+  useEffect(() => {
+    if (!focusHere || view !== "gun" || scrolledFocus.current === focusKey) return;
+    const node = document.getElementById(`kort-${focusHere.courtId}-${focusHere.hour}`);
+    if (!node) return;
+    scrolledFocus.current = focusKey;
+    node.scrollIntoView({ block: "center", inline: "center" });
+  }, [focusHere, focusKey, view, active]);
+
+  function dayFor(dayDate: string): DayGrid | null {
+    return days.get(dayDate) ?? null;
+  }
+
+  function choose(next: Picked, nextDraft: Tool | null) {
+    setPicked(next);
+    setDraft(nextDraft);
+    setPanel("reservation");
+  }
+
+  function draftFromCell(cell: DayCell | undefined): Tool | null {
+    return cell?.state === "busy" && cell.reservation ? cell.reservation.purpose : null;
+  }
+
+  function resultingDraft(before: DayCell | undefined, court: CourtRow): Tool | null {
+    const reservation = before?.state === "busy" ? before.reservation : null;
+    if (mode === "CLEAR") return reservation ? null : draftFromCell(before);
+    if (mode === "CANCEL") return reservation?.purpose === "MATCH" ? null : draftFromCell(before);
+    if (mode && court.active && before?.state !== "busy") return mode;
+    return draftFromCell(before);
+  }
+
+  function moveDay(next: string) {
+    onDate(next);
+    if (!picked) return;
+    const nextPick = { ...picked, date: next };
+    choose(nextPick, draftFromCell(findCell(dayFor(next), nextPick.courtId, nextPick.hour)));
+  }
+
+  function paint(court: CourtRow, hour: string, day: DayGrid) {
+    if (!mode) return;
+    const cell = findCell(day, court.id, hour);
     const reservation = cell?.state === "busy" ? cell.reservation : null;
     if (mode === "CLEAR") {
       if (!reservation) return;
-      void onCancel([reservation.id], false);
+      void onCancel([reservation.id], false, day.date);
       return;
     }
     if (mode === "CANCEL") {
       if (reservation?.purpose !== "MATCH") return;
-      void onCancel([reservation.id], true);
-      return;
-    }
-    if (mode === "CHECKIN") {
-      if (reservation?.purpose !== "MATCH" || reservation.checkedIn) return;
-      void onCheckIn([{ reservationId: reservation.id, courtId: court.id, date: grid.date, startTime: hour }]);
+      void onCancel([reservation.id], true, day.date);
       return;
     }
     if (!court.active || cell?.state === "busy") return;
-    void onApply({ purpose: mode, slots: [{ courtId: court.id, startTime: hour }] });
-  };
-  const onPress = useCallback((court: CourtRow, hour: string) => {
-    pressRef.current(court, hour);
-  }, []);
+    void onApply({ purpose: mode, slots: [{ courtId: court.id, startTime: hour }], date: day.date });
+  }
+
+  function pressDay(court: CourtRow, hour: string) {
+    if (!active) return;
+    const before = findCell(active, court.id, hour);
+    paint(court, hour, active);
+    choose({ courtId: court.id, hour, date: active.date }, resultingDraft(before, court));
+  }
+
+  function pressWeek(day: DayGrid, hour: string) {
+    const court = courts.find((item) => item.id === (picked?.courtId ?? courts[0]?.id));
+    if (!court) return;
+    if (day.date !== date) onDate(day.date);
+    const before = findCell(day, court.id, hour);
+    paint(court, hour, day);
+    choose({ courtId: court.id, hour, date: day.date }, resultingDraft(before, court));
+  }
+
+  const pickedDay = picked ? dayFor(picked.date) : null;
+  const pickedCourt = picked ? courts.find((court) => court.id === picked.courtId) ?? pickedDay?.courts.find((court) => court.id === picked.courtId) : undefined;
+  const pickedCell = pickedDay && picked ? findCell(pickedDay, picked.courtId, picked.hour) : undefined;
+  const pickedReservation = pickedCell?.state === "busy" ? pickedCell.reservation : null;
+  const weekCourt = courts.find((court) => court.id === picked?.courtId) ?? courts[0] ?? null;
+  const listed = active ? reservationsOn(active) : [];
+
+  async function save() {
+    if (!picked || !pickedCourt || !pickedDay || !canSave(draft, pickedCourt, pickedCell)) return;
+    setSaving(true);
+    try {
+      if (draft === "CLEAR") {
+        if (pickedReservation) await onCancel([pickedReservation.id], false, pickedDay.date);
+        return;
+      }
+      if (draft === "CANCEL") {
+        if (pickedReservation?.purpose === "MATCH") await onCancel([pickedReservation.id], true, pickedDay.date);
+        return;
+      }
+      if (!draft) return;
+      await onApply({ purpose: draft, slots: [{ courtId: pickedCourt.id, startTime: picked.hour }], date: pickedDay.date });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <div className="flex w-full min-w-0 flex-col items-start gap-2">
-      <h1 className="text-lg font-semibold leading-none">Kortlar</h1>
-      <div className="flex w-full min-w-0 items-start justify-between gap-1 text-sm" role="group" aria-label="Haftanın günleri">
-        {days.map((day) => {
-          const on = selected.includes(day.date);
-          return (
-            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className={`court-press min-w-0 flex-1 rounded-md border-0 px-0.5 py-0.5 text-center leading-tight text-inherit hover:bg-[#f3f0e7] ${on ? "bg-[#e7e5e0]" : "bg-transparent"}`}>
-              <span className={`block text-xs font-bold leading-tight md:hidden ${on ? "underline underline-offset-2" : ""}`}>{day.short}</span>
-              <span className={`hidden text-sm font-bold leading-tight whitespace-nowrap md:inline ${on ? "underline underline-offset-2" : ""}`}>{day.label}</span>
-              <span className="mt-0.5 block text-[10px] font-normal text-muted md:text-xs">{day.date.slice(8)}</span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-1 overflow-x-auto px-1 md:flex-nowrap md:gap-2 md:overflow-visible md:px-0" role="group" aria-label="Amaç">
-        {PURPOSE_OPTIONS.map((option) => {
-          const on = mode === option.purpose;
-          return (
-            <button
-              key={option.purpose}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setMode(option.purpose)}
-              className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${on ? "font-semibold" : ""}`}
-              style={{ backgroundColor: CELL_FILL[option.purpose], color: CELL_INK[option.purpose], borderColor: CELL_INK[option.purpose] }}
-            >
-              {option.word}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          aria-pressed={mode === "CLEAR"}
-          onClick={() => setMode("CLEAR")}
-          className={`court-press shrink-0 rounded-md border bg-surface px-1 py-1 text-[11px] text-ink md:px-2 md:text-xs ${mode === "CLEAR" ? "border-ink font-semibold" : "border-line"}`}
-        >
-          Boş
-        </button>
-        <span className="w-3 shrink-0 md:w-4" aria-hidden />
-        <button
-          type="button"
-          aria-pressed={mode === "CANCEL"}
-          onClick={() => setMode("CANCEL")}
-          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${mode === "CANCEL" ? "font-semibold" : ""}`}
-          style={{ backgroundColor: "#e7e5e0", color: "#44403c", borderColor: "#44403c" }}
-        >
-          İptal
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "CHECKIN"}
-          onClick={() => setMode("CHECKIN")}
-          className={`court-press shrink-0 rounded-md border px-1 py-1 text-[11px] md:px-2 md:text-xs ${mode === "CHECKIN" ? "font-semibold" : ""}`}
-          style={{ backgroundColor: "#d1fae5", color: "#047857", borderColor: "#047857" }}
-        >
-          Check-in
-        </button>
-      </div>
-      <div className="mt-6 w-full min-w-0 overflow-x-auto">
-        <div
-          className="grid w-full gap-0.5"
-          style={{
-            gridTemplateColumns: `3.5rem repeat(${grid.courts.length}, minmax(3.625rem, 1fr))`,
-            minWidth: `calc(3.5rem + ${grid.courts.length} * 3.625rem)`,
-          }}
-        >
-          <div />
-          {grid.courts.map((court) => (
-            <div key={court.id} className="min-w-0 whitespace-normal break-words px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight">
-              <span className="md:hidden">{phoneCourtHeader(court.name)}</span>
-              <span className="hidden md:inline">{court.name}</span>
+    <div className="flex w-full min-w-0 flex-col gap-3">
+      <h1 className="text-2xl font-semibold tracking-tight">Kortlar</h1>
+      <DateBar date={date} today={today} onDate={moveDay} />
+      <ViewSwitch mode={view} onMode={setView} />
+      <PurposeChips value={mode} onChange={setMode} />
+      <div className="flex w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1">
+          {failed && !active ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
+          {!failed && !active ? <LoadingBlock label="Gün yükleniyor" /> : null}
+          {active && courts.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-line bg-surface px-5 py-8 text-center">
+              <p className="font-semibold">Bu kulüpte kort yok</p>
             </div>
-          ))}
-          {grid.hours.map((hour) => (
-            <Fragment key={hour}>
-              <div className="sticky left-0 z-10 bg-paper py-1 pr-1 text-sm font-normal whitespace-nowrap text-ink lg:static lg:z-auto lg:bg-transparent lg:pr-0">{hour}</div>
-              {grid.courts.map((court) => (
-                <CourtSlot
-                  key={court.id}
-                  court={court}
-                  hour={hour}
-                  cell={cells.get(`${court.id}-${hour}`)}
-                  picked={focusHere?.courtId === court.id && focusHere.hour === hour}
-                  onPress={onPress}
-                />
-              ))}
-            </Fragment>
-          ))}
+          ) : null}
+          {active && courts.length > 0 && view === "gun" ? (
+            <DayTable courts={courts} hours={hours} day={active} picked={picked} onPress={pressDay} />
+          ) : null}
+          {active && courts.length > 0 && view === "hafta" && weekCourt ? (
+            <WeekTable court={weekCourt} hours={hours} days={weekOf(date)} loaded={days} selectedDate={date} picked={picked} onPress={pressWeek} />
+          ) : null}
+          {active && courts.length > 0 && view === "liste" ? (
+            <ReservationList
+              rows={listed}
+              picked={picked}
+              onPick={(row) => {
+                const cell = findCell(active, row.courtId, row.start);
+                choose({ courtId: row.courtId, hour: row.start, date: active.date }, draftFromCell(cell));
+              }}
+            />
+          ) : null}
         </div>
+        {picked && pickedCourt ? (
+          <SlotPanel
+            date={picked.date}
+            hour={picked.hour}
+            court={pickedCourt}
+            cell={pickedCell}
+            reservation={pickedReservation}
+            draft={draft}
+            panel={panel}
+            saving={saving}
+            onPanel={setPanel}
+            onDraft={setDraft}
+            onSave={() => void save()}
+          />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function DayTable({
+  courts,
+  hours,
+  day,
+  picked,
+  onPress,
+}: {
+  courts: CourtRow[];
+  hours: string[];
+  day: DayGrid;
+  picked: Picked | null;
+  onPress: (court: CourtRow, hour: string) => void;
+}) {
+  const cells = new Map(day.cells.map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
+  return (
+    <div className="w-full min-w-0 overflow-x-auto">
+      <div
+        className="grid w-full gap-1"
+        style={{
+          gridTemplateColumns: `3.5rem repeat(${courts.length}, minmax(5.25rem, 1fr))`,
+          minWidth: `calc(3.5rem + ${courts.length} * 5.25rem)`,
+        }}
+      >
+        <div className="sticky left-0 z-10 bg-paper pr-1 text-[11px] font-semibold text-[#6b7280]">Saat</div>
+        {courts.map((court) => (
+          <div key={court.id} className="min-w-0 px-0.5 pb-1 text-center text-[11px] font-semibold leading-tight">{court.name}</div>
+        ))}
+        {hours.map((hour) => (
+          <Fragment key={hour}>
+            <div className="sticky left-0 z-10 flex items-center bg-paper pr-1 text-[11px] text-[#6b7280]">{hour}</div>
+            {courts.map((court) => (
+              <CourtSlot
+                key={court.id}
+                court={court}
+                hour={hour}
+                cell={cells.get(`${court.id}-${hour}`)}
+                picked={picked?.date === day.date && picked.courtId === court.id && picked.hour === hour}
+                onPress={onPress}
+              />
+            ))}
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WeekTable({
+  court,
+  hours,
+  days,
+  loaded,
+  selectedDate,
+  picked,
+  onPress,
+}: {
+  court: CourtRow;
+  hours: string[];
+  days: { date: string; short: string; label: string }[];
+  loaded: Map<string, DayGrid>;
+  selectedDate: string;
+  picked: Picked | null;
+  onPress: (day: DayGrid, hour: string) => void;
+}) {
+  return (
+    <div className="w-full min-w-0 overflow-x-auto">
+      <p className="mb-2 text-sm font-semibold">{court.name}</p>
+      <div className="grid w-full gap-1" style={{ gridTemplateColumns: "3.5rem repeat(7, minmax(4.5rem, 1fr))", minWidth: "calc(3.5rem + 7 * 4.5rem)" }}>
+        <div className="sticky left-0 z-10 bg-paper pr-1 text-[11px] font-semibold text-[#6b7280]">Saat</div>
+        {days.map((day) => {
+          const on = day.date === selectedDate;
+          return (
+            <div
+              key={day.date}
+              className="rounded-lg px-1 py-1 text-center text-[11px] font-semibold leading-tight"
+              style={on ? { backgroundColor: ACCENT, color: "#ffffff" } : { color: "#374151" }}
+            >
+              {day.short} {Number(day.date.slice(8))}
+            </div>
+          );
+        })}
+        {hours.map((hour) => (
+          <Fragment key={hour}>
+            <div className="sticky left-0 z-10 flex items-center bg-paper pr-1 text-[11px] text-[#6b7280]">{hour}</div>
+            {days.map((day) => {
+              const loadedDay = loaded.get(day.date);
+              const cell = loadedDay ? findCell(loadedDay, court.id, hour) : undefined;
+              const reservation = cell?.state === "busy" ? cell.reservation : null;
+              const selected = picked?.date === day.date && picked.courtId === court.id && picked.hour === hour;
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  disabled={!loadedDay}
+                  aria-pressed={selected}
+                  aria-label={`${court.name} ${day.label} ${hour} ${reservation ? purposeWord(reservation.purpose) : "boş"}`}
+                  onClick={() => {
+                    if (loadedDay) onPress(loadedDay, hour);
+                  }}
+                  className="court-press flex min-h-9 items-center justify-center rounded-md border px-1 text-center text-[11px] font-semibold leading-tight disabled:opacity-40"
+                  style={cellStyle(reservation, selected)}
+                >
+                  {reservation ? purposeWord(reservation.purpose) : null}
+                </button>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReservationList({
+  rows,
+  picked,
+  onPick,
+}: {
+  rows: DayReservationRow[];
+  picked: Picked | null;
+  onPick: (row: DayReservationRow) => void;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-3xl border border-dashed border-line bg-surface px-5 py-8 text-center">
+        <p className="font-semibold">Bu günde rezervasyon yok</p>
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-2">
+      {rows.map((row) => {
+        const selected = picked?.date !== undefined && picked.courtId === row.courtId && picked.hour >= row.start && picked.hour < row.end;
+        return (
+          <li key={row.id}>
+            <button type="button" onClick={() => onPick(row)} aria-pressed={selected} className={`court-press w-full rounded-xl text-left ${selected ? "ring-2 ring-[#1e3a5f] ring-inset" : ""}`}>
+              <span className="mb-1 block px-1 text-sm font-semibold">{row.courtName}</span>
+              <ReservationRow reservation={row.reservation} start={row.start} end={row.end} />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function SlotPanel({
+  date,
+  hour,
+  court,
+  cell,
+  reservation,
+  draft,
+  panel,
+  saving,
+  onPanel,
+  onDraft,
+  onSave,
+}: {
+  date: string;
+  hour: string;
+  court: CourtRow;
+  cell: DayCell | undefined;
+  reservation: DayReservation | null;
+  draft: Tool | null;
+  panel: "reservation" | "details";
+  saving: boolean;
+  onPanel: (panel: "reservation" | "details") => void;
+  onDraft: (tool: Tool) => void;
+  onSave: () => void;
+}) {
+  const start = cell?.startTime ?? hour;
+  const end = cell?.endTime ?? addHour(start);
+  const enabled = canSave(draft, court, cell) && !saving;
+  return (
+    <aside className="w-full shrink-0 rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm lg:sticky lg:top-2 lg:w-80" aria-label="Seçilen saat">
+      <p className="text-sm font-semibold">{longDate(date)}</p>
+      <p className="mt-1 text-sm text-[#4b5563]">{start}–{end}</p>
+      <p className="mt-1 text-sm font-semibold">{court.name}</p>
+      <div className="mt-3 flex gap-4 border-b border-[#e5e7eb]" role="tablist" aria-label="Saat paneli">
+        {([
+          ["reservation", "Rezervasyon"],
+          ["details", "Detaylar"],
+        ] as const).map(([id, label]) => {
+          const on = panel === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => onPanel(id)}
+              className={`-mb-px border-b-2 pb-2 text-sm ${on ? "font-semibold" : "border-transparent text-[#6b7280]"}`}
+              style={on ? { borderColor: ACCENT, color: ACCENT } : undefined}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {panel === "reservation" ? (
+        <div className="mt-3 space-y-3">
+          <PurposeChips value={draft} onChange={onDraft} />
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!enabled}
+            className="court-press rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+            style={{ backgroundColor: ACCENT }}
+          >
+            Kaydet
+          </button>
+          {reservation ? <ReservationRow reservation={reservation} start={start} end={end} /> : null}
+        </div>
+      ) : (
+        <dl className="mt-3 space-y-2 text-sm">
+          <div>
+            <dt className="text-xs text-[#6b7280]">Ad</dt>
+            <dd className="font-semibold">{court.name}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[#6b7280]">Tür</dt>
+            <dd>{court.kindLabel}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[#6b7280]">Durum</dt>
+            <dd>{court.active ? "aktif" : "pasif"}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[#6b7280]">Sıra</dt>
+            <dd>{court.sortOrder}</dd>
+          </div>
+        </dl>
+      )}
+    </aside>
   );
 }
