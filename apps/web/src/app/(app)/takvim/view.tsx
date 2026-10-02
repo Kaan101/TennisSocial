@@ -43,6 +43,10 @@ function courtIsFree(court: CourtCell): boolean {
   return purpose !== "MATCH" && purpose !== "TRAINING" && purpose !== "MAINTENANCE" && purpose !== "TOURNAMENT";
 }
 
+function courtIsIndoor(court: CourtCell): boolean {
+  return court.kind === "BALLOON" || court.name.startsWith("Kapalı");
+}
+
 function circleLabel(court: CourtCell): string {
   const number = /(\d+)/u.exec(court.name)?.[1];
   if (court.kind === "BALLOON" || court.name.startsWith("Kapalı")) return number ? `K${number}` : "";
@@ -70,6 +74,7 @@ const WeekCell = memo(function WeekCell({
 }) {
   if (!slot) return <div className="min-h-0" />;
   const freeCourts = freeCourtsOf(slot);
+  const indoor = freeCourts.filter(courtIsIndoor).length;
   return (
     <button
       type="button"
@@ -79,7 +84,7 @@ const WeekCell = memo(function WeekCell({
       className={`court-press flex h-full min-h-0 w-full min-w-0 cursor-pointer flex-row items-center justify-center gap-0.5 overflow-hidden border-2 border-[#d1d5db] bg-transparent p-px lg:flex-col lg:justify-center ${selected ? "ring-2 ring-ink ring-inset" : ""}`}
       style={{ borderRadius: 4 }}
     >
-      <HourCounts players={slot.people.length} courts={freeCourts.length} compact />
+      <HourCounts players={slot.people.length} indoor={indoor} outdoor={freeCourts.length - indoor} compact />
     </button>
   );
 });
@@ -308,6 +313,7 @@ function PhoneDay({
           {hours.map((hour) => {
             const cell = bySlot.get(`${day.date}|${hour}`);
             const freeCourts = cell ? freeCourtsOf(cell) : [];
+            const indoor = freeCourts.filter(courtIsIndoor).length;
             const players = cell?.people ?? [];
             const hourOpen = openHour?.date === day.date && openHour.start === hour;
             return (
@@ -320,7 +326,7 @@ function PhoneDay({
                   className={`court-press flex w-full items-center px-1 py-2 text-left text-base font-normal leading-none ${hourOpen ? "bg-[#ddd9d2]" : ""}`}
                 >
                   <span>{hour}</span>
-                  <HourCounts players={players.length} courts={freeCourts.length} className="ml-[2.5ch]" />
+                  <HourCounts players={players.length} indoor={indoor} outdoor={freeCourts.length - indoor} className="ml-[2.5ch]" />
                 </button>
                 {hourOpen && cell ? (
                   <div className="space-y-2 bg-[#ddd9d2] px-1 py-2">
@@ -365,22 +371,21 @@ function PhoneCourtLink({ court, date, hour }: { court: CourtCell; date: string;
 
 function HourCounts({
   players,
-  courts,
+  indoor,
+  outdoor,
   compact = false,
   className = "",
 }: {
   players: number;
-  courts: number;
+  indoor: number;
+  outdoor: number;
   compact?: boolean;
   className?: string;
 }) {
-  if (players < 1 && courts < 1) return null;
+  if (players < 1 && indoor < 1 && outdoor < 1) return null;
   const size = compact
     ? "h-5 min-w-5 px-1 text-xs"
     : "h-5 min-w-5 px-1 text-[11px]";
-  const courtFace = compact
-    ? "border border-[#808080] bg-[#d3d3d3] text-white"
-    : "bg-[#6D28D9] text-white";
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
       {players > 0 ? (
@@ -388,9 +393,14 @@ function HourCounts({
           {players}
         </span>
       ) : null}
-      {courts > 0 ? (
-        <span className={`inline-flex items-center justify-center rounded-full font-semibold leading-none ${courtFace} ${size}`}>
-          {courts}
+      {indoor > 0 ? (
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#374151] font-semibold leading-none text-white ${size}`}>
+          {indoor}
+        </span>
+      ) : null}
+      {outdoor > 0 ? (
+        <span className={`inline-flex items-center justify-center rounded-full bg-[#6b7280] font-semibold leading-none text-white ${size}`}>
+          {outdoor}
         </span>
       ) : null}
     </span>
