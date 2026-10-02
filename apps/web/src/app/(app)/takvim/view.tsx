@@ -5,7 +5,7 @@ import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
+import { type CourtCell, type Slot, type SlotPerson, fullName } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { useAuth } from "@/lib/auth";
 import { useClub } from "@/lib/club";
@@ -99,13 +99,11 @@ export function TakvimView() {
   const params = useSearchParams();
   const queryDate = params.get("date");
   const queryStart = params.get("start");
-  const [week, setWeek] = useState<string | undefined>(queryDate ?? undefined);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [openHour, setOpenHour] = useState<Picked | null>(null);
   const [phoneDay, setPhoneDay] = useState<string | null>(queryDate);
   const [queryApplied, setQueryApplied] = useState(false);
   const boardQuery = new URLSearchParams();
-  if (week) boardQuery.set("week", week);
   if (clubId) boardQuery.set("club", clubId);
   const boardQueryText = boardQuery.toString();
   const boardPath = boardQueryText ? `/courts/board?${boardQueryText}` : "/courts/board";
@@ -114,11 +112,7 @@ export function TakvimView() {
   useEffect(() => {
     if (queryApplied || !board.data || !queryDate || !queryStart) return;
     const inWeek = board.data.days.some((day) => day.date === queryDate);
-    if (!inWeek) {
-      setWeek(queryDate);
-      return;
-    }
-    if (!board.data.hours.includes(queryStart)) {
+    if (!inWeek || !board.data.hours.includes(queryStart)) {
       setQueryApplied(true);
       return;
     }
@@ -169,11 +163,7 @@ export function TakvimView() {
         }}
         onToggleHour={toggleHour}
       />
-      <div className="hidden w-full shrink-0 items-center gap-2 text-sm leading-none lg:flex">
-        <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, -7)); setPicked(null); }}>önceki</button>
-        <p className="min-w-0 flex-1 text-center text-xs text-muted">{data.days[0]?.date} – {data.days[6]?.date}</p>
-        <button type="button" className="court-press shrink-0 py-0.5" onClick={() => { setWeek(shiftDate(data.weekStart, 7)); setPicked(null); }}>sonraki</button>
-      </div>
+      <p className="-mt-1 hidden w-full shrink-0 text-center text-xs font-bold leading-none text-muted lg:block">{data.days[0]?.date} – {data.days[6]?.date}</p>
       <div className="hidden min-h-0 w-full flex-1 lg:flex lg:flex-row lg:items-stretch lg:gap-1.5">
         <div className="min-h-0 w-full min-w-0 flex-1 overflow-x-auto lg:h-full">
           <div
@@ -310,9 +300,9 @@ function PhoneDay({
         @keyframes takvim-slide-prev { from { transform: translateX(-2rem); } to { transform: translateX(0); } }
       `}</style>
       <div key={day.date} className={slide === 1 ? "takvim-day-next" : slide === -1 ? "takvim-day-prev" : undefined}>
-        <div className="py-2 text-center">
-          <p className="text-lg font-semibold leading-tight">{day.label}</p>
-          <p className="text-xs text-muted">{day.date.slice(8)}</p>
+        <div className="pb-2 pt-0.5 text-center">
+          <p className="text-lg font-bold leading-tight">{day.label}</p>
+          <p className="text-xs font-bold text-muted">{day.date.slice(8)}</p>
         </div>
         <div className="flex flex-col gap-0.5">
           {hours.map((hour) => {
