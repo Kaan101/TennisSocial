@@ -1,7 +1,5 @@
-"use client";
-
-import { AvailabilityCalendar } from "@/components/availability-calendar";
+import { redirect } from "next/navigation";
 
 export default function AvailabilityCalendarPage() {
-  return <AvailabilityCalendar />;
+  redirect("/profil");
 }
