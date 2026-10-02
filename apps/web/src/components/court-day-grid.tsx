@@ -59,12 +59,10 @@ const CELL_INK: Record<CourtPurpose, string> = {
   TOURNAMENT: "#7e22ce",
 };
 
-const SELECTED_FILL = "#1e3a5f";
 const ACCENT = "#6d28d9";
 const TR_MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 type Tool = CourtPurpose | "CLEAR" | "CANCEL";
-type ViewMode = "gun" | "hafta" | "liste";
 type Picked = { courtId: string; hour: string; date: string };
 
 function purposeOption(purpose: CourtPurpose) {
@@ -77,16 +75,6 @@ export function purposeWord(purpose: CourtPurpose): string {
 
 function cellKey(courtId: string, startTime: string): string {
   return `${courtId}|${startTime}`;
-}
-
-function weekOf(date: string): { date: string; short: string; label: string }[] {
-  const weekday = weekdayOf(date);
-  const monday = shiftDate(date, weekday === 0 ? -6 : 1 - weekday);
-  return Array.from({ length: 7 }, (_, index) => {
-    const day = shiftDate(monday, index);
-    const known = WEEKDAYS.find((item) => item.value === weekdayOf(day));
-    return { date: day, short: known?.short ?? "", label: known?.label ?? "" };
-  });
 }
 
 function longDate(date: string): string {
@@ -232,13 +220,12 @@ function findCell(day: DayGrid | null | undefined, courtId: string, hour: string
   return day?.cells.find((cell) => cell.courtId === courtId && cell.startTime === hour);
 }
 
-function cellStyle(reservation: DayReservation | null, selected: boolean): { backgroundColor: string; color: string; borderColor: string } {
-  if (selected) return { backgroundColor: SELECTED_FILL, color: "#ffffff", borderColor: SELECTED_FILL };
+function cellStyle(reservation: DayReservation | null): { backgroundColor: string; color: string; borderColor: string } {
   if (!reservation) return { backgroundColor: "#ffffff", color: "#14241c", borderColor: "#e5e7eb" };
   return {
     backgroundColor: CELL_FILL[reservation.purpose],
     color: CELL_INK[reservation.purpose],
-    borderColor: CELL_FILL[reservation.purpose],
+    borderColor: CELL_INK[reservation.purpose],
   };
 }
 
@@ -248,38 +235,6 @@ function canSave(draft: Tool | null, court: CourtRow | undefined, cell: DayCell 
   if (draft === "CLEAR") return Boolean(reservation);
   if (draft === "CANCEL") return reservation?.purpose === "MATCH";
   return court.active && cell?.state !== "busy";
-}
-
-type DayReservationRow = {
-  id: string;
-  courtId: string;
-  courtName: string;
-  start: string;
-  end: string;
-  reservation: DayReservation;
-};
-
-function reservationsOn(day: DayGrid): DayReservationRow[] {
-  const names = new Map(day.courts.map((court) => [court.id, court.name]));
-  const grouped = new Map<string, DayReservationRow>();
-  for (const cell of day.cells) {
-    if (cell.state !== "busy" || !cell.reservation) continue;
-    const existing = grouped.get(cell.reservation.id);
-    if (!existing) {
-      grouped.set(cell.reservation.id, {
-        id: cell.reservation.id,
-        courtId: cell.courtId,
-        courtName: names.get(cell.courtId) ?? "",
-        start: cell.startTime,
-        end: cell.endTime,
-        reservation: cell.reservation,
-      });
-      continue;
-    }
-    if (cell.startTime < existing.start) existing.start = cell.startTime;
-    if (cell.endTime > existing.end) existing.end = cell.endTime;
-  }
-  return [...grouped.values()].sort((a, b) => a.start.localeCompare(b.start) || a.courtName.localeCompare(b.courtName, "tr"));
 }
 
 const CourtSlot = memo(function CourtSlot({
@@ -304,10 +259,10 @@ const CourtSlot = memo(function CourtSlot({
       aria-pressed={picked}
       aria-label={`${court.name} ${hour} ${word}`}
       onClick={() => onPress(court, hour)}
-      className="court-press flex min-h-9 w-full min-w-0 items-center justify-center rounded-md border px-1 text-center text-[11px] font-semibold leading-tight"
-      style={cellStyle(reservation, picked)}
+      className={`court-press @container flex min-h-9 w-full min-w-0 items-center justify-center overflow-hidden rounded-lg border px-px text-center leading-tight ${picked ? "ring-2 ring-ink ring-inset" : ""}`}
+      style={cellStyle(reservation)}
     >
-      {reservation ? purposeWord(reservation.purpose) : null}
+      {reservation ? <span className="whitespace-nowrap font-semibold text-[clamp(8px,18cqi,12px)]">{purposeWord(reservation.purpose)}</span> : null}
     </button>
   );
 });
@@ -370,34 +325,6 @@ function DateBar({ date, today, onDate }: { date: string; today: string; onDate:
   );
 }
 
-function ViewSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
-  const items: { id: ViewMode; label: string }[] = [
-    { id: "gun", label: "Gün" },
-    { id: "hafta", label: "Hafta" },
-    { id: "liste", label: "Liste" },
-  ];
-  return (
-    <div className="flex w-fit gap-1 rounded-xl bg-[#f3f4f6] p-1" role="tablist" aria-label="Görünüm">
-      {items.map((item) => {
-        const on = mode === item.id;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            onClick={() => onMode(item.id)}
-            className={`rounded-lg px-3 py-1 text-sm ${on ? "font-semibold text-white" : "text-[#374151]"}`}
-            style={on ? { backgroundColor: ACCENT } : undefined}
-          >
-            {item.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ReservationRow({ reservation, start, end }: { reservation: DayReservation; start: string; end: string }) {
   const players = reservation.players ?? [];
   return (
@@ -437,7 +364,6 @@ export function CourtDayGrid({
   onRetry?: () => void;
 }) {
   const [mode, setMode] = useState<Tool | null>(null);
-  const [view, setView] = useState<ViewMode>("gun");
   const [picked, setPicked] = useState<Picked | null>(null);
   const [draft, setDraft] = useState<Tool | null>(null);
   const [saving, setSaving] = useState(false);
@@ -458,19 +384,18 @@ export function CourtDayGrid({
     if (!day) return;
     const cell = findCell(day, focusHere.courtId, focusHere.hour);
     appliedFocus.current = focusKey;
-    setView("gun");
     setPicked({ courtId: focusHere.courtId, hour: focusHere.hour, date: focusHere.date });
     setDraft(cell?.state === "busy" && cell.reservation ? cell.reservation.purpose : null);
     setPanel("reservation");
   }, [focusHere, focusKey, week, grid]);
 
   useEffect(() => {
-    if (!focusHere || view !== "gun" || scrolledFocus.current === focusKey) return;
+    if (!focusHere || scrolledFocus.current === focusKey) return;
     const node = document.getElementById(`kort-${focusHere.courtId}-${focusHere.hour}`);
     if (!node) return;
     scrolledFocus.current = focusKey;
     node.scrollIntoView({ block: "center", inline: "center" });
-  }, [focusHere, focusKey, view, active]);
+  }, [focusHere, focusKey, active]);
 
   function dayFor(dayDate: string): DayGrid | null {
     return days.get(dayDate) ?? null;
@@ -526,21 +451,10 @@ export function CourtDayGrid({
     choose({ courtId: court.id, hour, date: active.date }, resultingDraft(before, court));
   }
 
-  function pressWeek(day: DayGrid, hour: string) {
-    const court = courts.find((item) => item.id === (picked?.courtId ?? courts[0]?.id));
-    if (!court) return;
-    if (day.date !== date) onDate(day.date);
-    const before = findCell(day, court.id, hour);
-    paint(court, hour, day);
-    choose({ courtId: court.id, hour, date: day.date }, resultingDraft(before, court));
-  }
-
   const pickedDay = picked ? dayFor(picked.date) : null;
   const pickedCourt = picked ? courts.find((court) => court.id === picked.courtId) ?? pickedDay?.courts.find((court) => court.id === picked.courtId) : undefined;
   const pickedCell = pickedDay && picked ? findCell(pickedDay, picked.courtId, picked.hour) : undefined;
   const pickedReservation = pickedCell?.state === "busy" ? pickedCell.reservation : null;
-  const weekCourt = courts.find((court) => court.id === picked?.courtId) ?? courts[0] ?? null;
-  const listed = active ? reservationsOn(active) : [];
 
   async function save() {
     if (!picked || !pickedCourt || !pickedDay || !canSave(draft, pickedCourt, pickedCell)) return;
@@ -562,10 +476,9 @@ export function CourtDayGrid({
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3">
+    <div className="flex w-full min-w-0 flex-col gap-3 lg:ml-[calc(50%-50vw+1rem)] lg:w-[calc(100vw-2rem)]">
       <h1 className="text-2xl font-semibold tracking-tight">Kortlar</h1>
       <DateBar date={date} today={today} onDate={moveDay} />
-      <ViewSwitch mode={view} onMode={setView} />
       <PurposeChips value={mode} onChange={setMode} />
       <div className="flex w-full min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
@@ -576,21 +489,8 @@ export function CourtDayGrid({
               <p className="font-semibold">Bu kulüpte kort yok</p>
             </div>
           ) : null}
-          {active && courts.length > 0 && view === "gun" ? (
+          {active && courts.length > 0 ? (
             <DayTable courts={courts} hours={hours} day={active} picked={picked} onPress={pressDay} />
-          ) : null}
-          {active && courts.length > 0 && view === "hafta" && weekCourt ? (
-            <WeekTable court={weekCourt} hours={hours} days={weekOf(date)} loaded={days} selectedDate={date} picked={picked} onPress={pressWeek} />
-          ) : null}
-          {active && courts.length > 0 && view === "liste" ? (
-            <ReservationList
-              rows={listed}
-              picked={picked}
-              onPick={(row) => {
-                const cell = findCell(active, row.courtId, row.start);
-                choose({ courtId: row.courtId, hour: row.start, date: active.date }, draftFromCell(cell));
-              }}
-            />
           ) : null}
         </div>
         {picked && pickedCourt ? (
@@ -627,18 +527,19 @@ function DayTable({
   onPress: (court: CourtRow, hour: string) => void;
 }) {
   const cells = new Map(day.cells.map((cell) => [`${cell.courtId}-${cell.startTime}`, cell]));
+  const dayMin = `calc(3rem + ${courts.length} * 5.25rem)`;
   return (
-    <div className="w-full min-w-0 overflow-x-auto">
+    <div className="w-full min-w-0 overflow-x-auto lg:overflow-x-visible">
       <div
-        className="grid w-full gap-1"
+        className="grid w-full min-w-[var(--day-min)] gap-1 lg:min-w-0"
         style={{
-          gridTemplateColumns: `3.5rem repeat(${courts.length}, minmax(5.25rem, 1fr))`,
-          minWidth: `calc(3.5rem + ${courts.length} * 5.25rem)`,
+          gridTemplateColumns: `3rem repeat(${courts.length}, minmax(0, 1fr))`,
+          ["--day-min" as string]: dayMin,
         }}
       >
         <div className="sticky left-0 z-10 bg-paper pr-1 text-[11px] font-semibold text-[#6b7280]">Saat</div>
         {courts.map((court) => (
-          <div key={court.id} className="min-w-0 px-0.5 pb-1 text-center text-[11px] font-semibold leading-tight">{court.name}</div>
+          <div key={court.id} className="min-w-0 px-0.5 pb-1 text-center text-[10px] font-semibold leading-tight break-words">{court.name}</div>
         ))}
         {hours.map((hour) => (
           <Fragment key={hour}>
@@ -657,105 +558,6 @@ function DayTable({
         ))}
       </div>
     </div>
-  );
-}
-
-function WeekTable({
-  court,
-  hours,
-  days,
-  loaded,
-  selectedDate,
-  picked,
-  onPress,
-}: {
-  court: CourtRow;
-  hours: string[];
-  days: { date: string; short: string; label: string }[];
-  loaded: Map<string, DayGrid>;
-  selectedDate: string;
-  picked: Picked | null;
-  onPress: (day: DayGrid, hour: string) => void;
-}) {
-  return (
-    <div className="w-full min-w-0 overflow-x-auto">
-      <p className="mb-2 text-sm font-semibold">{court.name}</p>
-      <div className="grid w-full gap-1" style={{ gridTemplateColumns: "3.5rem repeat(7, minmax(4.5rem, 1fr))", minWidth: "calc(3.5rem + 7 * 4.5rem)" }}>
-        <div className="sticky left-0 z-10 bg-paper pr-1 text-[11px] font-semibold text-[#6b7280]">Saat</div>
-        {days.map((day) => {
-          const on = day.date === selectedDate;
-          return (
-            <div
-              key={day.date}
-              className="rounded-lg px-1 py-1 text-center text-[11px] font-semibold leading-tight"
-              style={on ? { backgroundColor: ACCENT, color: "#ffffff" } : { color: "#374151" }}
-            >
-              {day.short} {Number(day.date.slice(8))}
-            </div>
-          );
-        })}
-        {hours.map((hour) => (
-          <Fragment key={hour}>
-            <div className="sticky left-0 z-10 flex items-center bg-paper pr-1 text-[11px] text-[#6b7280]">{hour}</div>
-            {days.map((day) => {
-              const loadedDay = loaded.get(day.date);
-              const cell = loadedDay ? findCell(loadedDay, court.id, hour) : undefined;
-              const reservation = cell?.state === "busy" ? cell.reservation : null;
-              const selected = picked?.date === day.date && picked.courtId === court.id && picked.hour === hour;
-              return (
-                <button
-                  key={day.date}
-                  type="button"
-                  disabled={!loadedDay}
-                  aria-pressed={selected}
-                  aria-label={`${court.name} ${day.label} ${hour} ${reservation ? purposeWord(reservation.purpose) : "boş"}`}
-                  onClick={() => {
-                    if (loadedDay) onPress(loadedDay, hour);
-                  }}
-                  className="court-press flex min-h-9 items-center justify-center rounded-md border px-1 text-center text-[11px] font-semibold leading-tight disabled:opacity-40"
-                  style={cellStyle(reservation, selected)}
-                >
-                  {reservation ? purposeWord(reservation.purpose) : null}
-                </button>
-              );
-            })}
-          </Fragment>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ReservationList({
-  rows,
-  picked,
-  onPick,
-}: {
-  rows: DayReservationRow[];
-  picked: Picked | null;
-  onPick: (row: DayReservationRow) => void;
-}) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-3xl border border-dashed border-line bg-surface px-5 py-8 text-center">
-        <p className="font-semibold">Bu günde rezervasyon yok</p>
-      </div>
-    );
-  }
-  return (
-    <ul className="space-y-2">
-      {rows.map((row) => {
-        const selected = picked?.date !== undefined && picked.courtId === row.courtId && picked.hour >= row.start && picked.hour < row.end;
-        return (
-          <li key={row.id}>
-            <button type="button" onClick={() => onPick(row)} aria-pressed={selected} className={`court-press w-full rounded-xl text-left ${selected ? "ring-2 ring-[#1e3a5f] ring-inset" : ""}`}>
-              <span className="mb-1 block px-1 text-sm font-semibold">{row.courtName}</span>
-              <ReservationRow reservation={row.reservation} start={row.start} end={row.end} />
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
