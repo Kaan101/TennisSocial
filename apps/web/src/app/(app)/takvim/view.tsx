@@ -522,14 +522,8 @@ function PhoneDay({
 
 function HourPanel({ day, slot }: { day: BoardDay; slot: Slot }) {
   const [tab, setTab] = useState<"players" | "courts">("players");
-  const [query, setQuery] = useState("");
-  const courts = slot.courts.filter(courtIsFree);
-  const needle = query.trim().toLocaleLowerCase("tr-TR");
-  const people = slot.people.filter((person) => {
-    if (!needle) return true;
-    return fullName(person).toLocaleLowerCase("tr-TR").includes(needle);
-  });
-  const shownCourts = courts.filter((court) => !needle || court.name.toLocaleLowerCase("tr-TR").includes(needle));
+  const courts = slot.courts.filter(courtIsFree).slice().sort((left, right) => left.name.localeCompare(right.name, "tr"));
+  const people = slot.people.slice().sort((left, right) => fullName(left).localeCompare(fullName(right), "tr"));
   return (
     <aside className="w-full rounded-2xl border border-[#e5e7eb] bg-white p-4">
       <p className="text-sm font-semibold">{longDate(day.date, day.label)}</p>
@@ -551,13 +545,6 @@ function HourPanel({ day, slot }: { day: BoardDay; slot: Slot }) {
           Kortlar ({courts.length})
         </button>
       </div>
-      <input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={tab === "players" ? "Oyuncu ara" : "Kort ara"}
-        aria-label={tab === "players" ? "Oyuncu ara" : "Kort ara"}
-        className="mt-3 w-full rounded-lg border border-[#d1d5db] px-3 py-2 text-sm"
-      />
       {tab === "players" ? (
         <ul className="mt-3 space-y-2">
           {people.map((person) => (
@@ -566,14 +553,14 @@ function HourPanel({ day, slot }: { day: BoardDay; slot: Slot }) {
         </ul>
       ) : (
         <ul className="mt-3 space-y-2">
-          {shownCourts.map((court) => (
-            <li key={court.id} className="rounded-xl border border-[#e5e7eb] px-3 py-2">
-              <p className="text-sm font-semibold">{court.name}</p>
+          {courts.map((court) => (
+            <li key={court.id} className="flex items-center gap-2 rounded-xl border border-[#e5e7eb] px-3 py-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{court.name}</p>
               <Link
                 href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 inline-block text-sm font-semibold text-[#15803d]"
+                className="shrink-0 text-sm font-semibold text-[#15803d]"
               >
                 Rezerve Et
               </Link>
