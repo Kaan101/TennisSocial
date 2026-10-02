@@ -321,7 +321,7 @@ export function CourtDayGrid({
         {days.map((day) => {
           const on = selected.includes(day.date);
           return (
-            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className="min-w-0 flex-1 border-0 bg-transparent px-0.5 py-0 text-center leading-tight text-inherit">
+            <button key={day.date} type="button" aria-pressed={on} aria-label={day.label} onClick={() => onToggleDay(day.date)} className={`court-press min-w-0 flex-1 rounded-md border-0 px-0.5 py-0.5 text-center leading-tight text-inherit hover:bg-[#f3f0e7] ${on ? "bg-[#e7e5e0]" : "bg-transparent"}`}>
               <span className={`block text-xs font-bold leading-tight md:hidden ${on ? "underline underline-offset-2" : ""}`}>{day.short}</span>
               <span className={`hidden text-sm font-bold leading-tight whitespace-nowrap md:inline ${on ? "underline underline-offset-2" : ""}`}>{day.label}</span>
               <span className="mt-0.5 block text-[10px] font-normal text-muted md:text-xs">{day.date.slice(8)}</span>

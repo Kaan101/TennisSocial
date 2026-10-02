@@ -40,11 +40,14 @@ export default function CourtsPage() {
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const dayRef = useRef(shown);
+  dayRef.current = shown;
   const clubRef = useRef(clubId);
   clubRef.current = clubId;
   const seenClub = useRef(clubId);
   const gridRef = useRef(grid);
+  const weekGrids = useRef(new Map<string, DayGrid>());
   const paintEpoch = useRef(0);
+  const dayEpoch = useRef(new Map<string, number>());
   const savedIds = useRef(new Map<string, string>());
   const cancelAfterSave = useRef(new Set<string>());
   const checkInAfterSave = useRef(new Map<string, { courtId: string; date: string; startTime: string }>());
@@ -60,6 +63,8 @@ export default function CourtsPage() {
   useEffect(() => {
     if (seenClub.current === clubId) return;
     seenClub.current = clubId;
+    weekGrids.current.clear();
+    dayEpoch.current.clear();
     gridRef.current = null;
     setGrid(null);
   }, [clubId]);
@@ -75,47 +80,59 @@ export default function CourtsPage() {
     });
   }, [today]);
 
-  function toggleDay(date: string) {
-    setSelected((current) => {
-      if (!current.includes(date)) return [...current, date];
-      if (current.length === 1) return current;
-      return current.filter((item) => item !== date);
-    });
-  }
-
-  useEffect(() => {
-    dayRef.current = shown;
-    if (!user || !ready) return;
-    const epoch = paintEpoch.current;
-    const requested = shown;
-    const requestedClub = clubId;
-    let cancel = false;
-    const query = new URLSearchParams({ date: requested });
-    if (requestedClub) query.set("club", requestedClub);
-    api<DayGrid>(`/courts/day?${query.toString()}`, { cache: "no-store" })
-      .then((data) => {
-        if (cancel || dayRef.current !== requested || clubRef.current !== requestedClub) return;
-        const sameDay = gridRef.current?.date === data.date;
-        if (sameDay && paintEpoch.current !== epoch) return;
-        gridRef.current = data;
-        setGrid(data);
-        setFailed(false);
-      })
-      .catch(() => {
-        if (cancel || dayRef.current !== requested || clubRef.current !== requestedClub || gridRef.current) return;
-        setFailed(true);
-      });
-    return () => {
-      cancel = true;
-    };
-  }, [shown, retry, user, ready, clubId]);
-
-  function showGrid(next: DayGrid | null, immediate = false) {
-    if (!next || next.date !== gridRef.current?.date) return;
+  function publishDay(next: DayGrid, immediate = false) {
     paintEpoch.current += 1;
+    dayEpoch.current.set(next.date, paintEpoch.current);
+    weekGrids.current.set(next.date, next);
+    if (dayRef.current !== next.date) return;
     gridRef.current = next;
     if (immediate) flushSync(() => setGrid(next));
     else setGrid(next);
+  }
+
+  function showPressedDay(date: string) {
+    dayRef.current = date;
+    setSelected((current) => (current.length === 1 && current[0] === date ? current : [date]));
+    const cached = weekGrids.current.get(date);
+    if (!cached || gridRef.current === cached) return;
+    publishDay(cached, true);
+  }
+
+  useEffect(() => {
+    if (!user || !ready) return;
+    const weekday = weekdayOf(today);
+    const monday = shiftDate(today, weekday === 0 ? -6 : 1 - weekday);
+    const week = Array.from({ length: 7 }, (_, index) => shiftDate(monday, index));
+    const requestedClub = clubId;
+    const started = paintEpoch.current;
+    let cancel = false;
+    for (const date of week) {
+      const query = new URLSearchParams({ date });
+      if (requestedClub) query.set("club", requestedClub);
+      api<DayGrid>(`/courts/day?${query.toString()}`, { cache: "no-store" })
+        .then((data) => {
+          if (cancel || clubRef.current !== requestedClub) return;
+          if ((dayEpoch.current.get(data.date) ?? 0) > started) return;
+          weekGrids.current.set(data.date, data);
+          if (dayRef.current !== data.date) return;
+          if (gridRef.current?.date === data.date && paintEpoch.current !== started) return;
+          gridRef.current = data;
+          setGrid(data);
+          setFailed(false);
+        })
+        .catch(() => {
+          if (cancel || clubRef.current !== requestedClub || dayRef.current !== date || gridRef.current || weekGrids.current.has(date)) return;
+          setFailed(true);
+        });
+    }
+    return () => {
+      cancel = true;
+    };
+  }, [today, retry, user, ready, clubId]);
+
+  function showGrid(next: DayGrid | null, immediate = false) {
+    if (!next || next.date !== gridRef.current?.date) return;
+    publishDay(next, immediate);
   }
 
   async function finishSavedSpan(id: string, span: { courtId: string; startTime: string; endTime: string }, date: string, snapshot: DayGrid | null) {
@@ -155,7 +172,7 @@ export default function CourtsPage() {
     <CourtDayGrid
       date={shown}
       selected={selected}
-      onToggleDay={toggleDay}
+      onToggleDay={showPressedDay}
       grid={grid}
       focus={focus}
       onApply={async (input) => {
