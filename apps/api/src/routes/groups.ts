@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { groupCreateSchema, groupEventSchema, groupMemberSchema, paginationSchema } from "@club/shared";
-import { z } from "zod";
+import { groupCreateSchema, groupEventSchema, groupMemberSchema, groupUpdateSchema, paginationSchema } from "@club/shared";
 import { writeAudit } from "../lib/audit";
 import { assertCanManageGroup, assertRole, requireUser } from "../lib/authz";
 import { forbidden, notFound, parse } from "../lib/errors";
@@ -39,6 +38,8 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         description: group.description,
         imageUrl: group.imageUrl,
         visibility: group.visibility,
+        tennisType: group.tennisType,
+        ageGroup: group.ageGroup,
         memberCount: group.members.length,
         joined: group.members.some((member) => member.userId === viewer.id),
         managed: group.members.some((member) => member.userId === viewer.id && member.role === "MANAGER"),
@@ -62,6 +63,8 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         description: body.description ?? null,
         imageUrl: body.imageUrl ?? null,
         visibility: body.visibility,
+        tennisType: body.tennisType,
+        ageGroup: body.ageGroup,
         createdById: viewer.id,
         members: { create: { userId: viewer.id, role: "MANAGER" } },
       },
@@ -97,6 +100,8 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
       description: group.description,
       imageUrl: group.imageUrl,
       visibility: group.visibility,
+      tennisType: group.tennisType,
+      ageGroup: group.ageGroup,
       joined: Boolean(member),
       managed: member?.role === "MANAGER" || viewer.role === "ADMIN" || viewer.role === "CLUB_MANAGER",
       members: group.members.map((item) => ({
@@ -104,6 +109,9 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         role: item.role,
         name: `${item.user.profile?.firstName ?? ""} ${item.user.profile?.lastName ?? ""}`.trim(),
         photoUrl: item.user.profile?.photoUrl ?? null,
+        tennisType: item.user.profile?.tennisType ?? "DIGER",
+        ageGroup: item.user.profile?.ageGroup ?? "AGE_18_35",
+        personProfile: item.user.profile?.personProfile ?? "OYUNCU",
       })),
       events: group.events.map((event) => ({
         id: event.id,
@@ -135,15 +143,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const { id } = req.params as { id: string };
     await assertCanManageGroup(viewer, id);
-    const body = parse(
-      z.object({
-        name: z.string().trim().min(2).max(80).optional(),
-        description: z.string().trim().max(500).nullable().optional(),
-        imageUrl: z.string().trim().url().max(400).nullable().optional(),
-        visibility: z.enum(["PUBLIC", "PRIVATE"]).optional(),
-      }),
-      req.body,
-    );
+    const body = parse(groupUpdateSchema, req.body);
     const group = await prisma.group.findFirst({ where: { id, deletedAt: null } });
     if (!group) throw notFound("Grup bulunamadı");
     return prisma.group.update({
@@ -153,6 +153,8 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         description: body.description,
         imageUrl: body.imageUrl,
         visibility: body.visibility,
+        tennisType: body.tennisType,
+        ageGroup: body.ageGroup,
       },
     });
   });
@@ -194,6 +196,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
       create: { groupId: id, userId: body.userId, role: body.role },
       update: { role: body.role },
     });
+    // Membership does not depend on tennis type, age group, or other groups.
     await notify({
       userId: body.userId,
       type: "GROUP_INVITE",

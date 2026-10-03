@@ -1,6 +1,18 @@
 "use client";
 
-import { telLink, waLink } from "@club/shared";
+import {
+  AGE_GROUPS,
+  AGE_GROUP_LABELS,
+  PERSON_PROFILES,
+  PERSON_PROFILE_LABELS,
+  TENNIS_TYPES,
+  TENNIS_TYPE_LABELS,
+  telLink,
+  waLink,
+  type AgeGroup,
+  type PersonProfile,
+  type TennisType,
+} from "@club/shared";
 import type { UserDetail } from "@club/types";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -8,6 +20,8 @@ import { MatchStats } from "@/components/match-stats";
 import { Avatar } from "@/components/player-card";
 import { SkillRadar } from "@/components/radar";
 import { EmptyState, ErrorState, LoadingBlock } from "@/components/states";
+import { Button } from "@/components/ui/button";
+import { Label, Select } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useResource } from "@/lib/use-resource";
@@ -18,8 +32,14 @@ export default function PlayerPage() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useResource<UserDetail>(`/users/${params.id}`);
   const [note, setNote] = useState<string | null>(null);
+  const [tennisType, setTennisType] = useState<TennisType | null>(null);
+  const [ageGroup, setAgeGroup] = useState<AgeGroup | null>(null);
+  const [personProfile, setPersonProfile] = useState<PersonProfile | null>(null);
   if (loading) return <LoadingBlock />;
   if (error || !data) return <ErrorState message={error ?? "Profil açılmadı"} onRetry={reload} />;
+  const draftType = tennisType ?? data.profile.tennisType;
+  const draftAge = ageGroup ?? data.profile.ageGroup;
+  const draftPerson = personProfile ?? data.profile.personProfile;
   const name = `${data.profile.firstName} ${data.profile.lastName}`.trim();
   const whatsappHref =
     data.permissions.canWhatsapp && data.profile.whatsapp
@@ -32,6 +52,9 @@ export default function PlayerPage() {
         <Avatar first={data.profile.firstName} last={data.profile.lastName} photo={data.profile.photoUrl} className="h-16 w-16 text-lg" />
         <div>
           <h1 className="text-2xl font-semibold">{name}</h1>
+          <p className="text-sm text-muted">
+            {TENNIS_TYPE_LABELS[data.profile.tennisType]} · {AGE_GROUP_LABELS[data.profile.ageGroup]} · {PERSON_PROFILE_LABELS[data.profile.personProfile]}
+          </p>
           <p className="text-sm text-muted">{data.profile.statusMessage}</p>
           <p className="text-sm text-muted">{[data.profile.district, data.profile.city].filter(Boolean).join(" · ")}</p>
         </div>
@@ -69,6 +92,49 @@ export default function PlayerPage() {
         ) : null}
       </div>
       {note ? <p className="text-sm text-muted">{note}</p> : null}
+      {data.permissions.canEdit ? (
+        <form
+          className="space-y-3 rounded-3xl border border-line bg-surface p-4"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setNote(null);
+            try {
+              await api(`/users/${data.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ tennisType: draftType, ageGroup: draftAge, personProfile: draftPerson }),
+              });
+              setTennisType(null);
+              setAgeGroup(null);
+              setPersonProfile(null);
+              setNote("Oyuncu kaydı güncellendi.");
+              await reload();
+            } catch (err) {
+              setNote(err instanceof Error ? err.message : "Kaydedilemedi");
+            }
+          }}
+        >
+          <h2 className="font-semibold">Tür ve profil</h2>
+          <div>
+            <Label htmlFor="player-type">Tür</Label>
+            <Select id="player-type" value={draftType} onChange={(event) => setTennisType(event.target.value as TennisType)}>
+              {TENNIS_TYPES.map((type) => <option key={type} value={type}>{TENNIS_TYPE_LABELS[type]}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="player-age">Yaş grubu</Label>
+            <Select id="player-age" value={draftAge} onChange={(event) => setAgeGroup(event.target.value as AgeGroup)}>
+              {AGE_GROUPS.map((band) => <option key={band} value={band}>{AGE_GROUP_LABELS[band]}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="player-person">Kişi profili</Label>
+            <Select id="player-person" value={draftPerson} onChange={(event) => setPersonProfile(event.target.value as PersonProfile)}>
+              {PERSON_PROFILES.map((kind) => <option key={kind} value={kind}>{PERSON_PROFILE_LABELS[kind]}</option>)}
+            </Select>
+          </div>
+          <Button type="submit" className="w-full">Kaydet</Button>
+        </form>
+      ) : null}
       <section className="rounded-3xl border border-line bg-surface p-4">
         <h2 className="font-semibold">Tenis</h2>
         {data.tennis ? (

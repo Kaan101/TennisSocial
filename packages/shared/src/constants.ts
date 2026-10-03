@@ -117,6 +117,38 @@ export type GroupVisibility = (typeof GROUP_VISIBILITIES)[number];
 export const GROUP_MEMBER_ROLES = ["MANAGER", "MEMBER"] as const;
 export type GroupMemberRole = (typeof GROUP_MEMBER_ROLES)[number];
 
+export const TENNIS_TYPES = ["PERFORMANS", "HOBI", "VETERAN", "DIGER"] as const;
+export type TennisType = (typeof TENNIS_TYPES)[number];
+
+export const AGE_GROUPS = ["UNDER_12", "AGE_12_18", "AGE_18_35", "AGE_35_50", "OVER_50"] as const;
+export type AgeGroup = (typeof AGE_GROUPS)[number];
+
+export const PERSON_PROFILES = ["OYUNCU", "ANTRENOR", "PERSONEL", "YONETICI", "DIGER"] as const;
+export type PersonProfile = (typeof PERSON_PROFILES)[number];
+
+export const TENNIS_TYPE_LABELS: Record<TennisType, string> = {
+  PERFORMANS: "Performans",
+  HOBI: "Hobi",
+  VETERAN: "Veteran",
+  DIGER: "Diğer",
+};
+
+export const AGE_GROUP_LABELS: Record<AgeGroup, string> = {
+  UNDER_12: "12 yaş altı",
+  AGE_12_18: "12–18",
+  AGE_18_35: "18–35",
+  AGE_35_50: "35–50",
+  OVER_50: "50 üstü",
+};
+
+export const PERSON_PROFILE_LABELS: Record<PersonProfile, string> = {
+  OYUNCU: "Oyuncu",
+  ANTRENOR: "Antrenör",
+  PERSONEL: "Personel",
+  YONETICI: "Yönetici",
+  DIGER: "Diğer",
+};
+
 export const TOURNAMENT_STATUSES = [
   "DRAFT",
   "REGISTRATION_OPEN",

@@ -1,5 +1,5 @@
 /* Profile photos are served by the API or Cloudinary, so they are not passed through the Next image optimizer. */
-import { telLink, waLink } from "@club/shared";
+import { AGE_GROUP_LABELS, PERSON_PROFILE_LABELS, TENNIS_TYPE_LABELS, telLink, waLink } from "@club/shared";
 import type { PlayerCard as Card } from "@club/types";
 import { MessageCircle, Phone, Swords } from "lucide-react";
 import Link from "next/link";
@@ -45,6 +45,9 @@ export function PlayerCard({ player }: { player: Card }) {
         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} />
         <div className="min-w-0">
           <p className="truncate font-semibold">{name}</p>
+          <p className="text-sm text-muted">
+            {TENNIS_TYPE_LABELS[player.tennisType]} · {AGE_GROUP_LABELS[player.ageGroup]} · {PERSON_PROFILE_LABELS[player.personProfile]}
+          </p>
           <p className="text-sm text-muted">
             {player.overallLabel ?? "Seviye gizli"} · {player.statusLabel}
             {player.district ? ` · ${player.district}` : ""}

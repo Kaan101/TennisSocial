@@ -88,7 +88,7 @@ test("a group manager cannot edit a group they do not manage", async () => {
     method: "POST",
     url: "/api/groups",
     headers: auth(owner.token),
-    payload: { name: "Akşam Grubu", visibility: "PUBLIC" },
+    payload: { name: "Akşam Grubu", visibility: "PUBLIC", tennisType: "HOBI" },
   });
   expect(created.statusCode).toBe(201);
   const patched = await app.inject({

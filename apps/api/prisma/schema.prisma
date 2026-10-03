@@ -122,6 +122,30 @@ enum GroupMemberRole {
   MEMBER
 }
 
+enum TennisType {
+  PERFORMANS
+  HOBI
+  VETERAN
+  DIGER
+}
+
+/// Age bands can change. Current list: 12 yaş altı, 12–18, 18–35, 35–50, 50 üstü.
+enum AgeGroup {
+  UNDER_12
+  AGE_12_18
+  AGE_18_35
+  AGE_35_50
+  OVER_50
+}
+
+enum PersonProfile {
+  OYUNCU
+  ANTRENOR
+  PERSONEL
+  YONETICI
+  DIGER
+}
+
 enum MatchFormat {
   SINGLE
   DOUBLE
@@ -298,7 +322,10 @@ model Profile {
   city          String?
   clubJoinDate  DateTime     @default(now()) @db.Date
   bio           String?
-  playerStatus  PlayerStatus @default(ACTIVE)
+  playerStatus  PlayerStatus  @default(ACTIVE)
+  tennisType    TennisType    @default(DIGER)
+  ageGroup      AgeGroup      @default(AGE_18_35)
+  personProfile PersonProfile @default(OYUNCU)
   statusNote    String?
   statusStart   DateTime?    @db.Date
   statusEnd     DateTime?    @db.Date
@@ -441,6 +468,8 @@ model Group {
   description String?
   imageUrl    String?
   visibility  GroupVisibility @default(PUBLIC)
+  tennisType  TennisType      @default(DIGER)
+  ageGroup    AgeGroup        @default(AGE_18_35)
   createdById String?
   createdBy   User?           @relation("GroupCreator", fields: [createdById], references: [id])
   deletedAt   DateTime?

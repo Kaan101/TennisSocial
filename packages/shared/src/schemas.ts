@@ -18,6 +18,9 @@ import {
   TOURNAMENT_STATUSES,
   VISIBILITIES,
   GROUP_VISIBILITIES,
+  TENNIS_TYPES,
+  AGE_GROUPS,
+  PERSON_PROFILES,
   COURT_KINDS,
   COURT_PURPOSES,
   RESERVATION_STATUSES,
@@ -79,6 +82,9 @@ export const profileUpdateSchema = z.object({
   city: z.string().trim().max(80).nullable().optional(),
   bio: z.string().trim().max(500).nullable().optional(),
   playerStatus: z.enum(PLAYER_STATUSES).optional(),
+  tennisType: z.enum(TENNIS_TYPES).optional(),
+  ageGroup: z.enum(AGE_GROUPS).optional(),
+  personProfile: z.enum(PERSON_PROFILES).optional(),
   statusNote: z.string().trim().max(200).nullable().optional(),
   statusStart: dateSchema.nullable().optional(),
   statusEnd: dateSchema.nullable().optional(),
@@ -180,6 +186,17 @@ export const groupCreateSchema = z.object({
   description: z.string().trim().max(500).nullable().optional(),
   imageUrl: z.string().trim().url().max(400).nullable().optional(),
   visibility: z.enum(GROUP_VISIBILITIES).default("PUBLIC"),
+  tennisType: z.enum(TENNIS_TYPES),
+  ageGroup: z.enum(AGE_GROUPS).default("AGE_18_35"),
+});
+
+export const groupUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  imageUrl: z.string().trim().url().max(400).nullable().optional(),
+  visibility: z.enum(GROUP_VISIBILITIES).optional(),
+  tennisType: z.enum(TENNIS_TYPES).optional(),
+  ageGroup: z.enum(AGE_GROUPS).optional(),
 });
 
 export const groupMemberSchema = z.object({

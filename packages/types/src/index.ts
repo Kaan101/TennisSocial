@@ -8,7 +8,10 @@ import type {
   PlayPreference,
   Role,
   SetFormat,
+  AgeGroup,
+  PersonProfile,
   SkillName,
+  TennisType,
   Visibility,
 } from "@club/shared";
 
@@ -44,6 +47,9 @@ export type PlayerCard = {
   playerStatus: PlayerStatus;
   statusLabel: string;
   statusMessage: string;
+  tennisType: TennisType;
+  ageGroup: AgeGroup;
+  personProfile: PersonProfile;
   forehand: number | null;
   backhand: number | null;
   serve: number | null;
@@ -76,6 +82,9 @@ export type UserDetail = {
     clubJoinDate: string;
     bio: string | null;
     playerStatus: PlayerStatus;
+    tennisType: TennisType;
+    ageGroup: AgeGroup;
+    personProfile: PersonProfile;
     statusLabel: string;
     statusMessage: string;
     statusNote: string | null;

@@ -1,6 +1,15 @@
 "use client";
 
-import { PLAYER_STATUSES, STATUS_LABELS } from "@club/shared";
+import {
+  AGE_GROUPS,
+  AGE_GROUP_LABELS,
+  PERSON_PROFILES,
+  PERSON_PROFILE_LABELS,
+  PLAYER_STATUSES,
+  STATUS_LABELS,
+  TENNIS_TYPES,
+  TENNIS_TYPE_LABELS,
+} from "@club/shared";
 import type { UserDetail } from "@club/types";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -37,6 +46,9 @@ export default function ProfilePage() {
       bio: data.profile.bio ?? "",
       birthYear: data.profile.birthYear ? String(data.profile.birthYear) : "",
       playerStatus: data.profile.playerStatus,
+      tennisType: data.profile.tennisType,
+      ageGroup: data.profile.ageGroup,
+      personProfile: data.profile.personProfile,
       statusNote: data.profile.statusNote ?? "",
       statusEnd: data.profile.statusEnd ?? "",
     });
@@ -129,6 +141,24 @@ export default function ProfilePage() {
         </div>
         <div><Label htmlFor="address">Adres</Label><Input id="address" value={form.address ?? ""} onChange={(e) => setForm({ ...form, address: e.target.value })} /><p className="mt-1 text-xs text-muted">Tam adres varsayılan olarak gizli. Diğerleri semt ve şehri görür.</p></div>
         <div><Label htmlFor="bio">Kısa not</Label><Textarea id="bio" value={form.bio ?? ""} onChange={(e) => setForm({ ...form, bio: e.target.value })} /></div>
+        <div>
+          <Label htmlFor="tennisType">Tür</Label>
+          <Select id="tennisType" value={form.tennisType ?? "DIGER"} onChange={(e) => setForm({ ...form, tennisType: e.target.value })}>
+            {TENNIS_TYPES.map((type) => <option key={type} value={type}>{TENNIS_TYPE_LABELS[type]}</option>)}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="ageGroup">Yaş grubu</Label>
+          <Select id="ageGroup" value={form.ageGroup ?? "AGE_18_35"} onChange={(e) => setForm({ ...form, ageGroup: e.target.value })}>
+            {AGE_GROUPS.map((band) => <option key={band} value={band}>{AGE_GROUP_LABELS[band]}</option>)}
+          </Select>
+        </div>
+        <div>
+          <Label htmlFor="personProfile">Kişi profili</Label>
+          <Select id="personProfile" value={form.personProfile ?? "OYUNCU"} onChange={(e) => setForm({ ...form, personProfile: e.target.value })}>
+            {PERSON_PROFILES.map((kind) => <option key={kind} value={kind}>{PERSON_PROFILE_LABELS[kind]}</option>)}
+          </Select>
+        </div>
         <div>
           <Label htmlFor="playerStatus">Durum</Label>
           <Select id="playerStatus" value={form.playerStatus ?? "ACTIVE"} onChange={(e) => setForm({ ...form, playerStatus: e.target.value })}>
