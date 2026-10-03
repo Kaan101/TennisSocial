@@ -88,7 +88,12 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
   const windows = await prisma.availability.findMany({
-    where: { userId, deletedAt: null },
+    where: {
+      userId,
+      deletedAt: null,
+      kind: "ONE_OFF",
+      date: { gte: parseDateOnly(dates[0]!), lte: parseDateOnly(dates[6]!) },
+    },
     select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true, note: true },
   });
 

@@ -641,11 +641,12 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
   const weekEnd = dates[6]!;
-  const [courts, users, reservations, lead, me, friendRows] = await Promise.all([
-    prisma.court.findMany({
-      where: courtsOf(clubId, { extraCourtIds }),
-      orderBy: courtOrder,
-    }),
+  const weekDate = { gte: parseDateOnly(weekStart), lte: parseDateOnly(weekEnd) };
+  const courts = await prisma.court.findMany({
+    where: courtsOf(clubId, { extraCourtIds }),
+    orderBy: courtOrder,
+  });
+  const [users, reservations, lead, me, friendRows] = await Promise.all([
     prisma.user.findMany({
       where: {
         deletedAt: null,
@@ -661,8 +662,8 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
         availability: {
           where: {
             OR: [
-              { deletedAt: null },
-              { kind: "ONE_OFF", deletedAt: { not: null }, date: { gte: parseDateOnly(weekStart), lte: parseDateOnly(weekEnd) } },
+              { deletedAt: null, kind: "WEEKLY" },
+              { kind: "ONE_OFF", date: weekDate },
             ],
           },
           select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true, note: true, deletedAt: true, updatedAt: true },
@@ -672,15 +673,16 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
     }),
     prisma.courtReservation.findMany({
       where: {
+        ...(clubId ? { courtId: { in: courts.map((court) => court.id) } } : {}),
         deletedAt: null,
         status: { in: ["PENDING", "APPROVED"] },
-        startDate: { lte: parseDateOnly(weekEnd) },
-        endDate: { gte: parseDateOnly(weekStart) },
+        startDate: { lte: weekDate.lte },
+        endDate: { gte: weekDate.gte },
       },
       include: {
         holder: { select: personSelect },
         partner: { select: personSelect },
-        checkIns: true,
+        checkIns: { where: { date: weekDate } },
       },
     }),
     getCheckInLeadHours(),
@@ -825,26 +827,26 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
   const weekday = weekdayOfDate(date);
   const known = WEEKDAYS.find((day) => day.value === weekday);
   const showAll = viewer.role === "ADMIN";
-  const [courts, reservations] = await Promise.all([
-    prisma.court.findMany({
-      where: courtsOf(clubId, { includeInactive: showAll }),
-      orderBy: courtOrder,
-    }),
-    prisma.courtReservation.findMany({
-      where: {
-        deletedAt: null,
-        status: { in: ["PENDING", "APPROVED"] },
-        startDate: { lte: parseDateOnly(date) },
-        endDate: { gte: parseDateOnly(date) },
-      },
-      include: {
-        holder: { select: personSelect },
-        partner: { select: personSelect },
-        checkIns: true,
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+  const dayDate = parseDateOnly(date);
+  const courts = await prisma.court.findMany({
+    where: courtsOf(clubId, { includeInactive: showAll }),
+    orderBy: courtOrder,
+  });
+  const reservations = await prisma.courtReservation.findMany({
+    where: {
+      courtId: { in: courts.map((court) => court.id) },
+      deletedAt: null,
+      status: { in: ["PENDING", "APPROVED"] },
+      startDate: { lte: dayDate },
+      endDate: { gte: dayDate },
+    },
+    include: {
+      holder: { select: personSelect },
+      partner: { select: personSelect },
+      checkIns: { where: { date: dayDate } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
 
   const bySlot = indexSpans(reservations, [date], (row, _day, hour) => `${row.courtId}|${hour}`);
   const cells = courts.flatMap((court) =>
