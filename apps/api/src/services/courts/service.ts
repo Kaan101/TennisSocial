@@ -20,6 +20,7 @@ import {
   mondayOf,
   rangeHitsWeekdays,
   slotCoveredBySpan,
+  clockHour,
   slotEnd,
   slotIsGreen,
   spansOverlap,
@@ -562,13 +563,13 @@ function indexSpans<T extends { startDate: Date; endDate: Date; weekdays: number
 
 function slotOpen(oneOffs: BoardUser["availability"], weekly: BoardUser["availability"], startTime: string): boolean {
   const endTime = slotEnd(startTime);
-  const covering = oneOffs.filter((window) => timesOverlap(window.startTime, window.endTime, startTime, endTime));
+  const covering = oneOffs.filter((window) => timesOverlap(clockHour(window.startTime), clockHour(window.endTime), startTime, endTime));
   if (covering.length > 0) {
-    const exact = covering.find((window) => window.startTime === startTime && window.endTime === endTime);
-    if (exact) return markedOpen(exact.state);
+    const exact = covering.filter((window) => clockHour(window.startTime) === startTime && clockHour(window.endTime) === endTime);
+    if (exact.length > 0) return exact.some((window) => markedOpen(window.state));
     return covering.some((window) => markedOpen(window.state));
   }
-  return weekly.some((window) => timesOverlap(window.startTime, window.endTime, startTime, endTime) && markedOpen(window.state));
+  return weekly.some((window) => timesOverlap(clockHour(window.startTime), clockHour(window.endTime), startTime, endTime) && markedOpen(window.state));
 }
 
 function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: number }[]): Map<string, BoardUser[]> {
@@ -613,7 +614,7 @@ function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: numb
   return bucket;
 }
 
-export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = [], clubId?: string) {
+export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCourtIds: string[] = [], clubId?: string, dropBooked = false) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const weekStart = mondayOf(weekInput ?? today);
   const dates = weekDates(weekStart);
@@ -671,7 +672,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       const approvedCovering = covering.filter((row) => row.status === "APPROVED");
       const busy = new Set(approvedCovering.flatMap((row) => playingIds(row)));
       const people = (openBySlot.get(key) ?? [])
-        .filter((user) => !busy.has(user.id))
+        .filter((user) => !dropBooked || !busy.has(user.id))
         .map((user) => {
           const level = user.tennisProfile?.overallLevel ?? "INTERMEDIATE";
           return {
@@ -904,7 +905,7 @@ export async function slotAt(_viewer: CourtViewer, date: string, courtId: string
 }
 
 async function peopleIdsAt(date: string, startTime: string): Promise<Set<string>> {
-  const board = await boardFor({ id: "system", role: "ADMIN" }, date);
+  const board = await boardFor({ id: "system", role: "ADMIN" }, date, [], undefined, true);
   const slot = board.slots.find((item) => item.date === date && item.startTime === startTime);
   return new Set(slot?.people.map((person) => person.id) ?? []);
 }

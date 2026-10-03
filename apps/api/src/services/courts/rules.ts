@@ -24,6 +24,13 @@ export function slotEnd(startTime: string): string {
   return `${String(hour).padStart(2, "0")}:00`;
 }
 
+/** "14:00:00" and "14:00" are the same court hour. */
+export function clockHour(value: string): string {
+  const match = /^(\d{1,2}):(\d{2})/.exec(value.trim());
+  if (!match) return value;
+  return `${match[1]!.padStart(2, "0")}:${match[2]}`;
+}
+
 export function weekdayOfDate(date: string): number {
   return new Date(`${date}T00:00:00.000Z`).getUTCDay();
 }

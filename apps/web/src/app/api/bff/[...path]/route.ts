@@ -61,6 +61,7 @@ async function passthrough(res: Response): Promise<NextResponse> {
   if (type) headers.set("content-type", type);
   const disposition = res.headers.get("content-disposition");
   if (disposition) headers.set("content-disposition", disposition);
+  headers.set("cache-control", "private, no-store");
   return new NextResponse(await res.arrayBuffer(), { status: res.status, headers });
 }
 

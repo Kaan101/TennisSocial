@@ -3,7 +3,7 @@ import { WEEKDAYS, istanbulNowParts } from "@club/shared";
 import { dateOnly, parseDateOnly } from "../lib/dates";
 import { AppError } from "../lib/errors";
 import { prisma } from "../lib/prisma";
-import { COURT_HOURS, mondayOf, slotEnd, weekDates, weekdayOfDate } from "./courts/rules";
+import { COURT_HOURS, clockHour, mondayOf, slotEnd, weekDates, weekdayOfDate } from "./courts/rules";
 
 export type CalendarCell = {
   date: string;
@@ -20,15 +20,26 @@ type WindowRow = {
   state: AvailabilityState;
 };
 
+function preferredState(states: AvailabilityState[]): AvailabilityState {
+  if (states.includes("FULL")) return "FULL";
+  if (states.includes("MAYBE")) return "MAYBE";
+  return "BUSY";
+}
+
 function exactMarks(windows: WindowRow[]): Map<string, AvailabilityState> {
-  const marks = new Map<string, AvailabilityState>();
+  const grouped = new Map<string, AvailabilityState[]>();
   for (const window of windows) {
     if (window.kind !== "ONE_OFF") continue;
     const date = dateOnly(window.date);
-    if (!date || window.endTime !== slotEnd(window.startTime)) continue;
-    const key = `${date}|${window.startTime}`;
-    if (!marks.has(key)) marks.set(key, window.state);
+    const startTime = clockHour(window.startTime);
+    if (!date || clockHour(window.endTime) !== slotEnd(startTime)) continue;
+    const key = `${date}|${startTime}`;
+    const states = grouped.get(key);
+    if (states) states.push(window.state);
+    else grouped.set(key, [window.state]);
   }
+  const marks = new Map<string, AvailabilityState>();
+  for (const [key, states] of grouped) marks.set(key, preferredState(states));
   return marks;
 }
 
@@ -95,23 +106,22 @@ export async function availabilityWeek(userId: string, weekInput?: string) {
   };
 }
 
+async function exactHourRows(userId: string, date: string, startTime: string) {
+  const endTime = slotEnd(startTime);
+  const rows = await prisma.availability.findMany({
+    where: { userId, deletedAt: null, kind: "ONE_OFF", date: parseDateOnly(date) },
+    select: { id: true, startTime: true, endTime: true },
+  });
+  return rows.filter((row) => clockHour(row.startTime) === startTime && clockHour(row.endTime) === endTime);
+}
+
 async function writeExactHour(userId: string, date: string, startTime: string, state: AvailabilityState) {
   const endTime = slotEnd(startTime);
-  const existing = await prisma.availability.findMany({
-    where: {
-      userId,
-      deletedAt: null,
-      kind: "ONE_OFF",
-      date: parseDateOnly(date),
-      startTime,
-      endTime,
-    },
-    select: { id: true },
-  });
+  const existing = await exactHourRows(userId, date, startTime);
   if (existing.length > 0) {
     await prisma.availability.updateMany({
       where: { id: { in: existing.map((row) => row.id) } },
-      data: { state },
+      data: { state, startTime, endTime },
     });
     return;
   }
@@ -132,19 +142,14 @@ export async function paintAvailabilityCell(userId: string, input: { date: strin
   if (!COURT_HOURS.includes(input.startTime)) {
     throw new AppError(400, "VALIDATION_ERROR", "Saat 08:00 ile 22:00 arasında olmalı");
   }
-  const endTime = slotEnd(input.startTime);
   if (input.state === null) {
-    await prisma.availability.updateMany({
-      where: {
-        userId,
-        deletedAt: null,
-        kind: "ONE_OFF",
-        date: parseDateOnly(input.date),
-        startTime: input.startTime,
-        endTime,
-      },
-      data: { deletedAt: new Date() },
-    });
+    const existing = await exactHourRows(userId, input.date, input.startTime);
+    if (existing.length > 0) {
+      await prisma.availability.updateMany({
+        where: { id: { in: existing.map((row) => row.id) } },
+        data: { deletedAt: new Date() },
+      });
+    }
     return { ok: true, date: input.date, startTime: input.startTime, state: null };
   }
   await writeExactHour(userId, input.date, input.startTime, input.state);
@@ -167,10 +172,11 @@ export async function copyAvailabilityMonth(userId: string, month: string) {
   let copied = 0;
   for (const mark of marks) {
     const date = dateOnly(mark.date);
-    if (!date || !COURT_HOURS.includes(mark.startTime) || mark.endTime !== slotEnd(mark.startTime)) continue;
+    const startTime = clockHour(mark.startTime);
+    if (!date || !COURT_HOURS.includes(startTime) || clockHour(mark.endTime) !== slotEnd(startTime)) continue;
     const nextDate = sameWeekdayNextMonth(date);
     if (!nextDate || nextDate < target.start || nextDate > target.end) continue;
-    await writeExactHour(userId, nextDate, mark.startTime, mark.state);
+    await writeExactHour(userId, nextDate, startTime, mark.state);
     copied += 1;
   }
   return { ok: true, month, nextMonth: targetKey, copied };

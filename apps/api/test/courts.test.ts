@@ -178,6 +178,112 @@ test("Tam and Belki show on the board and Dolu does not", async () => {
   expect(cell).toMatchObject({ manual: "BUSY" });
 });
 
+test("Tam at 14:00 stays in people for 28 Sep–4 Oct even when that hour is reserved", async () => {
+  const viewer = await registerUser(app, { firstName: "Tam", lastName: "OnDort" });
+  await setLevel(viewer.token, viewer.user.id, "INTERMEDIATE");
+  const dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"];
+  for (const date of dates) {
+    const painted = await app.inject({
+      method: "POST",
+      url: "/api/me/availability-cells",
+      headers: auth(viewer.token),
+      payload: { date, startTime: "14:00", state: "FULL" },
+    });
+    expect(painted.statusCode).toBe(200);
+  }
+  const admin = await asAdmin();
+  const court = await addCourt(admin.token, "Kort 14");
+  await prisma.courtReservation.create({
+    data: {
+      courtId: court.id,
+      purpose: "TRAINING",
+      status: "APPROVED",
+      startDate: new Date("2026-09-28T00:00:00.000Z"),
+      endDate: new Date("2026-10-04T00:00:00.000Z"),
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      startTime: "14:00",
+      endTime: "15:00",
+      holderId: viewer.user.id,
+      createdById: admin.user.id,
+      decidedById: admin.user.id,
+      decidedAt: new Date(),
+    },
+  });
+  await prisma.availability.create({
+    data: {
+      userId: viewer.user.id,
+      kind: "ONE_OFF",
+      date: new Date("2026-09-28T00:00:00.000Z"),
+      weekday: 1,
+      startTime: "14:00:00",
+      endTime: "15:00:00",
+      state: "BUSY",
+    },
+  });
+  const paused = await registerUser(app, { firstName: "Ara", lastName: "Verdi" });
+  await setLevel(paused.token, paused.user.id, "INTERMEDIATE");
+  await prisma.profile.update({ where: { userId: paused.user.id }, data: { playerStatus: "PAUSED" } });
+  await prisma.availability.create({
+    data: {
+      userId: paused.user.id,
+      kind: "ONE_OFF",
+      date: new Date("2026-09-28T00:00:00.000Z"),
+      weekday: 1,
+      startTime: "14:00",
+      endTime: "15:00",
+      state: "FULL",
+    },
+  });
+  const away = await registerUser(app, { firstName: "Yok", lastName: "Tatil" });
+  await setLevel(away.token, away.user.id, "INTERMEDIATE");
+  await prisma.absence.create({
+    data: {
+      userId: away.user.id,
+      startDate: new Date("2026-09-28T00:00:00.000Z"),
+      endDate: new Date("2026-10-04T00:00:00.000Z"),
+      status: "ON_HOLIDAY",
+    },
+  });
+  await prisma.availability.create({
+    data: {
+      userId: away.user.id,
+      kind: "ONE_OFF",
+      date: new Date("2026-09-29T00:00:00.000Z"),
+      weekday: 2,
+      startTime: "14:00",
+      endTime: "15:00",
+      state: "FULL",
+    },
+  });
+
+  const board = await app.inject({
+    method: "GET",
+    url: `/api/courts/board?week=2026-09-28&club=${court.clubId}`,
+    headers: auth(viewer.token),
+  });
+  expect(board.statusCode).toBe(200);
+  const slots = board.json().slots as { date: string; startTime: string; people: { id: string }[]; courts: { state: string }[] }[];
+  for (const date of dates) {
+    const slot = slots.find((item) => item.date === date && item.startTime === "14:00");
+    expect(slot?.people.map((person) => person.id)).toContain(viewer.user.id);
+    expect(slot?.people.map((person) => person.id)).not.toContain(paused.user.id);
+    expect(slot?.people.map((person) => person.id)).not.toContain(away.user.id);
+    expect(slot?.courts.filter((item) => item.state === "free")).toHaveLength(0);
+  }
+  const later = slots.find((item) => item.date === "2026-09-28" && item.startTime === "15:00");
+  expect(later?.people.map((person) => person.id)).not.toContain(viewer.user.id);
+  expect(later?.courts.filter((item) => item.state === "free").length).toBeGreaterThan(0);
+
+  const week = await app.inject({
+    method: "GET",
+    url: "/api/me/availability-week?week=2026-09-28",
+    headers: auth(viewer.token),
+  });
+  const monday = (week.json().cells as { date: string; startTime: string; manual: string | null }[])
+    .find((item) => item.date === "2026-09-28" && item.startTime === "14:00");
+  expect(monday).toMatchObject({ manual: "FULL" });
+});
+
 test("the signed-in player shows on a Wednesday marked Tam or Belki, and not when Dolu or empty", async () => {
   const viewer = await registerUser(app, { firstName: "Ben", lastName: "Carsamba" });
   await setLevel(viewer.token, viewer.user.id, "BEGINNER");
@@ -474,9 +580,14 @@ test("accepting a slot offer books one free court and leaves the hour open", asy
 
   const midway = await mondaySlot(gamma.token, first.clubId);
   expect(midway.green).toBe(true);
-  expect(midway.people.map((person) => person.id)).not.toContain(alpha.user.id);
-  expect(midway.people.map((person) => person.id)).not.toContain(beta.user.id);
-  expect(midway.people.map((person) => person.id)).toEqual(expect.arrayContaining([gamma.user.id, delta.user.id, epsilon.user.id, zeta.user.id]));
+  expect(midway.people.map((person) => person.id)).toEqual(expect.arrayContaining([alpha.user.id, beta.user.id, gamma.user.id, delta.user.id, epsilon.user.id, zeta.user.id]));
+  const again = await app.inject({
+    method: "POST",
+    url: "/api/slot-offers",
+    headers: auth(alpha.token),
+    payload: { toUserId: gamma.user.id, date: MONDAY, startTime: "18:00" },
+  });
+  expect(again.statusCode).toBe(409);
   const booked = midway.courts.find((court) => court.name === "Kort A");
   const free = midway.courts.find((court) => court.name === "Kort B");
   expect(booked?.state).toBe("reserved");

@@ -13,7 +13,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const res = await fetch(`/api/bff${path}`, { ...init, headers });
+  const res = await fetch(`/api/bff${path}`, { cache: "no-store", ...init, headers });
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
