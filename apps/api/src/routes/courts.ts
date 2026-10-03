@@ -7,6 +7,7 @@ import {
   clubUpdateSchema,
   courtDaySchema,
   courtSlotSchema,
+  slotParticipantsSchema,
   courtCreateSchema,
   courtRangeSchema,
   courtReservationSchema,
@@ -29,6 +30,8 @@ import {
   createClub,
   createCourt,
   dayGridFor,
+  participantOptions,
+  saveSlotParticipants,
   deleteCourt,
   slotAt,
   createReservation,
@@ -107,6 +110,17 @@ export async function courtRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const query = parse(courtDaySchema, req.query);
     return dayGridFor(viewer, query.date, query.club);
+  });
+
+  app.get("/api/courts/participant-options", async (req) => {
+    const viewer = requireUser(req);
+    return participantOptions(viewer);
+  });
+
+  app.put("/api/courts/slot-participants", async (req) => {
+    const viewer = requireUser(req);
+    const body = parse(slotParticipantsSchema, req.body);
+    return saveSlotParticipants(viewer, body);
   });
 
   app.get("/api/courts/slot", async (req) => {

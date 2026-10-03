@@ -4,6 +4,7 @@ import { WEEKDAYS, type CourtPurpose } from "@club/shared";
 import { Fragment, memo, useEffect, useRef, useState } from "react";
 import { type CourtRow, type Person, type Reservation, addHour, fullName, shiftDate, weekdayOf } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
+import { ApiError, api } from "@/lib/api";
 
 export type DayReservation = {
   id: string;
@@ -17,12 +18,20 @@ export type DayReservation = {
   players: Person[] | null;
 };
 
+export type SlotParticipant = {
+  kind: "PERSON" | "GROUP";
+  id: string;
+  name: string;
+  typeLabel: string;
+};
+
 export type DayCell = {
   courtId: string;
   startTime: string;
   endTime: string;
   state: "free" | "busy";
   reservation: DayReservation | null;
+  participants: SlotParticipant[];
 };
 
 export type DayGrid = {
@@ -348,6 +357,7 @@ export function CourtDayGrid({
   onDate,
   onApply,
   onCancel,
+  onSaveParticipants,
   focus = null,
   failed = false,
   onRetry,
@@ -359,6 +369,7 @@ export function CourtDayGrid({
   onDate: (date: string) => void;
   onApply: (input: { purpose: CourtPurpose; slots: DaySlot[]; date: string }) => Promise<void>;
   onCancel: (reservationIds: string[], matchOnly: boolean, date: string) => Promise<void>;
+  onSaveParticipants: (input: { courtId: string; date: string; startTime: string; userIds: string[]; groupIds: string[] }) => Promise<SlotParticipant[]>;
   focus?: { date: string; courtId: string; hour: string } | null;
   failed?: boolean;
   onRetry?: () => void;
@@ -367,7 +378,7 @@ export function CourtDayGrid({
   const [picked, setPicked] = useState<Picked | null>(null);
   const [draft, setDraft] = useState<Tool | null>(null);
   const [saving, setSaving] = useState(false);
-  const [panel, setPanel] = useState<"reservation" | "details">("reservation");
+  const [panel, setPanel] = useState<"reservation" | "details" | "participants">("reservation");
   const appliedFocus = useRef("");
   const scrolledFocus = useRef("");
   const days = new Map(week.map((day) => [day.date, day]));
@@ -505,6 +516,7 @@ export function CourtDayGrid({
           onPanel={setPanel}
           onDraft={setDraft}
           onSave={() => void save()}
+          onSaveParticipants={onSaveParticipants}
         />
       </div>
     </div>
@@ -559,6 +571,8 @@ function DayTable({
   );
 }
 
+type DetailTab = "reservation" | "details" | "participants";
+
 function SlotPanel({
   date,
   hour,
@@ -571,6 +585,7 @@ function SlotPanel({
   onPanel,
   onDraft,
   onSave,
+  onSaveParticipants,
 }: {
   date: string;
   hour?: string;
@@ -578,77 +593,265 @@ function SlotPanel({
   cell: DayCell | undefined;
   reservation: DayReservation | null;
   draft: Tool | null;
-  panel: "reservation" | "details";
+  panel: DetailTab;
   saving: boolean;
-  onPanel: (panel: "reservation" | "details") => void;
+  onPanel: (panel: DetailTab) => void;
   onDraft: (tool: Tool) => void;
   onSave: () => void;
+  onSaveParticipants: (input: { courtId: string; date: string; startTime: string; userIds: string[]; groupIds: string[] }) => Promise<SlotParticipant[]>;
 }) {
   const start = cell?.startTime ?? hour;
   const end = start ? cell?.endTime ?? addHour(start) : undefined;
   const enabled = canSave(draft, court, cell) && !saving;
+  const participants = cell?.participants ?? [];
+  const slotKey = `${date}|${court?.id ?? ""}|${start ?? ""}`;
+  const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    setPicking(false);
+  }, [slotKey]);
   return (
-    <aside className="w-full shrink-0 self-start rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm lg:sticky lg:top-2 lg:w-80" aria-label="Seçilen saat">
-      <p className="text-sm font-semibold">{longDate(date)}</p>
-      {start && end ? <p className="mt-1 text-sm text-[#4b5563]">{start}–{end}</p> : <p className="mt-1 text-sm text-[#6b7280]">Bir saat seçin</p>}
-      {court ? <p className="mt-1 text-sm font-semibold">{court.name}</p> : null}
-      <div className="mt-3 flex gap-4 border-b border-[#e5e7eb]" role="tablist" aria-label="Saat paneli">
-        {([
-          ["reservation", "Rezervasyon"],
-          ["details", "Detaylar"],
-        ] as const).map(([id, label]) => {
-          const on = panel === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => onPanel(id)}
-              className={`-mb-px border-b-2 pb-2 text-sm ${on ? "font-semibold" : "border-transparent text-[#6b7280]"}`}
-              style={on ? { borderColor: ACCENT, color: ACCENT } : undefined}
-            >
-              {label}
-            </button>
-          );
-        })}
+    <aside className="flex max-h-[calc(100dvh-1rem)] w-full shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white p-4 shadow-sm lg:sticky lg:top-2 lg:w-80" aria-label="Seçilen saat">
+      <div className="shrink-0">
+        <p className="text-sm font-semibold">{longDate(date)}</p>
+        {start && end ? <p className="mt-1 text-sm text-[#4b5563]">{start}–{end}</p> : <p className="mt-1 text-sm text-[#6b7280]">Bir saat seçin</p>}
+        {court ? <p className="mt-1 text-sm font-semibold">{court.name}</p> : null}
       </div>
-      {panel === "reservation" ? (
-        <div className="mt-3 space-y-3">
-          <PurposeChips value={draft} onChange={onDraft} />
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={!enabled}
-            className="court-press rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-            style={{ backgroundColor: ACCENT }}
-          >
-            Kaydet
-          </button>
-          {reservation && start && end ? <ReservationRow reservation={reservation} start={start} end={end} /> : null}
-        </div>
-      ) : court ? (
-        <dl className="mt-3 space-y-2 text-sm">
-          <div>
-            <dt className="text-xs text-[#6b7280]">Ad</dt>
-            <dd className="font-semibold">{court.name}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-[#6b7280]">Tür</dt>
-            <dd>{court.kindLabel}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-[#6b7280]">Durum</dt>
-            <dd>{court.active ? "aktif" : "pasif"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-[#6b7280]">Sıra</dt>
-            <dd>{court.sortOrder}</dd>
-          </div>
-        </dl>
+      {picking && court && start ? (
+        <ParticipantPicker
+          selected={participants}
+          onCancel={() => setPicking(false)}
+          onSave={async (input) => {
+            await onSaveParticipants({ courtId: court.id, date, startTime: start, userIds: input.userIds, groupIds: input.groupIds });
+            setPicking(false);
+          }}
+        />
       ) : (
-        <p className="mt-3 text-sm text-[#6b7280]">Bir saat seçin</p>
+        <div className="mt-3 flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 flex-wrap gap-x-4 gap-y-1 border-b border-[#e5e7eb]" role="tablist" aria-label="Saat paneli">
+            {([
+              ["reservation", "Rezervasyon"],
+              ["details", "Detaylar"],
+              ["participants", "Katılanlar"],
+            ] as const).map(([id, label]) => {
+              const on = panel === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => onPanel(id)}
+                  className={`-mb-px border-b-2 pb-2 text-sm ${on ? "font-semibold" : "border-transparent text-[#6b7280]"}`}
+                  style={on ? { borderColor: ACCENT, color: ACCENT } : undefined}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+          {panel === "reservation" ? (
+            <div className="mt-3 space-y-3">
+              <PurposeChips value={draft} onChange={onDraft} />
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={!enabled}
+                className="court-press rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                style={{ backgroundColor: ACCENT }}
+              >
+                Kaydet
+              </button>
+              {reservation && start && end ? <ReservationRow reservation={reservation} start={start} end={end} /> : null}
+            </div>
+          ) : null}
+          {panel === "details" ? (
+            court ? (
+              <dl className="mt-3 space-y-2 text-sm">
+                <div>
+                  <dt className="text-xs text-[#6b7280]">Ad</dt>
+                  <dd className="font-semibold">{court.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-[#6b7280]">Tür</dt>
+                  <dd>{court.kindLabel}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-[#6b7280]">Durum</dt>
+                  <dd>{court.active ? "aktif" : "pasif"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-[#6b7280]">Sıra</dt>
+                  <dd>{court.sortOrder}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="mt-3 text-sm text-[#6b7280]">Bir saat seçin</p>
+            )
+          ) : null}
+          {panel === "participants" ? (
+            court && start ? (
+              <div className="mt-3 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setPicking(true)}
+                  className="court-press rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                  style={{ backgroundColor: ACCENT }}
+                >
+                  Ekle
+                </button>
+                <ParticipantLines participants={participants} />
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-[#6b7280]">Bir saat seçin</p>
+            )
+          ) : null}
+          </div>
+        </div>
       )}
     </aside>
+  );
+}
+
+function ParticipantLines({ participants }: { participants: SlotParticipant[] }) {
+  if (participants.length === 0) return <p className="text-sm text-[#6b7280]">Henüz katılan yok</p>;
+  return (
+    <ul className="space-y-1">
+      {participants.map((item) => (
+        <li key={`${item.kind}-${item.id}`} className="flex items-baseline justify-between gap-2 text-sm">
+          <span className="min-w-0 font-semibold">{item.name}</span>
+          <span className="shrink-0 text-xs text-[#6b7280]">{item.typeLabel}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type DirectoryRow = { kind: "PERSON" | "GROUP"; id: string; name: string; typeLabel: string };
+
+function rowKey(row: { kind: string; id: string }): string {
+  return `${row.kind}|${row.id}`;
+}
+
+function ParticipantPicker({
+  selected,
+  onCancel,
+  onSave,
+}: {
+  selected: SlotParticipant[];
+  onCancel: () => void;
+  onSave: (input: { userIds: string[]; groupIds: string[] }) => Promise<void>;
+}) {
+  const initial = useRef(selected);
+  const [query, setQuery] = useState("");
+  const [rows, setRows] = useState<DirectoryRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [checked, setChecked] = useState<Set<string>>(() => new Set());
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    setFailed(false);
+    setRows(null);
+    api<{ groups: { id: string; name: string; typeLabel: string }[]; people: { id: string; name: string; typeLabel: string }[] }>(
+      "/courts/participant-options",
+      { cache: "no-store" },
+    )
+      .then((data) => {
+        if (cancel) return;
+        setRows([
+          ...data.groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: group.typeLabel })),
+          ...data.people.map((person) => ({ kind: "PERSON" as const, id: person.id, name: person.name, typeLabel: person.typeLabel })),
+        ]);
+        setChecked(new Set(initial.current.map((item) => rowKey(item))));
+      })
+      .catch(() => {
+        if (!cancel) setFailed(true);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [attempt]);
+
+  const needle = query.trim().toLocaleLowerCase("tr");
+  const visible = (rows ?? []).filter((row) => !needle || row.name.toLocaleLowerCase("tr").includes(needle));
+
+  function toggle(key: string) {
+    setChecked((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!rows || saving) return;
+    setSaving(true);
+    setError(null);
+    const userIds = rows.filter((row) => row.kind === "PERSON" && checked.has(rowKey(row))).map((row) => row.id);
+    const groupIds = rows.filter((row) => row.kind === "GROUP" && checked.has(rowKey(row))).map((row) => row.id);
+    try {
+      await onSave({ userIds, groupIds });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Katılanlar kaydedilemedi");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 flex min-h-0 flex-1 flex-col" aria-label="Katılan seç">
+      <label className="block shrink-0 text-xs text-[#6b7280]" htmlFor="katilan-filtre">Filtre</label>
+      <input
+        id="katilan-filtre"
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Ad"
+        className="mt-1 w-full shrink-0 rounded-lg border border-[#d1d5db] px-2.5 py-1.5 text-sm"
+      />
+      {failed ? <div className="mt-3 shrink-0"><ErrorState message="Gruplar ve kişiler alınamadı" onRetry={() => setAttempt((value) => value + 1)} /></div> : null}
+      {!failed && !rows ? <p className="mt-3 shrink-0 text-sm text-[#6b7280]" role="status">Liste yükleniyor</p> : null}
+      {rows ? (
+        <ul className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto" aria-label="Gruplar ve kişiler">
+          {visible.length === 0 ? <li className="px-1 py-2 text-sm text-[#6b7280]">Eşleşen yok</li> : null}
+          {visible.map((row) => {
+            const key = rowKey(row);
+            const on = checked.has(key);
+            return (
+              <li key={key}>
+                <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-sm ${on ? "border-[#6d28d9] bg-[#f5f3ff]" : "border-[#e5e7eb]"}`}>
+                  <input type="checkbox" checked={on} onChange={() => toggle(key)} />
+                  <span className="min-w-0 flex-1 font-semibold">{row.name}</span>
+                  <span className="shrink-0 text-xs text-[#6b7280]">{row.typeLabel}</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {error ? <p className="mt-2 shrink-0 text-sm text-[#b91c1c]">{error}</p> : null}
+      <div className="mt-3 flex shrink-0 gap-2">
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={!rows || saving}
+          className="court-press rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          style={{ backgroundColor: ACCENT }}
+        >
+          Kaydet
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="court-press rounded-lg border border-[#d1d5db] bg-white px-4 py-2 text-sm font-semibold text-[#4b5563] disabled:opacity-40"
+        >
+          İptal
+        </button>
+      </div>
+    </div>
   );
 }

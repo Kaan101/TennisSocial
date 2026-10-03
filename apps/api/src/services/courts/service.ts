@@ -1,5 +1,5 @@
-import type { CourtKind, CourtPurpose, OverallLevel, Role, Visibility } from "@club/shared";
-import { COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
+import type { CourtKind, CourtPurpose, OverallLevel, PersonProfile, Role, Visibility } from "@club/shared";
+import { COURT_KIND_LABELS, COURT_PURPOSE_LABELS, LEVEL_LABELS, PERSON_PROFILE_LABELS, WEEKDAYS, istanbulNowParts, levelIndex, purposesForRole } from "@club/shared";
 import type { Prisma } from "@prisma/client";
 import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
@@ -822,6 +822,116 @@ export async function courtWeekFor(viewer: CourtViewer, courtId: string, weekInp
   };
 }
 
+export type SlotParticipantView = {
+  kind: "PERSON" | "GROUP";
+  id: string;
+  name: string;
+  typeLabel: string;
+};
+
+type NamedPerson = {
+  id: string;
+  profile: { firstName: string; lastName: string; personProfile: PersonProfile } | null;
+};
+
+function personTypeLabel(profile: NamedPerson["profile"]): string {
+  if (!profile) return "Oyuncu";
+  return PERSON_PROFILE_LABELS[profile.personProfile];
+}
+
+function personName(profile: NamedPerson["profile"]): string {
+  return `${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`.trim();
+}
+
+function byTurkishName<T extends { name: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => a.name.localeCompare(b.name, "tr", { sensitivity: "base" }));
+}
+
+export function presentSlotParticipants(people: NamedPerson[], groups: { id: string; name: string }[]): SlotParticipantView[] {
+  const groupRows = byTurkishName(groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: "Grup" })));
+  const personRows = byTurkishName(
+    people.map((person) => ({
+      kind: "PERSON" as const,
+      id: person.id,
+      name: personName(person.profile),
+      typeLabel: personTypeLabel(person.profile),
+    })),
+  );
+  return [...groupRows, ...personRows];
+}
+
+export async function participantOptions(_viewer: CourtViewer) {
+  const [users, groups] = await Promise.all([
+    prisma.user.findMany({
+      where: { deletedAt: null, profile: { isNot: null } },
+      select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } },
+    }),
+    prisma.group.findMany({
+      where: { deletedAt: null },
+      select: { id: true, name: true },
+    }),
+  ]);
+  const people = byTurkishName(
+    users.flatMap((user) => {
+      if (!user.profile) return [];
+      return [{ id: user.id, name: personName(user.profile), typeLabel: personTypeLabel(user.profile) }];
+    }),
+  );
+  return {
+    groups: byTurkishName(groups.map((group) => ({ id: group.id, name: group.name, typeLabel: "Grup" }))),
+    people,
+  };
+}
+
+export async function saveSlotParticipants(
+  _viewer: CourtViewer,
+  input: { courtId: string; date: string; startTime: string; userIds: string[]; groupIds: string[] },
+) {
+  if (!courtHourSet.has(input.startTime)) throw new AppError(400, "VALIDATION_ERROR", "Saat kort aralığında olmalı");
+  const court = await prisma.court.findFirst({ where: { id: input.courtId, deletedAt: null } });
+  if (!court) throw notFound("Kort bulunamadı");
+  const userIds = [...new Set(input.userIds)];
+  const groupIds = [...new Set(input.groupIds)];
+  const [users, groups] = await Promise.all([
+    userIds.length === 0
+      ? Promise.resolve([])
+      : prisma.user.findMany({
+          where: { id: { in: userIds }, deletedAt: null },
+          select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } },
+        }),
+    groupIds.length === 0
+      ? Promise.resolve([])
+      : prisma.group.findMany({
+          where: { id: { in: groupIds }, deletedAt: null },
+          select: { id: true, name: true },
+        }),
+  ]);
+  if (users.length !== userIds.length) throw new AppError(400, "VALIDATION_ERROR", "Katılımcı bulunamadı");
+  if (groups.length !== groupIds.length) throw new AppError(400, "VALIDATION_ERROR", "Grup bulunamadı");
+  const date = parseDateOnly(input.date);
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Court" WHERE id = ${court.id} FOR UPDATE`;
+    await tx.courtSlotPerson.deleteMany({ where: { courtId: court.id, date, startTime: input.startTime } });
+    await tx.courtSlotGroup.deleteMany({ where: { courtId: court.id, date, startTime: input.startTime } });
+    if (userIds.length > 0) {
+      await tx.courtSlotPerson.createMany({
+        data: userIds.map((userId) => ({ courtId: court.id, date, startTime: input.startTime, userId })),
+      });
+    }
+    if (groupIds.length > 0) {
+      await tx.courtSlotGroup.createMany({
+        data: groupIds.map((groupId) => ({ courtId: court.id, date, startTime: input.startTime, groupId })),
+      });
+    }
+  });
+  return {
+    courtId: court.id,
+    date: input.date,
+    startTime: input.startTime,
+    participants: presentSlotParticipants(users, groups),
+  };
+}
+
 export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId?: string) {
   const date = dateInput ?? istanbulNowParts().day;
   const weekday = weekdayOfDate(date);
@@ -849,8 +959,45 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
   });
 
   const bySlot = indexSpans(reservations, [date], (row, _day, hour) => `${row.courtId}|${hour}`);
+  const courtIds = courts.map((court) => court.id);
+  const [slotPeople, slotGroups] = await Promise.all([
+    prisma.courtSlotPerson.findMany({
+      where: { courtId: { in: courtIds }, date: dayDate },
+      select: {
+        courtId: true,
+        startTime: true,
+        user: { select: { id: true, deletedAt: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } } },
+      },
+    }),
+    prisma.courtSlotGroup.findMany({
+      where: { courtId: { in: courtIds }, date: dayDate },
+      select: {
+        courtId: true,
+        startTime: true,
+        group: { select: { id: true, name: true, deletedAt: true } },
+      },
+    }),
+  ]);
+  const participantsBySlot = new Map<string, { people: NamedPerson[]; groups: { id: string; name: string }[] }>();
+  const slotBucket = (key: string) => {
+    const found = participantsBySlot.get(key);
+    if (found) return found;
+    const next = { people: [] as NamedPerson[], groups: [] as { id: string; name: string }[] };
+    participantsBySlot.set(key, next);
+    return next;
+  };
+  for (const row of slotPeople) {
+    if (row.user.deletedAt) continue;
+    slotBucket(`${row.courtId}|${row.startTime}`).people.push(row.user);
+  }
+  for (const row of slotGroups) {
+    if (row.group.deletedAt) continue;
+    slotBucket(`${row.courtId}|${row.startTime}`).groups.push(row.group);
+  }
   const cells = courts.flatMap((court) =>
     COURT_HOURS.map((startTime) => {
+      const saved = participantsBySlot.get(`${court.id}|${startTime}`);
+      const participants = saved ? presentSlotParticipants(saved.people, saved.groups) : [];
       const covering = bySlot.get(`${court.id}|${startTime}`) ?? [];
       const row = covering.find((item) => item.status === "APPROVED") ?? covering[0];
       if (!row) {
@@ -860,6 +1007,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
           endTime: slotEnd(startTime),
           state: "free" as const,
           reservation: null,
+          participants,
         };
       }
       const approved = row.status === "APPROVED";
@@ -882,6 +1030,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
           checkInHint: null,
           players: namesFor(viewer, row),
         },
+        participants,
       };
     }),
   );

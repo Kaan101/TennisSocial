@@ -397,6 +397,14 @@ export const courtSlotSchema = z.object({
   hour: hourSchema,
 });
 
+export const slotParticipantsSchema = z.object({
+  courtId: z.string().min(1),
+  date: dateSchema,
+  startTime: hourSchema,
+  userIds: z.array(z.string().min(1)).max(500),
+  groupIds: z.array(z.string().min(1)).max(500),
+});
+
 export const boardVisibilitySchema = z.object({
   visible: z.boolean(),
 });

@@ -299,6 +299,7 @@ model User {
   reservationCheckIns ReservationCheckIn[]
   slotOffersSent     SlotOffer[]        @relation("SlotOfferFrom")
   slotOffersReceived SlotOffer[]        @relation("SlotOfferTo")
+  courtSlotPeople    CourtSlotPerson[]
 
   @@index([role])
   @@index([deletedAt])
@@ -478,6 +479,7 @@ model Group {
 
   members     GroupMember[]
   events      GroupEvent[]
+  slotGroups  CourtSlotGroup[]
   matches     Match[]
   tournaments Tournament[]
   ladders     Ladder[]
@@ -867,6 +869,8 @@ model Court {
   updatedAt DateTime  @updatedAt
 
   reservations CourtReservation[]
+  slotPeople   CourtSlotPerson[]
+  slotGroups   CourtSlotGroup[]
 
   @@index([clubId])
   @@index([sortOrder])
@@ -926,6 +930,37 @@ model ReservationCheckIn {
 
   @@unique([reservationId, date, startTime, userId])
   @@index([reservationId, date, startTime])
+}
+
+/// People and groups on one court hour. A group stays one row; members are not copied.
+model CourtSlotPerson {
+  id        String   @id @default(cuid())
+  courtId   String
+  court     Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  startTime String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([courtId, date, startTime, userId])
+  @@index([courtId, date, startTime])
+  @@index([userId])
+}
+
+model CourtSlotGroup {
+  id        String   @id @default(cuid())
+  courtId   String
+  court     Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  startTime String
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([courtId, date, startTime, groupId])
+  @@index([courtId, date, startTime])
+  @@index([groupId])
 }
 
 model SlotOffer {

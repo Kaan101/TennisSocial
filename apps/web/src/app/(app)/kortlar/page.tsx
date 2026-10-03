@@ -3,7 +3,7 @@
 import { istanbulNowParts, type CourtPurpose } from "@club/shared";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { type DayGrid, type DaySlot, CourtDayGrid, clearReservations, groupDaySlots, paintPurpose, restoreSlots } from "@/components/court-day-grid";
+import { type DayGrid, type DaySlot, type SlotParticipant, CourtDayGrid, clearReservations, groupDaySlots, paintPurpose, restoreSlots } from "@/components/court-day-grid";
 import { type Reservation, shiftDate, weekdayOf } from "@/components/court-ui";
 import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
@@ -213,6 +213,26 @@ export default function CourtsPage() {
         await writeOtherDays(dates, target, (date) =>
           groupDaySlots(input.slots).map((span) => postReservation(date, span, input.purpose).then(() => undefined)),
         );
+      }}
+      onSaveParticipants={async (input) => {
+        const saved = await api<{ participants: SlotParticipant[] }>("/courts/slot-participants", {
+          method: "PUT",
+          cache: "no-store",
+          body: JSON.stringify(input),
+        });
+        const current = weekGrids.current.get(input.date) ?? (gridRef.current?.date === input.date ? gridRef.current : null);
+        if (current?.date === input.date) {
+          showGrid(
+            {
+              ...current,
+              cells: current.cells.map((cell) =>
+                cell.courtId === input.courtId && cell.startTime === input.startTime ? { ...cell, participants: saved.participants } : cell,
+              ),
+            },
+            true,
+          );
+        }
+        return saved.participants;
       }}
       onCancel={async (ids, matchOnly, date) => {
         const snapshot = weekGrids.current.get(date) ?? (gridRef.current?.date === date ? gridRef.current : null);

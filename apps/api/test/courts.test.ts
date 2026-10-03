@@ -1171,3 +1171,81 @@ test("Enka and Ted each show only their own courts", async () => {
   expect(empty.statusCode).toBe(200);
   expect(empty.json().courts).toEqual([]);
 });
+
+test("participants stick to a free court hour and a group stays a group", async () => {
+  const member = await registerUser(app, { firstName: "Ali", lastName: "Kaya" });
+  const coach = await registerUser(app, { firstName: "Ece", lastName: "Demir" });
+  const teammate = await registerUser(app, { firstName: "Can", lastName: "Yilmaz" });
+  await prisma.profile.update({
+    where: { userId: coach.user.id },
+    data: { personProfile: "ANTRENOR", tennisType: "VETERAN", ageGroup: "OVER_50" },
+  });
+  await prisma.profile.update({
+    where: { userId: teammate.user.id },
+    data: { personProfile: "PERSONEL", tennisType: "PERFORMANS", ageGroup: "UNDER_12" },
+  });
+  const court = await addCourt(member.token, "Kort 2");
+  const group = await prisma.group.create({
+    data: {
+      name: "Akşam Grubu",
+      tennisType: "HOBI",
+      ageGroup: "UNDER_12",
+      createdById: member.user.id,
+      members: { create: { userId: teammate.user.id, role: "MEMBER" } },
+    },
+  });
+  const day = "2026-10-06";
+
+  const options = await app.inject({ method: "GET", url: "/api/courts/participant-options", headers: auth(member.token) });
+  expect(options.statusCode).toBe(200);
+  const catalog = options.json() as { groups: { id: string; typeLabel: string }[]; people: { id: string; typeLabel: string }[] };
+  expect(catalog.groups.find((item) => item.id === group.id)?.typeLabel).toBe("Grup");
+  expect(catalog.people.find((item) => item.id === coach.user.id)?.typeLabel).toBe("Antrenör");
+  expect(catalog.people.find((item) => item.id === member.user.id)?.typeLabel).toBe("Oyuncu");
+
+  const saved = await app.inject({
+    method: "PUT",
+    url: "/api/courts/slot-participants",
+    headers: auth(member.token),
+    payload: { courtId: court.id, date: day, startTime: "09:00", userIds: [coach.user.id, coach.user.id], groupIds: [group.id] },
+  });
+  expect(saved.statusCode).toBe(200);
+  expect(saved.json().participants).toEqual([
+    { kind: "GROUP", id: group.id, name: "Akşam Grubu", typeLabel: "Grup" },
+    { kind: "PERSON", id: coach.user.id, name: "Ece Demir", typeLabel: "Antrenör" },
+  ]);
+
+  const loaded = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${court.clubId}`, headers: auth(member.token) });
+  expect(loaded.statusCode).toBe(200);
+  const cells = loaded.json().cells as { courtId: string; startTime: string; state: string; reservation: unknown; participants: { kind: string; id: string; name: string }[] }[];
+  const chosen = cells.find((cell) => cell.courtId === court.id && cell.startTime === "09:00");
+  expect(chosen).toMatchObject({ state: "free", reservation: null });
+  expect(chosen?.participants.map((item) => item.id)).toEqual([group.id, coach.user.id]);
+  expect(chosen?.participants.some((item) => item.id === teammate.user.id)).toBe(false);
+  expect(await prisma.courtSlotGroup.count({ where: { courtId: court.id, startTime: "09:00" } })).toBe(1);
+  expect(await prisma.courtSlotPerson.count({ where: { courtId: court.id, startTime: "09:00" } })).toBe(1);
+  const neighbor = cells.find((cell) => cell.courtId === court.id && cell.startTime === "10:00");
+  expect(neighbor?.participants).toEqual([]);
+
+  const cleared = await app.inject({
+    method: "PUT",
+    url: "/api/courts/slot-participants",
+    headers: auth(member.token),
+    payload: { courtId: court.id, date: day, startTime: "09:00", userIds: [], groupIds: [] },
+  });
+  expect(cleared.statusCode).toBe(200);
+  expect(cleared.json().participants).toEqual([]);
+  const again = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${court.clubId}`, headers: auth(member.token) });
+  const after = (again.json().cells as { courtId: string; startTime: string; participants: unknown[] }[]).find(
+    (cell) => cell.courtId === court.id && cell.startTime === "09:00",
+  );
+  expect(after?.participants).toEqual([]);
+
+  const missing = await app.inject({
+    method: "PUT",
+    url: "/api/courts/slot-participants",
+    headers: auth(member.token),
+    payload: { courtId: court.id, date: day, startTime: "09:00", userIds: ["missing-person"], groupIds: [] },
+  });
+  expect(missing.statusCode).toBe(400);
+});
