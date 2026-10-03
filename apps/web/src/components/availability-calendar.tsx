@@ -178,24 +178,19 @@ export function AvailabilityCalendar({
     cellToken.current.set(key, token);
     paintEpoch.current += 1;
     setNotice(null);
-    void api("/me/availability-cells", {
+    void api<{ ok: boolean; date: string; startTime: string; state: Manual }>("/me/availability-cells", {
       method: "POST",
       body: JSON.stringify({ date, startTime, state: next }),
-    }).then(async () => {
+    }).then((saved) => {
       if (cellToken.current.get(key) !== token) return;
-      const data = await api<WeekGrid>(`/me/availability-week?week=${date}`, { cache: "no-store" });
-      if (cellToken.current.get(key) !== token) return;
-      const saved = data.cells.find((item) => item.date === date && item.startTime === startTime);
-      const manual = saved?.manual ?? null;
-      if (manual !== next) {
+      if (saved.state !== next) {
         setNotice("Müsaitlik kaydedilemedi.");
-      } else {
-        setNotice(null);
+        return;
       }
       const current = gridRef.current;
-      if (!current || current.weekStart !== data.weekStart) return;
+      if (!current) return;
       paintEpoch.current += 1;
-      showGrid(paintCell(current, date, startTime, manual));
+      showGrid(paintCell(current, date, startTime, saved.state));
     }).catch(() => {
       if (cellToken.current.get(key) !== token) return;
       setNotice("Müsaitlik kaydedilemedi.");

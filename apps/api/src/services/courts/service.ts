@@ -5,6 +5,7 @@ import { combineIstanbul, dateOnly, parseDateOnly } from "../../lib/dates";
 import { AppError, forbidden, notFound } from "../../lib/errors";
 import { canViewField, isPlayableStatus } from "../../lib/privacy";
 import { prisma } from "../../lib/prisma";
+import { CLOSED_HOUR_NOTE } from "../availability-calendar";
 import { notify } from "../notify";
 import {
   CHECK_IN_LEAD_KEY,
@@ -482,7 +483,17 @@ type BoardUser = {
   profile: { firstName: string; lastName: string; playerStatus: string; photoUrl: string | null; phone: string | null; whatsapp: string | null } | null;
   privacy: { phoneVisibility: Visibility; whatsappVisibility: Visibility } | null;
   tennisProfile: { overallLevel: OverallLevel } | null;
-  availability: { kind: "WEEKLY" | "ONE_OFF"; weekday: number | null; date: Date | null; startTime: string; endTime: string; state: "FULL" | "MAYBE" | "BUSY" }[];
+  availability: {
+    kind: "WEEKLY" | "ONE_OFF";
+    weekday: number | null;
+    date: Date | null;
+    startTime: string;
+    endTime: string;
+    state: "FULL" | "MAYBE" | "BUSY";
+    note: string | null;
+    deletedAt: Date | null;
+    updatedAt: Date;
+  }[];
   absences: { startDate: Date; endDate: Date }[];
 };
 
@@ -563,13 +574,24 @@ function indexSpans<T extends { startDate: Date; endDate: Date; weekdays: number
 
 function slotOpen(oneOffs: BoardUser["availability"], weekly: BoardUser["availability"], startTime: string): boolean {
   const endTime = slotEnd(startTime);
-  const covering = oneOffs.filter((window) => timesOverlap(clockHour(window.startTime), clockHour(window.endTime), startTime, endTime));
-  if (covering.length > 0) {
-    const exact = covering.filter((window) => clockHour(window.startTime) === startTime && clockHour(window.endTime) === endTime);
-    if (exact.length > 0) return exact.some((window) => markedOpen(window.state));
-    return covering.some((window) => markedOpen(window.state));
+  const overlaps = (window: BoardUser["availability"][number]) => timesOverlap(clockHour(window.startTime), clockHour(window.endTime), startTime, endTime);
+  const exactHour = (window: BoardUser["availability"][number]) => clockHour(window.startTime) === startTime && clockHour(window.endTime) === endTime;
+  const live = oneOffs.filter((window) => window.deletedAt == null);
+  const covering = live.filter(overlaps);
+  const exact = covering.filter(exactHour);
+  if (exact.length > 0) {
+    if (exact.some((window) => window.note !== CLOSED_HOUR_NOTE && markedOpen(window.state))) return true;
+    if (exact.some((window) => window.note === CLOSED_HOUR_NOTE)) return false;
+    return exact.some((window) => markedOpen(window.state));
   }
-  return weekly.some((window) => timesOverlap(clockHour(window.startTime), clockHour(window.endTime), startTime, endTime) && markedOpen(window.state));
+  if (covering.length > 0) return covering.some((window) => markedOpen(window.state));
+  const cleared = oneOffs.filter((window) => window.deletedAt != null && exactHour(window));
+  if (cleared.length > 0) {
+    const clearedAt = Math.max(...cleared.map((window) => window.updatedAt.getTime()));
+    const weeklyAt = weekly.filter(overlaps).reduce((latest, window) => Math.max(latest, window.updatedAt.getTime()), 0);
+    if (clearedAt > weeklyAt) return false;
+  }
+  return weekly.some((window) => overlaps(window) && markedOpen(window.state));
 }
 
 function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: number }[]): Map<string, BoardUser[]> {
@@ -592,7 +614,7 @@ function openUsersBySlot(users: BoardUser[], days: { date: string; weekday: numb
         const list = oneOffByDate.get(markDate);
         if (list) list.push(window);
         else oneOffByDate.set(markDate, [window]);
-      } else if (window.weekday !== null) {
+      } else if (window.deletedAt == null && window.weekday !== null) {
         const list = weeklyByDay.get(window.weekday);
         if (list) list.push(window);
         else weeklyByDay.set(window.weekday, [window]);
@@ -636,7 +658,15 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
         profile: { select: { firstName: true, lastName: true, playerStatus: true, photoUrl: true, phone: true, whatsapp: true } },
         privacy: { select: { phoneVisibility: true, whatsappVisibility: true } },
         tennisProfile: { select: { overallLevel: true } },
-        availability: { where: { deletedAt: null }, select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true } },
+        availability: {
+          where: {
+            OR: [
+              { deletedAt: null },
+              { kind: "ONE_OFF", deletedAt: { not: null }, date: { gte: parseDateOnly(weekStart), lte: parseDateOnly(weekEnd) } },
+            ],
+          },
+          select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true, note: true, deletedAt: true, updatedAt: true },
+        },
         absences: { where: { deletedAt: null }, select: { startDate: true, endDate: true } },
       },
     }),

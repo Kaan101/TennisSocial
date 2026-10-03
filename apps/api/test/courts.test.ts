@@ -284,6 +284,134 @@ test("Tam at 14:00 stays in people for 28 Sep–4 Oct even when that hour is res
   expect(monday).toMatchObject({ manual: "FULL" });
 });
 
+test("clearing 13:00–15:00 drops Saturday and Sunday when a weekly window still covers them", async () => {
+  const viewer = await registerUser(app, { firstName: "Hafta", lastName: "Sonu" });
+  await setLevel(viewer.token, viewer.user.id, "INTERMEDIATE");
+  const dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"];
+  const weekend = [6, 0];
+  for (const weekday of weekend) {
+    await prisma.availability.create({
+      data: { userId: viewer.user.id, kind: "WEEKLY", weekday, startTime: "09:00", endTime: "21:00", state: "FULL" },
+    });
+  }
+  const paint = (date: string, startTime: string, state: "FULL" | null) => app.inject({
+    method: "POST",
+    url: "/api/me/availability-cells",
+    headers: auth(viewer.token),
+    payload: { date, startTime, state },
+  });
+  for (const date of dates) {
+    for (const startTime of ["13:00", "14:00", "15:00", "16:00"]) {
+      expect((await paint(date, startTime, "FULL")).statusCode).toBe(200);
+    }
+  }
+  for (const date of dates) {
+    for (const startTime of ["13:00", "14:00", "15:00"]) {
+      const cleared = await paint(date, startTime, null);
+      expect(cleared.statusCode).toBe(200);
+      expect(cleared.json()).toMatchObject({ state: null });
+    }
+  }
+
+  const legacy = await registerUser(app, { firstName: "Eski", lastName: "Silinen" });
+  await setLevel(legacy.token, legacy.user.id, "INTERMEDIATE");
+  for (const weekday of weekend) {
+    await prisma.availability.create({
+      data: { userId: legacy.user.id, kind: "WEEKLY", weekday, startTime: "09:00", endTime: "21:00", state: "FULL" },
+    });
+  }
+  for (const date of ["2026-10-03", "2026-10-04"]) {
+    await prisma.availability.create({
+      data: {
+        userId: legacy.user.id,
+        kind: "ONE_OFF",
+        date: new Date(`${date}T00:00:00.000Z`),
+        weekday: weekdayOfDate(date),
+        startTime: "13:00",
+        endTime: "14:00",
+        state: "FULL",
+        deletedAt: new Date(),
+      },
+    });
+  }
+  await prisma.$executeRaw`UPDATE "Availability" SET "updatedAt" = ${new Date(Date.now() + 60_000)} WHERE "userId" = ${legacy.user.id} AND "deletedAt" IS NOT NULL`;
+
+  const board = await app.inject({
+    method: "GET",
+    url: "/api/courts/board?week=2026-09-28",
+    headers: auth(viewer.token),
+  });
+  expect(board.statusCode).toBe(200);
+  const peopleAt = (date: string, startTime: string) => {
+    const slot = board.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
+    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+  };
+  for (const date of dates) {
+    for (const startTime of ["13:00", "14:00", "15:00"]) {
+      expect(peopleAt(date, startTime)).not.toContain(viewer.user.id);
+    }
+    expect(peopleAt(date, "16:00")).toContain(viewer.user.id);
+  }
+  for (const date of ["2026-10-03", "2026-10-04"]) {
+    expect(peopleAt(date, "13:00")).not.toContain(legacy.user.id);
+    expect(peopleAt(date, "14:00")).toContain(legacy.user.id);
+    expect(peopleAt(date, "09:00")).toContain(legacy.user.id);
+  }
+  for (const date of dates.slice(0, 5)) {
+    expect(peopleAt(date, "13:00")).not.toContain(legacy.user.id);
+  }
+
+  const week = await app.inject({
+    method: "GET",
+    url: "/api/me/availability-week?week=2026-09-28",
+    headers: auth(viewer.token),
+  });
+  const cells = week.json().cells as { date: string; startTime: string; manual: string | null }[];
+  const manualAt = (date: string, startTime: string) => cells.find((item) => item.date === date && item.startTime === startTime)?.manual ?? null;
+  for (const date of dates) {
+    expect(manualAt(date, "13:00")).toBeNull();
+    expect(manualAt(date, "14:00")).toBeNull();
+    expect(manualAt(date, "15:00")).toBeNull();
+    expect(manualAt(date, "16:00")).toBe("FULL");
+  }
+
+  const again = await paint("2026-10-04", "13:00", "FULL");
+  expect(again.statusCode).toBe(200);
+  expect(again.json()).toMatchObject({ state: "FULL" });
+  const after = await app.inject({
+    method: "GET",
+    url: "/api/courts/board?week=2026-09-28",
+    headers: auth(viewer.token),
+  });
+  const peopleAfter = (date: string, startTime: string) => {
+    const slot = after.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
+    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+  };
+  expect(peopleAfter("2026-10-04", "13:00")).toContain(viewer.user.id);
+  expect(peopleAfter("2026-10-03", "13:00")).not.toContain(viewer.user.id);
+  expect(peopleAfter("2026-10-04", "14:00")).not.toContain(viewer.user.id);
+
+  await prisma.$executeRaw`UPDATE "Availability" SET "updatedAt" = ${new Date("2020-01-01T00:00:00.000Z")} WHERE "userId" = ${legacy.user.id} AND "deletedAt" IS NOT NULL`;
+  const savedWeekly = await app.inject({
+    method: "PUT",
+    url: `/api/users/${legacy.user.id}/availability`,
+    headers: auth(legacy.token),
+    payload: { weekly: [{ weekday: 0, startTime: "13:00", endTime: "14:00" }], oneOff: [] },
+  });
+  expect(savedWeekly.statusCode).toBe(200);
+  const replaced = await app.inject({
+    method: "GET",
+    url: "/api/courts/board?week=2026-09-28",
+    headers: auth(legacy.token),
+  });
+  const peopleReplaced = (date: string, startTime: string) => {
+    const slot = replaced.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
+    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+  };
+  expect(peopleReplaced("2026-10-04", "13:00")).toContain(legacy.user.id);
+  expect(peopleReplaced("2026-10-03", "13:00")).not.toContain(legacy.user.id);
+});
+
 test("the signed-in player shows on a Wednesday marked Tam or Belki, and not when Dolu or empty", async () => {
   const viewer = await registerUser(app, { firstName: "Ben", lastName: "Carsamba" });
   await setLevel(viewer.token, viewer.user.id, "BEGINNER");
@@ -393,7 +521,7 @@ test("next month copy repeats marked hours on the same weekday and leaves empty 
     payload: { month: "2026-10" },
   });
   expect(copied.statusCode).toBe(200);
-  expect(copied.json().copied).toBe(4);
+  expect(copied.json().copied).toBe(6);
 
   expect(await read("2026-11-02", "18:00")).toMatchObject({ manual: "FULL" });
   expect(await read("2026-11-04", "10:00")).toMatchObject({ manual: "BUSY" });
