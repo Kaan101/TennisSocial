@@ -278,6 +278,7 @@ model User {
 
   @@index([role])
   @@index([deletedAt])
+  @@index([deletedAt, boardVisible])
 }
 
 model Profile {
@@ -383,6 +384,7 @@ model Availability {
   @@index([userId, kind])
   @@index([date])
   @@index([weekday])
+  @@index([userId, deletedAt, kind, date])
 }
 
 model Absence {
@@ -398,6 +400,7 @@ model Absence {
   updatedAt  DateTime     @updatedAt
 
   @@index([userId, startDate, endDate])
+  @@index([userId, deletedAt])
 }
 
 model PrivacySetting {
@@ -429,6 +432,7 @@ model Friendship {
 
   @@unique([requesterId, addresseeId])
   @@index([addresseeId, status])
+  @@index([requesterId, status])
 }
 
 model Group {
@@ -839,6 +843,7 @@ model Court {
   @@index([sortOrder])
   @@index([active])
   @@index([deletedAt])
+  @@index([clubId, deletedAt, active, sortOrder, name])
 }
 
 model CourtReservation {
@@ -876,6 +881,7 @@ model CourtReservation {
   @@index([holderId])
   @@index([status])
   @@index([deletedAt])
+  @@index([deletedAt, status, endDate, startDate])
 }
 
 model ReservationCheckIn {
