@@ -121,9 +121,11 @@ export function AvailabilityCalendar({
   const [grid, setGrid] = useState<WeekGrid | null>(null);
   const [mode, setMode] = useState<Tool | null>(null);
   const [failed, setFailed] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
+  const cellToken = useRef(new Map<string, number>());
   const todayRef = useRef(today);
 
   useEffect(() => {
@@ -171,18 +173,24 @@ export function AvailabilityCalendar({
     const cell = snapshot?.cells.find((item) => item.date === date && item.startTime === startTime);
     const next = mode === "CLEAR" ? null : mode;
     if (!snapshot || !cell || cell.manual === next) return;
-    const previous = cell.manual;
+    const key = `${date}|${startTime}`;
+    const token = (cellToken.current.get(key) ?? 0) + 1;
+    cellToken.current.set(key, token);
     paintEpoch.current += 1;
-    showGrid(paintCell(snapshot, date, startTime, next));
+    setNotice(null);
     void api("/me/availability-cells", {
       method: "POST",
       body: JSON.stringify({ date, startTime, state: next }),
-    }).catch(() => {
+    }).then(() => {
+      if (cellToken.current.get(key) !== token) return;
       const current = gridRef.current;
       if (!current || current.weekStart !== snapshot.weekStart) return;
-      const restored = paintCell(current, date, startTime, previous);
-      gridRef.current = restored;
-      setGrid(restored);
+      paintEpoch.current += 1;
+      showGrid(paintCell(current, date, startTime, next));
+      setNotice(null);
+    }).catch(() => {
+      if (cellToken.current.get(key) !== token) return;
+      setNotice("Müsaitlik kaydedilemedi.");
     });
   }
   onCellRef.current = onCell;
@@ -237,6 +245,11 @@ export function AvailabilityCalendar({
           Boş
         </button>
       </div>
+      {notice ? (
+        <p role="alert" className={`shrink-0 text-sm ${flow ? "" : "px-4 lg:px-0"}`} style={{ color: "#b91c1c" }}>
+          {notice}
+        </p>
+      ) : null}
       <div className={`min-h-0 w-full lg:mx-auto lg:overflow-x-auto ${flow ? "lg:w-[95%]" : "lg:w-[70%] flex-1 lg:flex-none"}`}>
         <div
           className={`musait-board grid w-full min-w-full gap-x-1 gap-y-0.5 lg:h-auto lg:min-w-0 lg:w-full lg:gap-1 ${shortDays ? "musait-board-short" : ""} ${flow ? "h-auto" : "h-full"}`}
