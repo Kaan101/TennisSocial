@@ -23,6 +23,7 @@ export type SlotParticipant = {
   id: string;
   name: string;
   typeLabel: string;
+  photoUrl?: string | null;
 };
 
 export type DayCell = {
@@ -487,12 +488,12 @@ export function CourtDayGrid({
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-3 lg:ml-[calc(50%-45vw)] lg:w-[90vw]">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       <h1 className="text-2xl font-semibold tracking-tight">Kortlar</h1>
       <DateBar date={date} today={today} onDate={moveDay} />
       <PurposeChips value={mode} onChange={setMode} />
-      <div className="flex w-full min-w-0 flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-start">
-        <div className="min-w-0 flex-1">
+      <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-start">
+        <div className="min-w-0 flex-1 lg:px-[calc(0.75rem+1px)]">
           {failed && !active ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
           {!failed && !active ? <LoadingBlock label="Gün yükleniyor" /> : null}
           {active && courts.length === 0 ? (
@@ -713,21 +714,43 @@ function SlotPanel({
   );
 }
 
+function nameInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.slice(0, 2).map((part) => part[0] ?? "").join("");
+  return letters.toLocaleUpperCase("tr-TR") || "?";
+}
+
+function ParticipantMark({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
+  if (photoUrl) {
+    return <img src={photoUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />; // eslint-disable-line @next/next/no-img-element
+  }
+  return (
+    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e5e7eb] text-[11px] font-semibold text-[#374151]">
+      {nameInitials(name)}
+    </span>
+  );
+}
+
+function TypeChip({ label }: { label: string }) {
+  return <span className="shrink-0 rounded-full bg-[#f3f4f6] px-2 py-0.5 text-[10px] font-semibold leading-4 text-[#4b5563]">{label}</span>;
+}
+
 function ParticipantLines({ participants }: { participants: SlotParticipant[] }) {
   if (participants.length === 0) return <p className="text-sm text-[#6b7280]">Henüz katılan yok</p>;
   return (
     <ul className="space-y-1">
       {participants.map((item) => (
-        <li key={`${item.kind}-${item.id}`} className="flex items-baseline justify-between gap-2 text-sm">
-          <span className="min-w-0 font-semibold">{item.name}</span>
-          <span className="shrink-0 text-xs text-[#6b7280]">{item.typeLabel}</span>
+        <li key={`${item.kind}-${item.id}`} className="flex items-center gap-2 rounded-lg border border-[#e5e7eb] px-2 py-1.5 text-sm">
+          <ParticipantMark name={item.name} photoUrl={item.kind === "PERSON" ? item.photoUrl : null} />
+          <span className="min-w-0 flex-1 truncate font-semibold">{item.name}</span>
+          <TypeChip label={item.typeLabel} />
         </li>
       ))}
     </ul>
   );
 }
 
-type DirectoryRow = { kind: "PERSON" | "GROUP"; id: string; name: string; typeLabel: string };
+type DirectoryRow = { kind: "PERSON" | "GROUP"; id: string; name: string; typeLabel: string; photoUrl: string | null };
 
 function rowKey(row: { kind: string; id: string }): string {
   return `${row.kind}|${row.id}`;
@@ -755,15 +778,15 @@ function ParticipantPicker({
     let cancel = false;
     setFailed(false);
     setRows(null);
-    api<{ groups: { id: string; name: string; typeLabel: string }[]; people: { id: string; name: string; typeLabel: string }[] }>(
+    api<{ groups: { id: string; name: string; typeLabel: string }[]; people: { id: string; name: string; typeLabel: string; photoUrl?: string | null }[] }>(
       "/courts/participant-options",
       { cache: "no-store" },
     )
       .then((data) => {
         if (cancel) return;
         setRows([
-          ...data.groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: group.typeLabel })),
-          ...data.people.map((person) => ({ kind: "PERSON" as const, id: person.id, name: person.name, typeLabel: person.typeLabel })),
+          ...data.groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: group.typeLabel, photoUrl: null })),
+          ...data.people.map((person) => ({ kind: "PERSON" as const, id: person.id, name: person.name, typeLabel: person.typeLabel, photoUrl: person.photoUrl ?? null })),
         ]);
         setChecked(new Set(initial.current.map((item) => rowKey(item))));
       })
@@ -824,8 +847,9 @@ function ParticipantPicker({
               <li key={key}>
                 <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-sm ${on ? "border-[#6d28d9] bg-[#f5f3ff]" : "border-[#e5e7eb]"}`}>
                   <input type="checkbox" checked={on} onChange={() => toggle(key)} />
-                  <span className="min-w-0 flex-1 font-semibold">{row.name}</span>
-                  <span className="shrink-0 text-xs text-[#6b7280]">{row.typeLabel}</span>
+                  <ParticipantMark name={row.name} photoUrl={row.kind === "PERSON" ? row.photoUrl : null} />
+                  <span className="min-w-0 flex-1 truncate font-semibold">{row.name}</span>
+                  <TypeChip label={row.typeLabel} />
                 </label>
               </li>
             );

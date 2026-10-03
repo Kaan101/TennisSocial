@@ -1211,8 +1211,8 @@ test("participants stick to a free court hour and a group stays a group", async 
   });
   expect(saved.statusCode).toBe(200);
   expect(saved.json().participants).toEqual([
-    { kind: "GROUP", id: group.id, name: "Akşam Grubu", typeLabel: "Grup" },
-    { kind: "PERSON", id: coach.user.id, name: "Ece Demir", typeLabel: "Antrenör" },
+    { kind: "GROUP", id: group.id, name: "Akşam Grubu", typeLabel: "Grup", photoUrl: null },
+    { kind: "PERSON", id: coach.user.id, name: "Ece Demir", typeLabel: "Antrenör", photoUrl: null },
   ]);
 
   const loaded = await app.inject({ method: "GET", url: `/api/courts/day?date=${day}&club=${court.clubId}`, headers: auth(member.token) });

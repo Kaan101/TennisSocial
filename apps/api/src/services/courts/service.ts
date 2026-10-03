@@ -827,11 +827,12 @@ export type SlotParticipantView = {
   id: string;
   name: string;
   typeLabel: string;
+  photoUrl: string | null;
 };
 
 type NamedPerson = {
   id: string;
-  profile: { firstName: string; lastName: string; personProfile: PersonProfile } | null;
+  profile: { firstName: string; lastName: string; personProfile: PersonProfile; photoUrl: string | null } | null;
 };
 
 function personTypeLabel(profile: NamedPerson["profile"]): string {
@@ -848,13 +849,16 @@ function byTurkishName<T extends { name: string }>(rows: T[]): T[] {
 }
 
 export function presentSlotParticipants(people: NamedPerson[], groups: { id: string; name: string }[]): SlotParticipantView[] {
-  const groupRows = byTurkishName(groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: "Grup" })));
+  const groupRows = byTurkishName(
+    groups.map((group) => ({ kind: "GROUP" as const, id: group.id, name: group.name, typeLabel: "Grup", photoUrl: null })),
+  );
   const personRows = byTurkishName(
     people.map((person) => ({
       kind: "PERSON" as const,
       id: person.id,
       name: personName(person.profile),
       typeLabel: personTypeLabel(person.profile),
+      photoUrl: person.profile?.photoUrl ?? null,
     })),
   );
   return [...groupRows, ...personRows];
@@ -864,7 +868,7 @@ export async function participantOptions(_viewer: CourtViewer) {
   const [users, groups] = await Promise.all([
     prisma.user.findMany({
       where: { deletedAt: null, profile: { isNot: null } },
-      select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } },
+      select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } },
     }),
     prisma.group.findMany({
       where: { deletedAt: null },
@@ -874,7 +878,7 @@ export async function participantOptions(_viewer: CourtViewer) {
   const people = byTurkishName(
     users.flatMap((user) => {
       if (!user.profile) return [];
-      return [{ id: user.id, name: personName(user.profile), typeLabel: personTypeLabel(user.profile) }];
+      return [{ id: user.id, name: personName(user.profile), typeLabel: personTypeLabel(user.profile), photoUrl: user.profile.photoUrl }];
     }),
   );
   return {
@@ -897,7 +901,7 @@ export async function saveSlotParticipants(
       ? Promise.resolve([])
       : prisma.user.findMany({
           where: { id: { in: userIds }, deletedAt: null },
-          select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } },
+          select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } },
         }),
     groupIds.length === 0
       ? Promise.resolve([])
@@ -966,7 +970,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
       select: {
         courtId: true,
         startTime: true,
-        user: { select: { id: true, deletedAt: true, profile: { select: { firstName: true, lastName: true, personProfile: true } } } },
+        user: { select: { id: true, deletedAt: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } } },
       },
     }),
     prisma.courtSlotGroup.findMany({

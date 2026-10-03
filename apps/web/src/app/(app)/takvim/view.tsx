@@ -525,42 +525,47 @@ function HourPanel({ day, slot }: { day: BoardDay; slot: Slot }) {
   const courts = slot.courts.filter(courtIsFree).slice().sort((left, right) => left.name.localeCompare(right.name, "tr"));
   const people = slot.people.slice().sort((left, right) => fullName(left).localeCompare(fullName(right), "tr"));
   return (
-    <aside className="w-full rounded-2xl border border-[#e5e7eb] bg-white p-4">
-      <p className="text-sm font-semibold">{longDate(day.date, day.label)}</p>
-      <p className="mt-1 text-lg font-semibold">{slot.startTime} – {slot.endTime}</p>
-      <Link
-        href={`/kortlar?date=${slot.date}&hour=${slot.startTime}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-3 block rounded-xl px-3 py-2 text-center text-sm font-semibold text-white"
-        style={{ backgroundColor: SELECTED_FILL }}
-      >
-        Bu saatte etkinlik oluştur
-      </Link>
-      <div className="mt-4 flex gap-4 border-b border-[#e5e7eb] text-sm" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === "players"} onClick={() => setTab("players")} className={`pb-2 ${tab === "players" ? "border-b-2 font-semibold" : "text-[#6b7280]"}`} style={tab === "players" ? { borderColor: DAY_PURPLE, color: DAY_PURPLE } : undefined}>
-          Oyuncular ({slot.people.length})
-        </button>
-        <button type="button" role="tab" aria-selected={tab === "courts"} onClick={() => setTab("courts")} className={`pb-2 ${tab === "courts" ? "border-b-2 font-semibold" : "text-[#6b7280]"}`} style={tab === "courts" ? { borderColor: DAY_PURPLE, color: DAY_PURPLE } : undefined}>
-          Kortlar ({courts.length})
-        </button>
+    <aside className="flex max-h-[calc(100dvh-11.5rem)] w-full flex-col overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white p-3">
+      <div className="shrink-0">
+        <p className="text-sm font-semibold">{longDate(day.date, day.label)}</p>
+        <p className="mt-0.5 text-base font-semibold leading-tight">{slot.startTime} – {slot.endTime}</p>
+        <Link
+          href={`/kortlar?date=${slot.date}&hour=${slot.startTime}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 block rounded-lg px-3 py-1.5 text-center text-sm font-semibold text-white"
+          style={{ backgroundColor: SELECTED_FILL }}
+        >
+          Bu saatte etkinlik oluştur
+        </Link>
+        <div className="mt-2 flex gap-4 border-b border-[#e5e7eb] text-sm" role="tablist">
+          <button type="button" role="tab" aria-selected={tab === "players"} onClick={() => setTab("players")} className={`pb-1.5 ${tab === "players" ? "border-b-2 font-semibold" : "text-[#6b7280]"}`} style={tab === "players" ? { borderColor: DAY_PURPLE, color: DAY_PURPLE } : undefined}>
+            Oyuncular ({slot.people.length})
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "courts"} onClick={() => setTab("courts")} className={`pb-1.5 ${tab === "courts" ? "border-b-2 font-semibold" : "text-[#6b7280]"}`} style={tab === "courts" ? { borderColor: DAY_PURPLE, color: DAY_PURPLE } : undefined}>
+            Kortlar ({courts.length})
+          </button>
+        </div>
       </div>
       {tab === "players" ? (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-2 min-h-0 overflow-y-auto">
           {people.map((person) => (
             <PlayerRow key={person.id} person={person} />
           ))}
         </ul>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul
+          className="mt-1.5 grid min-h-0 content-start gap-px overflow-hidden"
+          style={courts.length > 0 ? { gridTemplateRows: `repeat(${courts.length}, minmax(1.25rem, 1.75rem))` } : undefined}
+        >
           {courts.map((court) => (
-            <li key={court.id} className="flex items-center gap-2 rounded-xl border border-[#e5e7eb] px-3 py-2">
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold">{court.name}</p>
+            <li key={court.id} className="flex h-full min-h-0 items-center gap-2 rounded-md border border-[#e5e7eb] px-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold leading-none">{court.name}</p>
               <Link
                 href={`/kortlar?date=${slot.date}&court=${court.id}&hour=${slot.startTime}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="shrink-0 text-sm font-semibold text-[#15803d]"
+                className="shrink-0 text-xs font-semibold leading-none text-[#15803d]"
               >
                 Rezerve Et
               </Link>
