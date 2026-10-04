@@ -1,22 +1,51 @@
 "use client";
 
-import { istanbulNowParts, waLink } from "@club/shared";
+import { WEEKDAYS, istanbulNowParts, waLink } from "@club/shared";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { type CourtCell, type Slot, type SlotPerson, fullName, shiftDate } from "@/components/court-ui";
-import { ErrorState, LoadingBlock } from "@/components/states";
+import { type CourtCell, type Slot, type SlotPerson, addHour, fullName, shiftDate, weekdayOf } from "@/components/court-ui";
+import { ErrorState } from "@/components/states";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useClub } from "@/lib/club";
-import { useResource } from "@/lib/use-resource";
 
+type BoardSlot = Omit<Slot, "people"> & { playerIds: string[] };
 type Board = {
   weekStart: string;
   hours: string[];
   days: { date: string; weekday: number; label: string; short: string }[];
-  slots: Slot[];
+  players: SlotPerson[];
+  slots: BoardSlot[];
 };
+
+const boardCache = new Map<string, Board>();
+
+function mondayOf(date: string): string {
+  const weekday = weekdayOf(date);
+  return shiftDate(date, weekday === 0 ? -6 : 1 - weekday);
+}
+
+function shellBoard(weekStart: string): Board {
+  const hours = Array.from({ length: 14 }, (_, index) => `${String(8 + index).padStart(2, "0")}:00`);
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = shiftDate(weekStart, index);
+    const weekday = weekdayOf(date);
+    const known = WEEKDAYS.find((day) => day.value === weekday);
+    return { date, weekday, label: known?.label ?? "", short: known?.short ?? "" };
+  });
+  const slots = days.flatMap((day) => hours.map((startTime) => ({
+    date: day.date,
+    weekday: day.weekday,
+    startTime,
+    endTime: addHour(startTime),
+    green: false,
+    playerIds: [] as string[],
+    courts: [] as CourtCell[],
+  })));
+  return { weekStart, hours, days, players: [], slots };
+}
 
 type Picked = { date: string; start: string };
 type BoardDay = Board["days"][number];
@@ -89,23 +118,60 @@ export function TakvimView() {
   const [phoneDay, setPhoneDay] = useState<string | null>(queryDate);
   const [mode, setMode] = useState<ViewMode>("hafta");
   const [queryApplied, setQueryApplied] = useState(false);
+  const requestedWeek = week ?? mondayOf(istanbulNowParts().day);
   const boardQuery = new URLSearchParams();
   if (week) boardQuery.set("week", week);
   if (clubId) boardQuery.set("club", clubId);
   const boardQueryText = boardQuery.toString();
-  const boardPath = boardQueryText ? `/courts/board?${boardQueryText}` : "/courts/board";
-  const board = useResource<Board>(user && ready ? boardPath : null);
-
-  const hours = useMemo(() => (board.data?.hours ?? []).filter((hour) => hour <= LAST_HOUR), [board.data]);
-  const slots = useMemo(() => {
-    const map = new Map<string, Slot>();
-    for (const item of board.data?.slots ?? []) map.set(`${item.date}|${item.startTime}`, item);
-    return map;
-  }, [board.data]);
+  const boardPath = user && ready ? (boardQueryText ? `/courts/board?${boardQueryText}` : "/courts/board") : null;
+  const [fresh, setFresh] = useState<Board | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const shell = useMemo(() => shellBoard(requestedWeek), [requestedWeek]);
 
   useEffect(() => {
-    if (queryApplied || !board.data || !queryDate || !queryStart) return;
-    const inWeek = board.data.days.some((day) => day.date === queryDate);
+    if (!boardPath) return;
+    const known = boardCache.get(boardPath);
+    if (known) setFresh(known);
+    let cancel = false;
+    api<Board>(boardPath, { cache: "no-store" })
+      .then((data) => {
+        if (cancel) return;
+        boardCache.set(boardPath, data);
+        setFresh(data);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (cancel || boardCache.has(boardPath)) return;
+        setFailed(true);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [boardPath, retry]);
+
+  const cached = boardPath ? boardCache.get(boardPath) : undefined;
+  const board = fresh?.weekStart === requestedWeek ? fresh : cached ?? shell;
+  const loaded = board !== shell;
+  const hours = useMemo(() => board.hours.filter((hour) => hour <= LAST_HOUR), [board]);
+  const slots = useMemo(() => {
+    const byId = new Map(board.players.map((person) => [person.id, person]));
+    const map = new Map<string, Slot>();
+    for (const item of board.slots) {
+      map.set(`${item.date}|${item.startTime}`, {
+        ...item,
+        people: item.playerIds.flatMap((id) => {
+          const person = byId.get(id);
+          return person ? [person] : [];
+        }),
+      });
+    }
+    return map;
+  }, [board]);
+
+  useEffect(() => {
+    if (queryApplied || !loaded || !queryDate || !queryStart) return;
+    const inWeek = board.days.some((day) => day.date === queryDate);
     if (!inWeek || !hours.includes(queryStart)) {
       setQueryApplied(true);
       return;
@@ -113,12 +179,12 @@ export function TakvimView() {
     setPicked({ date: queryDate, start: queryStart });
     setPhoneDay(queryDate);
     setQueryApplied(true);
-  }, [queryApplied, board.data, queryDate, queryStart, hours]);
+  }, [queryApplied, board, loaded, queryDate, queryStart, hours]);
 
   useEffect(() => {
-    if (!board.data || hours.length === 0) return;
-    if (!queryApplied && queryDate && queryStart) return;
-    const days = board.data.days;
+    if (hours.length === 0) return;
+    if (!loaded && !queryApplied && queryDate && queryStart) return;
+    const days = board.days;
     if (picked && days.some((day) => day.date === picked.date) && hours.includes(picked.start)) return;
     const today = istanbulNowParts().day;
     const day = days.find((item) => item.date === (phoneDay ?? today)) ?? days.find((item) => item.date === today) ?? days[0];
@@ -126,7 +192,7 @@ export function TakvimView() {
     if (!day || !hour) return;
     setPicked({ date: day.date, start: hour });
     setPhoneDay(day.date);
-  }, [board.data, hours, picked, phoneDay, queryApplied, queryDate, queryStart]);
+  }, [board, loaded, hours, picked, phoneDay, queryApplied, queryDate, queryStart]);
 
   function choose(date: string, start: string) {
     flushSync(() => {
@@ -135,10 +201,11 @@ export function TakvimView() {
     });
   }
 
-  if (!ready || board.loading || !user) return <LoadingBlock label="Takvim yükleniyor" />;
-  if (board.error || !board.data) return <ErrorState message={board.error ?? "Takvim açılmadı"} onRetry={() => void board.reload()} />;
+  if (failed && !loaded) {
+    return <ErrorState message="Takvim açılmadı" onRetry={() => { setFailed(false); setRetry((value) => value + 1); }} />;
+  }
 
-  const data = board.data;
+  const data = board;
   const pickedDay = data.days.find((day) => day.date === picked?.date) ?? data.days[0];
   const slot = picked && pickedDay ? slots.get(`${pickedDay.date}|${picked.start}`) ?? null : null;
   const range = weekRange(data.days[0]?.date ?? "", data.days[6]?.date ?? "");

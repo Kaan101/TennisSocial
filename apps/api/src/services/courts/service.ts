@@ -697,6 +697,26 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   const dayMeta = dates.map((date) => ({ date, weekday: weekdayOfDate(date) }));
   const coveringBySlot = indexSpans(reservations, dates, (_row, date, hour) => `${date}|${hour}`);
   const openBySlot = openUsersBySlot(users as BoardUser[], dayMeta);
+  const playerCard = new Map<string, { id: string; firstName: string; lastName: string; photoUrl: string | null; messageNumber: string | null; overallLevel: string; levelLabel: string; levelIndex: number }>();
+  const cardFor = (user: BoardUser) => {
+    const found = playerCard.get(user.id);
+    if (found) return found;
+    const level = user.tennisProfile?.overallLevel ?? "INTERMEDIATE";
+    const next = {
+      id: user.id,
+      firstName: user.profile?.firstName ?? "",
+      lastName: user.profile?.lastName ?? "",
+      photoUrl: user.profile?.photoUrl ?? null,
+      messageNumber: messageNumberFor(viewer, user, friendIds),
+      overallLevel: level,
+      levelLabel: LEVEL_LABELS[level],
+      levelIndex: levelIndex(level),
+    };
+    playerCard.set(user.id, next);
+    return next;
+  };
+  const players: { id: string; firstName: string; lastName: string; photoUrl: string | null; messageNumber: string | null; overallLevel: string; levelLabel: string }[] = [];
+  const seenPlayers = new Set<string>();
   const slots = dayMeta.flatMap(({ date, weekday }) =>
     COURT_HOURS.map((startTime) => {
       const key = `${date}|${startTime}`;
@@ -705,26 +725,20 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       const busy = new Set(approvedCovering.flatMap((row) => playingIds(row)));
       const people = (openBySlot.get(key) ?? [])
         .filter((user) => !dropBooked || !busy.has(user.id))
-        .map((user) => {
-          const level = user.tennisProfile?.overallLevel ?? "INTERMEDIATE";
-          return {
-            id: user.id,
-            firstName: user.profile?.firstName ?? "",
-            lastName: user.profile?.lastName ?? "",
-            photoUrl: user.profile?.photoUrl ?? null,
-            messageNumber: messageNumberFor(viewer, user, friendIds),
-            overallLevel: level,
-            levelLabel: LEVEL_LABELS[level],
-            levelIndex: levelIndex(level),
-          };
-        });
+        .map((user) => cardFor(user));
+      for (const person of people) {
+        if (seenPlayers.has(person.id)) continue;
+        seenPlayers.add(person.id);
+        const { levelIndex: _levelIndex, ...stored } = person;
+        players.push(stored);
+      }
       return {
         date,
         weekday,
         startTime,
         endTime: slotEnd(startTime),
         green: slotIsGreen(people.map((person) => person.levelIndex)),
-        people: people.map(({ levelIndex: _levelIndex, ...person }) => person),
+        playerIds: people.map((person) => person.id),
         courts: courts.map((court) => {
           const identity = { id: court.id, name: court.name, kind: court.kind, kindLabel: COURT_KIND_LABELS[court.kind] };
           const rows = covering.filter((item) => item.courtId === court.id && courtPurposeTakesCourt(item.purpose));
@@ -767,6 +781,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       const known = WEEKDAYS.find((day) => day.value === weekday);
       return { date, weekday, label: known?.label ?? "", short: known?.short ?? "" };
     }),
+    players,
     slots,
   };
 }
@@ -1092,7 +1107,7 @@ export async function slotAt(_viewer: CourtViewer, date: string, courtId: string
 async function peopleIdsAt(date: string, startTime: string): Promise<Set<string>> {
   const board = await boardFor({ id: "system", role: "ADMIN" }, date, [], undefined, true);
   const slot = board.slots.find((item) => item.date === date && item.startTime === startTime);
-  return new Set(slot?.people.map((person) => person.id) ?? []);
+  return new Set(slot?.playerIds ?? []);
 }
 
 const offerInclude = {

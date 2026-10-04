@@ -126,6 +126,7 @@ export function AvailabilityCalendar({
   const gridRef = useRef(grid);
   const paintEpoch = useRef(0);
   const cellToken = useRef(new Map<string, number>());
+  const confirmed = useRef(new Map<string, { token: number; manual: Manual }>());
   const todayRef = useRef(today);
 
   useEffect(() => {
@@ -138,6 +139,7 @@ export function AvailabilityCalendar({
         if (cancel || todayRef.current !== requested) return;
         const sameWeek = gridRef.current?.weekStart === data.weekStart;
         if (sameWeek && paintEpoch.current !== epoch) return;
+        for (const cell of data.cells) confirmed.current.set(`${cell.date}|${cell.startTime}`, { token: 0, manual: cell.manual });
         gridRef.current = data;
         setGrid(data);
         setFailed(false);
@@ -177,23 +179,28 @@ export function AvailabilityCalendar({
     const token = (cellToken.current.get(key) ?? 0) + 1;
     cellToken.current.set(key, token);
     paintEpoch.current += 1;
+    showGrid(paintCell(snapshot, date, startTime, next));
     setNotice(null);
+    const restore = () => {
+      if (cellToken.current.get(key) !== token) return;
+      const current = gridRef.current;
+      if (!current) return;
+      const back = confirmed.current.get(key)?.manual ?? null;
+      showGrid(paintCell(current, date, startTime, back));
+      setNotice("Müsaitlik kaydedilemedi.");
+    };
     void api<{ ok: boolean; date: string; startTime: string; state: Manual }>("/me/availability-cells", {
       method: "POST",
       body: JSON.stringify({ date, startTime, state: next }),
     }).then((saved) => {
-      if (cellToken.current.get(key) !== token) return;
       if (saved.state !== next) {
-        setNotice("Müsaitlik kaydedilemedi.");
+        restore();
         return;
       }
-      const current = gridRef.current;
-      if (!current) return;
-      paintEpoch.current += 1;
-      showGrid(paintCell(current, date, startTime, saved.state));
+      const known = confirmed.current.get(key);
+      if (!known || known.token <= token) confirmed.current.set(key, { token, manual: saved.state });
     }).catch(() => {
-      if (cellToken.current.get(key) !== token) return;
-      setNotice("Müsaitlik kaydedilemedi.");
+      restore();
     });
   }
   onCellRef.current = onCell;

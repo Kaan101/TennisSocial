@@ -97,7 +97,7 @@ async function mondaySlot(token: string, clubId?: string) {
   expect(slot).toBeTruthy();
   return slot as {
     green: boolean;
-    people: { id: string }[];
+    playerIds: string[];
     courts: { name: string; state: string; reservation: { purposeLabel: string; checkedIn: boolean; players: { id: string }[] | null } | null }[];
   };
 }
@@ -108,7 +108,7 @@ test("two visible players within one level turn the slot green", async () => {
   const second = await player("Es", "BEGINNER_PLUS");
   const slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(true);
-  expect(slot.people.map((person) => person.id).sort()).toEqual([first.user.id, second.user.id].sort());
+  expect(slot.playerIds.sort()).toEqual([first.user.id, second.user.id].sort());
 });
 
 test("a pair two levels apart does not turn the slot green", async () => {
@@ -117,7 +117,7 @@ test("a pair two levels apart does not turn the slot green", async () => {
   await player("Rakip", "INTERMEDIATE");
   const slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(false);
-  expect(slot.people).toHaveLength(2);
+  expect(slot.playerIds).toHaveLength(2);
 });
 
 test("a hidden player does not count toward the green rule", async () => {
@@ -133,7 +133,7 @@ test("a hidden player does not count toward the green rule", async () => {
   expect(hide.statusCode).toBe(200);
   const slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(false);
-  expect(slot.people.map((person) => person.id)).not.toContain(hidden.user.id);
+  expect(slot.playerIds).not.toContain(hidden.user.id);
 });
 
 test("Tam and Belki show on the board and Dolu does not", async () => {
@@ -153,19 +153,19 @@ test("Tam and Belki show on the board and Dolu does not", async () => {
 
   let slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(true);
-  expect(slot.people.map((person) => person.id)).toContain(tam.user.id);
-  expect(slot.people.map((person) => person.id)).toContain(other.user.id);
+  expect(slot.playerIds).toContain(tam.user.id);
+  expect(slot.playerIds).toContain(other.user.id);
 
   expect((await paint(other.token, "FULL")).statusCode).toBe(200);
   slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(true);
-  expect(slot.people.map((person) => person.id).sort()).toEqual([tam.user.id, other.user.id].sort());
+  expect(slot.playerIds.sort()).toEqual([tam.user.id, other.user.id].sort());
 
   expect((await paint(other.token, "BUSY")).statusCode).toBe(200);
   slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(false);
-  expect(slot.people.map((person) => person.id)).toContain(tam.user.id);
-  expect(slot.people.map((person) => person.id)).not.toContain(other.user.id);
+  expect(slot.playerIds).toContain(tam.user.id);
+  expect(slot.playerIds).not.toContain(other.user.id);
 
   const week = await app.inject({
     method: "GET",
@@ -262,16 +262,16 @@ test("Tam at 14:00 stays in people for 28 Sep–4 Oct even when that hour is res
     headers: auth(viewer.token),
   });
   expect(board.statusCode).toBe(200);
-  const slots = board.json().slots as { date: string; startTime: string; people: { id: string }[]; courts: { state: string }[] }[];
+  const slots = board.json().slots as { date: string; startTime: string; playerIds: string[]; courts: { state: string }[] }[];
   for (const date of dates) {
     const slot = slots.find((item) => item.date === date && item.startTime === "14:00");
-    expect(slot?.people.map((person) => person.id)).toContain(viewer.user.id);
-    expect(slot?.people.map((person) => person.id)).not.toContain(paused.user.id);
-    expect(slot?.people.map((person) => person.id)).not.toContain(away.user.id);
+    expect(slot?.playerIds).toContain(viewer.user.id);
+    expect(slot?.playerIds).not.toContain(paused.user.id);
+    expect(slot?.playerIds).not.toContain(away.user.id);
     expect(slot?.courts.filter((item) => item.state === "free")).toHaveLength(0);
   }
   const later = slots.find((item) => item.date === "2026-09-28" && item.startTime === "15:00");
-  expect(later?.people.map((person) => person.id)).not.toContain(viewer.user.id);
+  expect(later?.playerIds).not.toContain(viewer.user.id);
   expect(later?.courts.filter((item) => item.state === "free").length).toBeGreaterThan(0);
 
   const week = await app.inject({
@@ -344,7 +344,7 @@ test("clearing 13:00–15:00 drops Saturday and Sunday when a weekly window stil
   expect(board.statusCode).toBe(200);
   const peopleAt = (date: string, startTime: string) => {
     const slot = board.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
-    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+    return (slot?.playerIds ?? []) as string[];
   };
   for (const date of dates) {
     for (const startTime of ["13:00", "14:00", "15:00"]) {
@@ -385,7 +385,7 @@ test("clearing 13:00–15:00 drops Saturday and Sunday when a weekly window stil
   });
   const peopleAfter = (date: string, startTime: string) => {
     const slot = after.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
-    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+    return (slot?.playerIds ?? []) as string[];
   };
   expect(peopleAfter("2026-10-04", "13:00")).toContain(viewer.user.id);
   expect(peopleAfter("2026-10-03", "13:00")).not.toContain(viewer.user.id);
@@ -406,7 +406,7 @@ test("clearing 13:00–15:00 drops Saturday and Sunday when a weekly window stil
   });
   const peopleReplaced = (date: string, startTime: string) => {
     const slot = replaced.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
-    return ((slot?.people ?? []) as { id: string }[]).map((person) => person.id);
+    return (slot?.playerIds ?? []) as string[];
   };
   expect(peopleReplaced("2026-10-04", "13:00")).toContain(legacy.user.id);
   expect(peopleReplaced("2026-10-03", "13:00")).not.toContain(legacy.user.id);
@@ -441,13 +441,13 @@ test("the signed-in player shows on a Wednesday marked Tam or Belki, and not whe
   expect(res.statusCode).toBe(200);
   const peopleAt = (date: string, startTime: string) => {
     const slot = res.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
-    return (slot?.people ?? []) as { id: string }[];
+    return (slot?.playerIds ?? []) as string[];
   };
-  expect(peopleAt(wednesday, "18:00").map((person) => person.id)).toContain(viewer.user.id);
-  expect(peopleAt(wednesday, "19:00").map((person) => person.id)).toContain(viewer.user.id);
-  expect(peopleAt(wednesday, "20:00").map((person) => person.id)).not.toContain(viewer.user.id);
-  expect(peopleAt(wednesday, "21:00").map((person) => person.id)).not.toContain(viewer.user.id);
-  expect(peopleAt("2026-10-06", "18:00").map((person) => person.id)).not.toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "18:00")).toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "19:00")).toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "20:00")).not.toContain(viewer.user.id);
+  expect(peopleAt(wednesday, "21:00")).not.toContain(viewer.user.id);
+  expect(peopleAt("2026-10-06", "18:00")).not.toContain(viewer.user.id);
 });
 
 test("next month copy repeats marked hours on the same weekday and leaves empty hours empty", async () => {
@@ -538,10 +538,10 @@ test("next month copy repeats marked hours on the same weekday and leaves empty 
   expect(board.statusCode).toBe(200);
   const peopleAt = (date: string, startTime: string) => {
     const slot = board.json().slots.find((item: { date: string; startTime: string }) => item.date === date && item.startTime === startTime);
-    return (slot?.people ?? []) as { id: string }[];
+    return (slot?.playerIds ?? []) as string[];
   };
-  expect(peopleAt("2026-11-04", "18:00").map((person) => person.id)).toContain(member.user.id);
-  expect(peopleAt("2026-11-04", "10:00").map((person) => person.id)).not.toContain(member.user.id);
+  expect(peopleAt("2026-11-04", "18:00")).toContain(member.user.id);
+  expect(peopleAt("2026-11-04", "10:00")).not.toContain(member.user.id);
 });
 
 test("three players are green when only one pair is within one level", async () => {
@@ -551,7 +551,7 @@ test("three players are green when only one pair is within one level", async () 
   await player("Uc", "ADVANCED");
   const slot = await mondaySlot(viewer.token);
   expect(slot.green).toBe(true);
-  expect(slot.people).toHaveLength(3);
+  expect(slot.playerIds).toHaveLength(3);
 });
 
 async function asAdmin() {
@@ -708,7 +708,7 @@ test("accepting a slot offer books one free court and leaves the hour open", asy
 
   const midway = await mondaySlot(gamma.token, first.clubId);
   expect(midway.green).toBe(true);
-  expect(midway.people.map((person) => person.id)).toEqual(expect.arrayContaining([alpha.user.id, beta.user.id, gamma.user.id, delta.user.id, epsilon.user.id, zeta.user.id]));
+  expect(midway.playerIds).toEqual(expect.arrayContaining([alpha.user.id, beta.user.id, gamma.user.id, delta.user.id, epsilon.user.id, zeta.user.id]));
   const again = await app.inject({
     method: "POST",
     url: "/api/slot-offers",
@@ -753,7 +753,7 @@ test("accepting a slot offer books one free court and leaves the hour open", asy
   expect(failed.statusCode).toBe(409);
   expect(failed.json().error.message).toMatch(/boş kort/);
   const stillOpen = await mondaySlot(epsilon.token);
-  expect(stillOpen.people.map((person) => person.id)).toEqual(expect.arrayContaining([epsilon.user.id, zeta.user.id]));
+  expect(stillOpen.playerIds).toEqual(expect.arrayContaining([epsilon.user.id, zeta.user.id]));
   expect(stillOpen.green).toBe(true);
 });
 
