@@ -1,7 +1,9 @@
 "use client";
 
 import type { PlayerCard } from "@club/types";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
@@ -39,6 +41,9 @@ export default function LadderPage() {
   const [targetId, setTargetId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [found, setFound] = useState<PlayerCard[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [offeringId, setOfferingId] = useState<string | null>(null);
 
@@ -62,7 +67,7 @@ export default function LadderPage() {
   useEffect(() => {
     if (!pickerOpen) return;
     let cancel = false;
-    api<{ data: PlayerCard[] }>(`/players/search?q=${encodeURIComponent(query)}&pageSize=12`)
+    api<{ data: PlayerCard[] }>(`/players/search?q=${encodeURIComponent(query)}&pageSize=20`)
       .then((result) => {
         if (!cancel) setFound(result.data);
       })
@@ -96,16 +101,49 @@ export default function LadderPage() {
   const pendingTo = new Set(
     (offerData?.data ?? []).filter((offer) => offer.fromUserId === user?.id).map((offer) => offer.toUserId),
   );
+  const chosen = [...selected].filter((id) => !onTarget.has(id));
 
-  async function addPlayer(player: PlayerCard) {
-    if (!target || onTarget.has(player.id)) return;
+  function togglePlayer(id: string) {
+    if (onTarget.has(id)) return;
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleLadder(id: string) {
+    setClosedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function addSelected(event: React.FormEvent) {
+    event.preventDefault();
+    if (!target || chosen.length === 0 || saving) return;
+    setSaving(true);
     setMessage(null);
     try {
-      await api(`/ladders/${target.id}/players`, { method: "POST", body: JSON.stringify({ userId: player.id }) });
-      setMessage(`${player.firstName} ${player.lastName} eklendi.`);
+      for (const userId of chosen) {
+        await api(`/ladders/${target.id}/players`, { method: "POST", body: JSON.stringify({ userId }) });
+      }
+      setSelected(new Set());
+      setClosedIds((current) => {
+        const next = new Set(current);
+        next.delete(target.id);
+        return next;
+      });
+      setMessage(chosen.length === 1 ? "Oyuncu eklendi." : "Oyuncular eklendi.");
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Oyuncu eklenemedi");
+      await reloadLadders();
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -132,24 +170,19 @@ export default function LadderPage() {
           rows.length > 0 ? (
             <button
               type="button"
+              aria-expanded={pickerOpen}
               className="court-press rounded-md border border-line px-2 py-1 text-xs"
               onClick={() => setPickerOpen((open) => !open)}
             >
-              Ekle
+              {pickerOpen ? "Kapat" : "Ekle"}
             </button>
           ) : null
         }
       />
-      {rows.length === 1 && rows[0].name !== "Merdiven" ? <p className="text-sm font-semibold">{rows[0].name}</p> : null}
       {message ? <p className="text-sm">{message}</p> : null}
       {rows.length === 0 ? <LoadingBlock label="Merdiven hazırlanıyor" /> : null}
       {pickerOpen && target ? (
-        <form
-          className="space-y-2 rounded-3xl border border-line bg-surface p-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-          }}
-        >
+        <form className="space-y-3 rounded-3xl border border-line bg-surface p-4" onSubmit={(event) => void addSelected(event)}>
           {rows.length > 1 ? (
             <label className="block text-sm">
               Merdiven
@@ -166,52 +199,81 @@ export default function LadderPage() {
             </label>
           ) : null}
           <Input aria-label="Oyuncu ara" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Oyuncu ara" className="h-9" />
-          <ul className="space-y-2">
+          <ul className="space-y-2" aria-label="Oyuncu seç">
+            {found === null ? <li className="text-sm text-muted">Liste yükleniyor</li> : null}
+            {found?.length === 0 ? <li className="text-sm text-muted">Eşleşen oyuncu yok</li> : null}
             {(found ?? []).map((player) => {
               const already = onTarget.has(player.id);
+              const on = selected.has(player.id) && !already;
               return (
-                <li key={player.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span>{player.firstName} {player.lastName}</span>
-                  {already ? (
-                    <span className="text-xs text-muted">Merdivende</span>
-                  ) : (
-                    <button type="button" onClick={() => void addPlayer(player)} className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs">
-                      Ekle
-                    </button>
-                  )}
+                <li key={player.id}>
+                  <label className={`flex items-center gap-3 rounded-2xl border px-3 py-2 text-sm ${already ? "border-line opacity-70" : on ? "border-court bg-paper" : "border-line"} ${already ? "" : "cursor-pointer"}`}>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 shrink-0"
+                      checked={on}
+                      disabled={already}
+                      onChange={() => togglePlayer(player.id)}
+                    />
+                    <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
+                    <span className="min-w-0 flex-1 truncate font-medium">{player.firstName} {player.lastName}</span>
+                    {already ? <span className="shrink-0 text-xs text-muted">Merdivende</span> : null}
+                  </label>
                 </li>
               );
             })}
           </ul>
+          <button
+            type="submit"
+            disabled={chosen.length === 0 || saving}
+            className="court-press rounded-md border border-line px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+          >
+            Ekle
+          </button>
         </form>
       ) : null}
-      {rows.map((ladder) => (
-        <section key={ladder.id} className="space-y-2">
-          {rows.length > 1 ? <h2 className="font-semibold">{ladder.name}</h2> : null}
-          {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile bir oyuncu seç." /> : null}
-          <ol className="space-y-2">
-            {ladder.players.map((player) => {
-              const mine = player.userId === user?.id;
-              const pending = pendingTo.has(player.userId);
-              return (
-                <li key={player.userId} className="flex items-center justify-between gap-3 rounded-2xl bg-surface px-4 py-3 text-sm">
-                  <span>{player.rank}. {player.name}</span>
-                  {mine ? null : (
-                    <button
-                      type="button"
-                      disabled={pending || offeringId === player.userId}
-                      onClick={() => void offerMatch(player)}
-                      className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                    >
-                      {pending ? "Teklif bekliyor" : "Maç teklif et"}
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      ))}
+      {rows.map((ladder) => {
+        const open = !closedIds.has(ladder.id);
+        return (
+          <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => toggleLadder(ladder.id)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left font-semibold"
+            >
+              <span>{ladder.name}</span>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            {open ? (
+              <div className="space-y-2 px-3 pb-3">
+                {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
+                <ol className="space-y-2">
+                  {ladder.players.map((player) => {
+                    const mine = player.userId === user?.id;
+                    const pending = pendingTo.has(player.userId);
+                    return (
+                      <li key={player.userId} className="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3 text-sm">
+                        <span>{player.rank}. {player.name}</span>
+                        {mine ? null : (
+                          <button
+                            type="button"
+                            disabled={pending || offeringId === player.userId}
+                            onClick={() => void offerMatch(player)}
+                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                          >
+                            {pending ? "Teklif bekliyor" : "Maç teklif et"}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
       <section className="space-y-2">
         <h2 className="font-semibold">Maç teklifleri</h2>
         {offerError ? <ErrorState message={offerError} onRetry={reloadOffers} /> : null}

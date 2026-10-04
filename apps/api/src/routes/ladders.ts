@@ -1,8 +1,15 @@
 import type { FastifyInstance } from "fastify";
+import { Prisma } from "@prisma/client";
 import { ladderCreateSchema, ladderEnsureSchema, ladderListSchema, ladderPlayerSchema, matchOfferCreateSchema, matchOfferListSchema } from "@club/shared";
 import { requireUser } from "../lib/authz";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
+
+// hashtext returns integer. pg_advisory_xact_lock(integer) does not exist, so the
+// old call threw and the API answered 500 before the player row was written.
+async function lockKey(tx: Prisma.TransactionClient, key: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0::bigint))`;
+}
 
 function displayName(profile: { firstName: string; lastName: string } | null | undefined): string {
   return `${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`.trim();
@@ -62,7 +69,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const club = await prisma.club.findUnique({ where: { id: body.clubId } });
     if (!club) throw notFound("Kulüp bulunamadı");
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${body.clubId}))`;
+      await lockKey(tx, body.clubId);
       const existing = await tx.ladder.findFirst({
         where: { clubId: body.clubId, deletedAt: null },
         orderBy: { createdAt: "asc" },
@@ -87,7 +94,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     if (!user?.profile) throw notFound("Oyuncu bulunamadı");
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`ladder:${id}`}))`;
+      await lockKey(tx, `ladder:${id}`);
       const existing = await tx.ladderPlayer.findUnique({
         where: { ladderId_userId: { ladderId: id, userId: user.id } },
       });
@@ -191,7 +198,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     if (!onLadder) throw new AppError(400, "VALIDATION_ERROR", "Bu oyuncu kulübün merdiveninde değil");
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer:${viewer.id}:${body.toUserId}:${body.clubId}`}))`;
+      await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
       const existing = await tx.matchOffer.findFirst({
         where: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, status: "PENDING" },
       });

@@ -16,7 +16,6 @@ export function CourtDefinition({ nested = false }: { nested?: boolean }) {
   const [courts, setCourts] = useState<DefinedCourt[]>([]);
   const [courtName, setCourtName] = useState("");
   const [kind, setKind] = useState<"BALLOON" | "OUTDOOR">("OUTDOOR");
-  const Title = nested ? "h2" : "h1";
 
   useEffect(() => {
     if (!clubId) {
@@ -64,7 +63,7 @@ export function CourtDefinition({ nested = false }: { nested?: boolean }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3">
-      <Title className="text-sm font-semibold">Kort tanımı</Title>
+      {nested ? null : <h1 className="text-sm font-semibold">Kort tanımı</h1>}
       {clubId ? (
         <>
           <form

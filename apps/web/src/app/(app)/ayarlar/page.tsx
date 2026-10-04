@@ -36,32 +36,44 @@ export default function SettingsPage() {
   if (!ready) return null;
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-8">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       <h1 className="text-sm font-semibold">Ayarlar</h1>
-      <section className="flex w-full min-w-0 flex-col gap-3">
-        <h2 className="text-sm font-semibold">Merdiven</h2>
-        <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => void defineLadder(event)}>
-          <Input aria-label="Merdiven adı" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ad" className="h-9 min-w-0 flex-1" />
-          <Select aria-label="Kulüp" value={clubValue} onChange={(event) => setChosenClub(event.target.value)} className="h-9 w-40">
-            {clubs.length === 0 ? <option value="">Kulüp yok</option> : null}
-            {clubs.map((item) => (
-              <option key={item.id} value={item.id}>{item.name}</option>
+      <details className="rounded-2xl border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-sm font-semibold">Merdiven tanımı</summary>
+        <div className="flex flex-col gap-3 pt-3">
+          <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => void defineLadder(event)}>
+            <Input aria-label="Merdiven adı" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ad" className="h-9 min-w-0 flex-1" />
+            <Select aria-label="Kulüp" value={clubValue} onChange={(event) => setChosenClub(event.target.value)} className="h-9 w-40">
+              {clubs.length === 0 ? <option value="">Kulüp yok</option> : null}
+              {clubs.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </Select>
+            <button type="submit" className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs">Kaydet</button>
+          </form>
+          {message ? <p className="text-sm">{message}</p> : null}
+          <ul className="flex flex-col gap-1">
+            {(ladders.data?.data ?? []).map((ladder) => (
+              <li key={ladder.id} className="text-sm">
+                {ladder.name}
+                {ladder.clubName ? ` · ${ladder.clubName}` : ""}
+              </li>
             ))}
-          </Select>
-          <button type="submit" className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs">Kaydet</button>
-        </form>
-        {message ? <p className="text-sm">{message}</p> : null}
-        <ul className="flex flex-col gap-1">
-          {(ladders.data?.data ?? []).map((ladder) => (
-            <li key={ladder.id} className="text-sm">
-              {ladder.name}
-              {ladder.clubName ? ` · ${ladder.clubName}` : ""}
-            </li>
-          ))}
-        </ul>
-      </section>
-      <ClubDefinition nested />
-      <CourtDefinition nested />
+          </ul>
+        </div>
+      </details>
+      <details className="rounded-2xl border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-sm font-semibold">Kulüp tanımı</summary>
+        <div className="pt-3">
+          <ClubDefinition nested />
+        </div>
+      </details>
+      <details className="rounded-2xl border border-line bg-surface px-3 py-2">
+        <summary className="cursor-pointer text-sm font-semibold">Kort tanımı</summary>
+        <div className="pt-3">
+          <CourtDefinition nested />
+        </div>
+      </details>
     </div>
   );
 }

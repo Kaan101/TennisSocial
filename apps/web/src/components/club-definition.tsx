@@ -9,7 +9,6 @@ export function ClubDefinition({ nested = false }: { nested?: boolean }) {
   const { club, ready, selectClub, reload } = useClub();
   const [clubName, setClubName] = useState("");
   const [newClub, setNewClub] = useState("");
-  const Title = nested ? "h2" : "h1";
 
   useEffect(() => {
     setClubName(club?.name ?? "");
@@ -53,7 +52,7 @@ export function ClubDefinition({ nested = false }: { nested?: boolean }) {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-3">
-      <Title className="text-sm font-semibold">Kulüp tanımı</Title>
+      {nested ? null : <h1 className="text-sm font-semibold">Kulüp tanımı</h1>}
       <form
         className="flex items-center gap-2"
         onSubmit={(event) => {
