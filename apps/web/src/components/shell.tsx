@@ -64,7 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar");
   const frame = `mx-auto w-[90%] lg:w-full ${wide ? "lg:max-w-6xl" : "lg:max-w-lg"}`;
 
   return (
@@ -156,8 +156,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
         <div className={`${frame} grid grid-cols-2 border-b border-line`}>
           {[
-            { href: "/kulup-tanimi", label: "Kulüp tanımı" },
-            { href: "/kort-tanimi", label: "Kort tanımı" },
+            { href: "/merdiven", label: "Merdiven" },
+            { href: "/ayarlar", label: "Ayarlar" },
           ].map((item) => {
             const active = pathname.startsWith(item.href);
             return (

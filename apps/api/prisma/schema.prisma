@@ -300,6 +300,8 @@ model User {
   slotOffersSent     SlotOffer[]        @relation("SlotOfferFrom")
   slotOffersReceived SlotOffer[]        @relation("SlotOfferTo")
   courtSlotPeople    CourtSlotPerson[]
+  matchOffersSent    MatchOffer[]       @relation("MatchOfferFrom")
+  matchOffersReceived MatchOffer[]      @relation("MatchOfferTo")
 
   @@index([role])
   @@index([deletedAt])
@@ -688,6 +690,8 @@ model Ladder {
   description String?
   groupId      String?
   group        Group?    @relation(fields: [groupId], references: [id])
+  clubId       String?
+  club         Club?     @relation(fields: [clubId], references: [id])
   maxRankSpan  Int       @default(3)
   deletedAt    DateTime?
   createdAt    DateTime  @default(now())
@@ -697,6 +701,8 @@ model Ladder {
   history    LadderHistory[]
   challenges Challenge[]
   matches    Match[]
+
+  @@index([clubId])
 }
 
 model LadderPlayer {
@@ -833,6 +839,10 @@ enum SlotOfferStatus {
   CANCELLED
 }
 
+enum MatchOfferStatus {
+  PENDING
+}
+
 enum CourtKind {
   BALLOON
   OUTDOOR
@@ -853,7 +863,9 @@ model Club {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  courts Court[]
+  courts      Court[]
+  ladders     Ladder[]
+  matchOffers MatchOffer[]
 }
 
 model Court {
@@ -961,6 +973,24 @@ model CourtSlotGroup {
   @@unique([courtId, date, startTime, groupId])
   @@index([courtId, date, startTime])
   @@index([groupId])
+}
+
+/// A stored match offer: the two players, the club, and a pending state.
+model MatchOffer {
+  id         String           @id @default(cuid())
+  fromUserId String
+  toUserId   String
+  clubId     String
+  fromUser   User             @relation("MatchOfferFrom", fields: [fromUserId], references: [id])
+  toUser     User             @relation("MatchOfferTo", fields: [toUserId], references: [id])
+  club       Club             @relation(fields: [clubId], references: [id])
+  status     MatchOfferStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([toUserId, status])
+  @@index([fromUserId])
+  @@index([clubId])
 }
 
 model SlotOffer {

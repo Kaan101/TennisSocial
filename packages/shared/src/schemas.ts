@@ -423,6 +423,32 @@ export const slotOfferListSchema = z.object({
   scope: z.enum(["incoming", "outgoing"]).default("incoming"),
 });
 
+export const ladderCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  clubId: z.string().min(1),
+});
+
+export const ladderEnsureSchema = z.object({
+  clubId: z.string().min(1),
+});
+
+export const ladderPlayerSchema = z.object({
+  userId: z.string().min(1),
+});
+
+export const ladderListSchema = z.object({
+  clubId: z.string().min(1).optional(),
+});
+
+export const matchOfferCreateSchema = z.object({
+  toUserId: z.string().min(1),
+  clubId: z.string().min(1),
+});
+
+export const matchOfferListSchema = z.object({
+  clubId: z.string().min(1),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
