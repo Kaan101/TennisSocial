@@ -440,6 +440,14 @@ export const ladderListSchema = z.object({
   clubId: z.string().min(1).optional(),
 });
 
+export const ladderSettingsUpdateSchema = z.object({
+  showOfferingPlayer: z.boolean().optional(),
+  showChallengeResult: z.boolean().optional(),
+  acceptDays: z.coerce.number().int().min(1).max(90).optional(),
+  responseHours: z.coerce.number().int().min(1).max(720).optional(),
+  maxRankSpan: z.coerce.number().int().min(1).max(20).optional(),
+});
+
 export const matchOfferCreateSchema = z.object({
   toUserId: z.string().min(1),
   clubId: z.string().min(1),

@@ -28,6 +28,14 @@ type LadderOffer = {
   toName: string;
   daysLeft: number;
 };
+type LadderSettings = {
+  showOfferingPlayer: boolean;
+  showChallengeResult: boolean;
+  acceptDays: number;
+  responseHours: number;
+  maxRankSpan: number;
+};
+
 type Ladder = {
   id: string;
   name: string;
@@ -35,7 +43,7 @@ type Ladder = {
   playerCount: number;
   players: LadderPlayer[];
   offers: LadderOffer[];
-};
+} & LadderSettings;
 
 const LADDER_RULES = [
   "Oyuncu en fazla 3 sıra üstündeki oyuncuya defi yapabilir.",
@@ -63,8 +71,8 @@ const LADDER_RULES = [
 
 function LadderAciklama() {
   return (
-    <article className="space-y-3 text-sm leading-snug text-muted">
-      <h2 className="text-base font-semibold text-ink">DEFİ SİSTEMİ</h2>
+    <article className="space-y-3 text-xs leading-snug text-muted">
+      <h2 className="text-sm font-semibold text-ink">DEFİ SİSTEMİ</h2>
       <p>
         Defi Sistemi, oyuncuların sıralamada yükselmek amacıyla üst sıradaki oyunculara maç teklif ettiği rekabet sistemidir.
       </p>
@@ -83,7 +91,7 @@ function LadderAciklama() {
         <p className="mt-1 whitespace-pre-line font-medium">
           {`Ahmet\nMehmet\nKaan\nMurat`}
         </p>
-        <p className="mt-2">sıradaki Selçuk, 5. sıradaki Ahmet&apos;e defi gönderir.</p>
+        <p className="mt-2">sıradaki Kaan, 5. sıradaki Ahmet&apos;e defi gönderir.</p>
         <p className="mt-2">Selçuk kazanırsa yeni sıralama:</p>
         <p className="mt-1 whitespace-pre-line font-medium">
           {`Kaan\nAhmet\nMehmet\nMurat`}
@@ -126,11 +134,153 @@ function LadderAciklama() {
   );
 }
 
-function LadderSide() {
-  const [tab, setTab] = useState<"kurallar" | "aciklama">("kurallar");
+function LadderAyarlar({
+  ladder,
+  canManage,
+  onSaved,
+}: {
+  ladder: Ladder | null;
+  canManage: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [showOfferingPlayer, setShowOfferingPlayer] = useState(true);
+  const [showChallengeResult, setShowChallengeResult] = useState(true);
+  const [acceptDays, setAcceptDays] = useState("7");
+  const [responseHours, setResponseHours] = useState("48");
+  const [maxRankSpan, setMaxRankSpan] = useState("3");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ladder) return;
+    setShowOfferingPlayer(ladder.showOfferingPlayer);
+    setShowChallengeResult(ladder.showChallengeResult);
+    setAcceptDays(String(ladder.acceptDays));
+    setResponseHours(String(ladder.responseHours));
+    setMaxRankSpan(String(ladder.maxRankSpan));
+    setMessage(null);
+  }, [ladder]);
+
+  async function saveSettings(event: React.FormEvent) {
+    event.preventDefault();
+    if (!ladder || !canManage || saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await api(`/ladders/${ladder.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          showOfferingPlayer,
+          showChallengeResult,
+          acceptDays: Number(acceptDays),
+          responseHours: Number(responseHours),
+          maxRankSpan: Number(maxRankSpan),
+        }),
+      });
+      setMessage("Ayarlar kaydedildi.");
+      await onSaved();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Ayarlar kaydedilemedi");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!ladder) {
+    return <p className="text-sm text-muted">Merdiven seçilince ayarlar burada görünür.</p>;
+  }
+
+  return (
+    <form className="space-y-4 text-sm" onSubmit={(event) => void saveSettings(event)}>
+      <label className="flex items-center justify-between gap-3">
+        <span>Teklif eden oyuncuyu göster</span>
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0"
+          checked={showOfferingPlayer}
+          disabled={!canManage}
+          onChange={(event) => setShowOfferingPlayer(event.target.checked)}
+        />
+      </label>
+      <label className="flex items-center justify-between gap-3">
+        <span>Defi sonucunu göster</span>
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0"
+          checked={showChallengeResult}
+          disabled={!canManage}
+          onChange={(event) => setShowChallengeResult(event.target.checked)}
+        />
+      </label>
+      <label className="block">
+        <span className="block">Defi Kabul gün sayısı</span>
+        <Input
+          type="number"
+          min={1}
+          inputMode="numeric"
+          value={acceptDays}
+          disabled={!canManage}
+          onChange={(event) => setAcceptDays(event.target.value)}
+          className="mt-1 h-9"
+        />
+      </label>
+      <label className="block">
+        <span className="block">Defi yanıt süresi</span>
+        <div className="mt-1 flex items-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            inputMode="numeric"
+            value={responseHours}
+            disabled={!canManage}
+            onChange={(event) => setResponseHours(event.target.value)}
+            className="h-9 min-w-0 flex-1"
+          />
+          <span className="shrink-0 text-muted">saat</span>
+        </div>
+      </label>
+      <label className="block">
+        <span className="block">Teklif üst sıra sayısı</span>
+        <Input
+          type="number"
+          min={1}
+          inputMode="numeric"
+          value={maxRankSpan}
+          disabled={!canManage}
+          onChange={(event) => setMaxRankSpan(event.target.value)}
+          className="mt-1 h-9"
+        />
+      </label>
+      {canManage ? (
+        <button
+          type="submit"
+          disabled={saving}
+          className="court-press rounded-md border border-line px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+        >
+          Kaydet
+        </button>
+      ) : (
+        <p className="text-xs text-muted">Ayarları yalnızca kulüp yöneticisi değiştirebilir.</p>
+      )}
+      {message ? <p className="text-xs">{message}</p> : null}
+    </form>
+  );
+}
+
+function LadderSide({
+  ladder,
+  canManage,
+  onSaved,
+}: {
+  ladder: Ladder | null;
+  canManage: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [tab, setTab] = useState<"kurallar" | "aciklama" | "ayarlar">("kurallar");
   const tabs = [
     { id: "kurallar" as const, label: "Kurallar" },
     { id: "aciklama" as const, label: "Açıklama" },
+    { id: "ayarlar" as const, label: "Ayarlar" },
   ];
   return (
     <aside className="flex min-w-0 max-h-[calc(100dvh-11.5rem)] flex-col overflow-hidden rounded-3xl border border-line bg-surface p-4 lg:col-span-2 lg:sticky lg:top-2">
@@ -160,14 +310,14 @@ function LadderSide() {
         className="min-h-0 flex-1 overflow-y-auto pt-3"
       >
         {tab === "kurallar" ? (
-          <ol className="list-decimal space-y-2 pl-5 text-sm leading-snug">
+          <ol className="list-decimal space-y-2 pl-5 text-xs leading-snug">
             {LADDER_RULES.map((rule) => (
               <li key={rule}>{rule}</li>
             ))}
           </ol>
-        ) : (
-          <LadderAciklama />
-        )}
+        ) : null}
+        {tab === "aciklama" ? <LadderAciklama /> : null}
+        {tab === "ayarlar" ? <LadderAyarlar ladder={ladder} canManage={canManage} onSaved={onSaved} /> : null}
       </div>
     </aside>
   );
@@ -238,8 +388,16 @@ export default function LadderPage() {
     );
   }
 
-  const rows = ladderData.data;
+  const rows = ladderData.data.map((ladder) => ({
+    ...ladder,
+    showOfferingPlayer: ladder.showOfferingPlayer ?? true,
+    showChallengeResult: ladder.showChallengeResult ?? true,
+    acceptDays: ladder.acceptDays ?? 7,
+    responseHours: ladder.responseHours ?? 48,
+    maxRankSpan: ladder.maxRankSpan ?? 3,
+  }));
   const target = rows.find((ladder) => ladder.id === (targetId ?? rows[0]?.id)) ?? null;
+  const canManageLadder = user?.role === "ADMIN" || user?.role === "CLUB_MANAGER";
   const onTarget = new Set(target?.players.map((player) => player.userId) ?? []);
   const chosen = [...selected].filter((id) => !onTarget.has(id));
 
@@ -386,6 +544,7 @@ export default function LadderPage() {
       ) : null}
       {rows.map((ladder) => {
         const open = !closedIds.has(ladder.id);
+        const mineIndex = ladder.players.findIndex((item) => item.userId === user?.id);
         return (
           <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
             <button
@@ -402,8 +561,7 @@ export default function LadderPage() {
                 {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
                 <ol className="space-y-2">
                   {ladder.players.map((player, index) => {
-                    const mineIndex = ladder.players.findIndex((item) => item.userId === user?.id);
-                    const neighbor = mineIndex >= 0 && Math.abs(index - mineIndex) === 1;
+                    const withinSpan = mineIndex >= 0 && index < mineIndex && mineIndex - index <= ladder.maxRankSpan;
                     const betweenUs = (ladder.offers ?? []).find((offer) =>
                       Boolean(user) && (
                         (offer.fromUserId === user?.id && offer.toUserId === player.userId)
@@ -417,7 +575,7 @@ export default function LadderPage() {
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{player.rank}. {player.name}</span>
-                          {shown ? (
+                          {shown && ladder.showOfferingPlayer ? (
                             <span className="block truncate text-xs text-muted">{shown.fromName} teklif yaptı · {shown.daysLeft} gün</span>
                           ) : null}
                         </span>
@@ -427,14 +585,14 @@ export default function LadderPage() {
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
-                        {betweenUs && player.userId !== user?.id ? (
+                        {betweenUs && player.userId !== user?.id && ladder.showChallengeResult ? (
                           <span className="flex shrink-0 items-center gap-1">
                             <span className="text-xs text-muted">Sonuç</span>
                             <button type="button" aria-label={`${betweenUs.fromName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.fromUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.fromName.split(" ")[0]}</button>
                             <button type="button" aria-label={`${betweenUs.toName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.toUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.toName.split(" ")[0]}</button>
                           </span>
                         ) : null}
-                        {neighbor && !betweenUs ? (
+                        {withinSpan && !betweenUs ? (
                           <button
                             type="button"
                             disabled={offeringId === player.userId}
@@ -454,7 +612,7 @@ export default function LadderPage() {
         );
       })}
       </div>
-      <LadderSide />
+      <LadderSide ladder={target} canManage={canManageLadder} onSaved={reloadLadders} />
     </div>
   );
 }
