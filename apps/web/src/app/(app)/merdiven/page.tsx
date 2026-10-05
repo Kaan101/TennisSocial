@@ -37,6 +37,84 @@ type Ladder = {
   offers: LadderOffer[];
 };
 
+const LADDER_RULES = [
+  "Oyuncu en fazla 3 sıra üstündeki oyuncuya defi yapabilir.",
+  "Aynı anda yalnızca 1 aktif defi olabilir.",
+  "Defi alan oyuncu teklife 48 saat içinde cevap vermelidir.",
+  "Defi kabul edilirse maç 7 gün içinde oynanmalıdır.",
+  "Taraflar maç tarihini 72 saat içinde belirlemelidir.",
+  "Alt sıradaki oyuncu kazanırsa rakibinin sırasına çıkar.",
+  "Aradaki oyuncular bir sıra aşağı kayar.",
+  "Üst sıradaki oyuncu kazanırsa sıralama değişmez.",
+  "Maç sonucu, maçtan sonra 24 saat içinde sisteme girilmelidir.",
+  "Rakip sonucu 24 saat içinde onaylamalı veya itiraz etmelidir.",
+  "24 saat içinde itiraz edilmezse sonuç otomatik onaylanır.",
+  "Defiye 48 saat cevap verilmezse, defi reddedilmiş sayılır.",
+  "Defi kabul edildiği halde oyuncu maça mazeretsiz gelmezse hükmen mağlup sayılır.",
+  "Aynı rakibe tekrar defi göndermek için 7 gün beklenir.",
+  "Oyuncu seyahat veya sakatlık nedeniyle en fazla 30 gün pasif olabilir.",
+  "Pasif oyuncuya defi gönderilemez.",
+  "30 günden uzun pasiflikte sıralama yönetim tarafından yeniden değerlendirilir.",
+  "Maç ertelenecekse taraflar en az 24 saat önce bildirim yapmalıdır.",
+  "Bir defi maçı en fazla 1 kez ertelenebilir.",
+  "Ertelenen maç yine ilk defi tarihinden itibaren en geç 10 gün içinde oynanmalıdır.",
+  "Tüm defi sonuçları ve sıralama değişiklikleri sistemde saklanır.",
+];
+
+const LADDER_NOTES = [
+  "Yeşil ok: oyuncu yükseldi",
+  "Kırmızı ok: oyuncu düştü",
+  "— : sıra değişmedi",
+  "Aktif: son 30 günde hareketi olan oyuncu",
+  "Pasif: 30 gündür hareketi olmayan oyuncu",
+];
+
+function LadderSide() {
+  const [tab, setTab] = useState<"kurallar" | "aciklama">("kurallar");
+  const tabs = [
+    { id: "kurallar" as const, label: "Kurallar" },
+    { id: "aciklama" as const, label: "Açıklama" },
+  ];
+  return (
+    <aside className="min-w-0 rounded-3xl border border-line bg-surface p-4 lg:col-span-1">
+      <div className="flex gap-4 border-b border-line" role="tablist" aria-label="Merdiven">
+        {tabs.map((item) => {
+          const on = tab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`merdiven-${item.id}`}
+              aria-selected={on}
+              aria-controls={`merdiven-${item.id}-panel`}
+              onClick={() => setTab(item.id)}
+              className={`-mb-px border-b-2 pb-2 text-sm ${on ? "border-court font-semibold text-court" : "border-transparent text-muted"}`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" id={`merdiven-${tab}-panel`} aria-labelledby={`merdiven-${tab}`} className="pt-3">
+        {tab === "kurallar" ? (
+          <ol className="list-decimal space-y-2 pl-5 text-sm leading-snug">
+            {LADDER_RULES.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ol>
+        ) : (
+          <ul className="space-y-2 text-sm leading-snug text-muted">
+            {LADDER_NOTES.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export default function LadderPage() {
   const { user } = useAuth();
   const { clubId, ready } = useClub();
@@ -178,7 +256,8 @@ export default function LadderPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="grid items-start gap-4 lg:grid-cols-3">
+      <div className="min-w-0 space-y-4 lg:col-span-2">
       <PageHeader
         title="Merdiven"
         action={
@@ -316,6 +395,8 @@ export default function LadderPage() {
           </section>
         );
       })}
+      </div>
+      <LadderSide />
     </div>
   );
 }

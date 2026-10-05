@@ -64,7 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar") || pathname.startsWith("/merdiven");
   const frame = `mx-auto w-[90%] lg:w-full ${wide ? "lg:max-w-6xl" : "lg:max-w-lg"}`;
 
   return (
