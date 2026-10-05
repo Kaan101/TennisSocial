@@ -302,6 +302,7 @@ model User {
   courtSlotPeople    CourtSlotPerson[]
   matchOffersSent    MatchOffer[]       @relation("MatchOfferFrom")
   matchOffersReceived MatchOffer[]      @relation("MatchOfferTo")
+  matchOffersWon     MatchOffer[]       @relation("MatchOfferWinner")
 
   @@index([role])
   @@index([deletedAt])
@@ -697,10 +698,11 @@ model Ladder {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  players    LadderPlayer[]
-  history    LadderHistory[]
-  challenges Challenge[]
-  matches    Match[]
+  players     LadderPlayer[]
+  history     LadderHistory[]
+  challenges  Challenge[]
+  matches     Match[]
+  matchOffers MatchOffer[]
 
   @@index([clubId])
 }
@@ -712,9 +714,10 @@ model LadderPlayer {
   ladder    Ladder   @relation(fields: [ladderId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
   rank      Int
-  points    Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  points    Int         @default(0)
+  lastMove  LadderMove?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
   @@unique([ladderId, userId])
   @@unique([ladderId, rank])
@@ -841,6 +844,11 @@ enum SlotOfferStatus {
 
 enum MatchOfferStatus {
   PENDING
+}
+
+enum LadderMove {
+  UP
+  DOWN
 }
 
 enum CourtKind {
@@ -981,9 +989,13 @@ model MatchOffer {
   fromUserId String
   toUserId   String
   clubId     String
+  ladderId   String?
+  winnerId   String?
   fromUser   User             @relation("MatchOfferFrom", fields: [fromUserId], references: [id])
   toUser     User             @relation("MatchOfferTo", fields: [toUserId], references: [id])
   club       Club             @relation(fields: [clubId], references: [id])
+  ladder     Ladder?          @relation(fields: [ladderId], references: [id])
+  winner     User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
   status     MatchOfferStatus @default(PENDING)
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
@@ -991,6 +1003,7 @@ model MatchOffer {
   @@index([toUserId, status])
   @@index([fromUserId])
   @@index([clubId])
+  @@index([ladderId])
 }
 
 model SlotOffer {

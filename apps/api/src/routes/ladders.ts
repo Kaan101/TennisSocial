@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
-import { ladderCreateSchema, ladderEnsureSchema, ladderListSchema, ladderPlayerSchema, matchOfferCreateSchema, matchOfferListSchema } from "@club/shared";
+import { ladderCreateSchema, ladderEnsureSchema, ladderListSchema, ladderPlayerSchema, matchOfferCreateSchema, matchOfferListSchema, matchOfferResultSchema } from "@club/shared";
 import { requireUser } from "../lib/authz";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
@@ -11,8 +11,67 @@ async function lockKey(tx: Prisma.TransactionClient, key: string): Promise<void>
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0::bigint))`;
 }
 
+const OFFER_MS = 7 * 24 * 60 * 60 * 1000;
+
 function displayName(profile: { firstName: string; lastName: string } | null | undefined): string {
   return `${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`.trim();
+}
+
+function pendingSince(): Date {
+  return new Date(Date.now() - OFFER_MS);
+}
+
+function offerStillPending(offer: { winnerId: string | null; createdAt: Date; status: string }): boolean {
+  return offer.status === "PENDING" && !offer.winnerId && offer.createdAt.getTime() + OFFER_MS > Date.now();
+}
+
+function daysLeft(createdAt: Date): number {
+  const left = createdAt.getTime() + OFFER_MS - Date.now();
+  return Math.max(1, Math.ceil(left / (24 * 60 * 60 * 1000)));
+}
+
+function presentPlayer(player: {
+  userId: string;
+  rank: number;
+  points: number;
+  lastMove: "UP" | "DOWN" | null;
+  user: { profile: { firstName: string; lastName: string; photoUrl: string | null } | null };
+}) {
+  return {
+    userId: player.userId,
+    rank: player.rank,
+    points: player.points,
+    name: displayName(player.user.profile),
+    firstName: player.user.profile?.firstName ?? "",
+    lastName: player.user.profile?.lastName ?? "",
+    photoUrl: player.user.profile?.photoUrl ?? null,
+    lastMove: player.lastMove,
+  };
+}
+
+function presentOffer(row: {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  clubId: string;
+  ladderId: string | null;
+  createdAt: Date;
+  status: "PENDING";
+  fromUser: { profile: { firstName: string; lastName: string } | null };
+  toUser: { profile: { firstName: string; lastName: string } | null };
+}) {
+  return {
+    id: row.id,
+    fromUserId: row.fromUserId,
+    toUserId: row.toUserId,
+    fromName: displayName(row.fromUser.profile),
+    toName: displayName(row.toUser.profile),
+    clubId: row.clubId,
+    ladderId: row.ladderId,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+    daysLeft: daysLeft(row.createdAt),
+  };
 }
 
 export async function ladderRoutes(app: FastifyInstance): Promise<void> {
@@ -27,22 +86,31 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       },
       orderBy: { name: "asc" },
     });
+    const offers = query.clubId
+      ? await prisma.matchOffer.findMany({
+          where: { clubId: query.clubId, status: "PENDING", winnerId: null, createdAt: { gt: pendingSince() } },
+          include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
     return {
-      data: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        clubId: row.clubId,
-        clubName: row.club?.name ?? null,
-        maxRankSpan: row.maxRankSpan,
-        playerCount: row.players.length,
-        players: row.players.map((player) => ({
-          userId: player.userId,
-          rank: player.rank,
-          points: player.points,
-          name: displayName(player.user.profile),
-        })),
-      })),
+      data: rows.map((row) => {
+        const playerIds = new Set(row.players.map((player) => player.userId));
+        return {
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          clubId: row.clubId,
+          clubName: row.club?.name ?? null,
+          maxRankSpan: row.maxRankSpan,
+          playerCount: row.players.length,
+          players: row.players.map(presentPlayer),
+          offers: offers
+            .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))
+            .filter((offer) => playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId))
+            .map(presentOffer),
+        };
+      }),
     };
   });
 
@@ -132,12 +200,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       description: ladder.description,
       clubId: ladder.clubId,
       maxRankSpan: ladder.maxRankSpan,
-      players: ladder.players.map((player) => ({
-        userId: player.userId,
-        rank: player.rank,
-        points: player.points,
-        name: displayName(player.user.profile),
-      })),
+      players: ladder.players.map(presentPlayer),
       history: ladder.history.map((row) => ({
         id: row.id,
         userId: row.userId,
@@ -159,6 +222,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       where: {
         clubId: query.clubId,
         status: "PENDING",
+        winnerId: null,
+        createdAt: { gt: pendingSince() },
         OR: [{ fromUserId: viewer.id }, { toUserId: viewer.id }],
       },
       include: {
@@ -167,17 +232,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       },
       orderBy: { createdAt: "desc" },
     });
-    return {
-      data: rows.map((row) => ({
-        id: row.id,
-        fromUserId: row.fromUserId,
-        toUserId: row.toUserId,
-        fromName: displayName(row.fromUser.profile),
-        toName: displayName(row.toUser.profile),
-        clubId: row.clubId,
-        status: row.status,
-      })),
-    };
+    return { data: rows.map(presentOffer) };
   });
 
   app.post("/api/match-offers", async (req, reply) => {
@@ -193,18 +248,31 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       include: { profile: true },
     });
     if (!recipient?.profile || recipient.profile.deletedAt) throw notFound("Oyuncu bulunamadı");
+    let ladderId: string | null = null;
+    if (body.ladderId) {
+      const ladder = await prisma.ladder.findFirst({ where: { id: body.ladderId, clubId: club.id, deletedAt: null } });
+      if (!ladder) throw notFound("Merdiven bulunamadı");
+      ladderId = ladder.id;
+    }
     const onLadder = await prisma.ladderPlayer.findFirst({
-      where: { userId: recipient.id, ladder: { clubId: club.id, deletedAt: null } },
+      where: { userId: recipient.id, ladder: { id: ladderId ?? undefined, clubId: club.id, deletedAt: null } },
     });
     if (!onLadder) throw new AppError(400, "VALIDATION_ERROR", "Bu oyuncu kulübün merdiveninde değil");
     const result = await prisma.$transaction(async (tx) => {
       await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
       const existing = await tx.matchOffer.findFirst({
-        where: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, status: "PENDING" },
+        where: {
+          fromUserId: viewer.id,
+          toUserId: body.toUserId,
+          clubId: body.clubId,
+          status: "PENDING",
+          winnerId: null,
+          createdAt: { gt: pendingSince() },
+        },
       });
-      if (existing) return { offer: existing, created: false };
+      if (existing && offerStillPending(existing)) return { offer: existing, created: false };
       const offer = await tx.matchOffer.create({
-        data: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, status: "PENDING" },
+        data: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, ladderId, status: "PENDING" },
       });
       return { offer, created: true };
     });
@@ -218,4 +286,60 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     };
     return result.created ? reply.status(201).send(payload) : payload;
   });
+
+  app.post("/api/match-offers/:id/result", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const body = parse(matchOfferResultSchema, req.body);
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (!offerStillPending(offer)) throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
+    if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Bu teklifin sonucunu yazamazsın");
+    }
+    if (body.winnerId !== offer.fromUserId && body.winnerId !== offer.toUserId) {
+      throw new AppError(400, "VALIDATION_ERROR", "Kazanan bu teklifin oyuncusu olmalı");
+    }
+    const loserId = body.winnerId === offer.fromUserId ? offer.toUserId : offer.fromUserId;
+    const ladderId = offer.ladderId ?? (await sharedLadderId(offer.clubId, offer.fromUserId, offer.toUserId));
+    if (!ladderId) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
+    await prisma.$transaction(async (tx) => {
+      await lockKey(tx, `ladder:${ladderId}`);
+      const fresh = await tx.matchOffer.findUnique({ where: { id } });
+      if (!fresh || !offerStillPending(fresh)) throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
+      const winner = await tx.ladderPlayer.findUnique({
+        where: { ladderId_userId: { ladderId, userId: body.winnerId } },
+      });
+      const loser = await tx.ladderPlayer.findUnique({
+        where: { ladderId_userId: { ladderId, userId: loserId } },
+      });
+      if (!winner || !loser) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
+      const better = Math.min(winner.rank, loser.rank);
+      const worse = Math.max(winner.rank, loser.rank);
+      if (winner.rank !== better) {
+        await tx.ladderPlayer.update({ where: { id: winner.id }, data: { rank: 1_000_000 } });
+        await tx.ladderPlayer.update({ where: { id: loser.id }, data: { rank: worse, lastMove: "DOWN" } });
+        await tx.ladderPlayer.update({ where: { id: winner.id }, data: { rank: better, lastMove: "UP" } });
+      }
+      await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
+    });
+    return { id, winnerId: body.winnerId };
+  });
+}
+
+async function sharedLadderId(clubId: string, firstId: string, secondId: string): Promise<string | null> {
+  const seats = await prisma.ladderPlayer.findMany({
+    where: { userId: { in: [firstId, secondId] }, ladder: { clubId, deletedAt: null } },
+    select: { ladderId: true, userId: true },
+  });
+  const byLadder = new Map<string, Set<string>>();
+  for (const seat of seats) {
+    const users = byLadder.get(seat.ladderId) ?? new Set<string>();
+    users.add(seat.userId);
+    byLadder.set(seat.ladderId, users);
+  }
+  for (const [ladderId, users] of byLadder) {
+    if (users.has(firstId) && users.has(secondId)) return ladderId;
+  }
+  return null;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { PlayerCard } from "@club/types";
-import { ChevronDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
@@ -11,29 +11,36 @@ import { useAuth } from "@/lib/auth";
 import { useClub } from "@/lib/club";
 import { useResource } from "@/lib/use-resource";
 
-type LadderPlayer = { userId: string; name: string; rank: number; points: number };
+type LadderPlayer = {
+  userId: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  photoUrl: string | null;
+  rank: number;
+  lastMove: "UP" | "DOWN" | null;
+};
+type LadderOffer = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  fromName: string;
+  toName: string;
+  daysLeft: number;
+};
 type Ladder = {
   id: string;
   name: string;
   clubId: string | null;
   playerCount: number;
   players: LadderPlayer[];
-};
-type Offer = {
-  id: string;
-  fromUserId: string;
-  toUserId: string;
-  fromName: string;
-  toName: string;
-  clubId: string;
-  status: "PENDING";
+  offers: LadderOffer[];
 };
 
 export default function LadderPage() {
   const { user } = useAuth();
   const { clubId, ready } = useClub();
   const { data: ladderData, error: ladderError, loading: ladderLoading, reload: reloadLadders } = useResource<{ data: Ladder[] }>(clubId ? `/ladders?clubId=${encodeURIComponent(clubId)}` : null);
-  const { data: offerData, error: offerError, loading: offerLoading, reload: reloadOffers } = useResource<{ data: Offer[] }>(clubId ? `/match-offers?clubId=${encodeURIComponent(clubId)}` : null);
   const ensured = useRef<string | null>(null);
   const [ensureTick, setEnsureTick] = useState(0);
   const [ensureError, setEnsureError] = useState<string | null>(null);
@@ -79,7 +86,7 @@ export default function LadderPage() {
     };
   }, [pickerOpen, query]);
 
-  if (!ready || (clubId && (ladderLoading || offerLoading))) return <LoadingBlock label="Merdiven yükleniyor" />;
+  if (!ready || (clubId && ladderLoading)) return <LoadingBlock label="Merdiven yükleniyor" />;
   if (!clubId) return <EmptyState title="Kulüp yok" body="Üstteki listeden bir kulüp seç." />;
   if (ladderError || !ladderData) return <ErrorState message={ladderError ?? "Merdiven açılmadı"} onRetry={reloadLadders} />;
   if (ensureError && ladderData.data.length === 0) {
@@ -98,9 +105,6 @@ export default function LadderPage() {
   const rows = ladderData.data;
   const target = rows.find((ladder) => ladder.id === (targetId ?? rows[0]?.id)) ?? null;
   const onTarget = new Set(target?.players.map((player) => player.userId) ?? []);
-  const pendingTo = new Set(
-    (offerData?.data ?? []).filter((offer) => offer.fromUserId === user?.id).map((offer) => offer.toUserId),
-  );
   const chosen = [...selected].filter((id) => !onTarget.has(id));
 
   function togglePlayer(id: string) {
@@ -147,18 +151,29 @@ export default function LadderPage() {
     }
   }
 
-  async function offerMatch(player: LadderPlayer) {
+  async function offerMatch(ladderId: string, player: LadderPlayer) {
     if (!clubId || player.userId === user?.id) return;
     setOfferingId(player.userId);
     setMessage(null);
     try {
-      await api("/match-offers", { method: "POST", body: JSON.stringify({ toUserId: player.userId, clubId }) });
-      setMessage(`${player.name} için maç teklifi kaydedildi.`);
-      await reloadOffers();
+      await api("/match-offers", { method: "POST", body: JSON.stringify({ toUserId: player.userId, clubId, ladderId }) });
+      setMessage(`${player.name} teklif yaptı.`);
+      await reloadLadders();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Maç teklifi kaydedilemedi");
+      setMessage(err instanceof Error ? err.message : "Teklif kaydedilemedi");
     } finally {
       setOfferingId(null);
+    }
+  }
+
+  async function recordWinner(offerId: string, winnerId: string) {
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
+      setMessage("Sonuç kaydedildi.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
     }
   }
 
@@ -249,22 +264,49 @@ export default function LadderPage() {
               <div className="space-y-2 px-3 pb-3">
                 {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
                 <ol className="space-y-2">
-                  {ladder.players.map((player) => {
-                    const mine = player.userId === user?.id;
-                    const pending = pendingTo.has(player.userId);
+                  {ladder.players.map((player, index) => {
+                    const mineIndex = ladder.players.findIndex((item) => item.userId === user?.id);
+                    const neighbor = mineIndex >= 0 && Math.abs(index - mineIndex) === 1;
+                    const betweenUs = (ladder.offers ?? []).find((offer) =>
+                      Boolean(user) && (
+                        (offer.fromUserId === user?.id && offer.toUserId === player.userId)
+                        || (offer.toUserId === user?.id && offer.fromUserId === player.userId)
+                      ),
+                    );
+                    const incoming = (ladder.offers ?? []).find((offer) => offer.toUserId === player.userId);
+                    const shown = player.userId === user?.id ? incoming : (betweenUs ?? incoming);
                     return (
-                      <li key={player.userId} className="flex items-center justify-between gap-3 rounded-2xl bg-paper px-4 py-3 text-sm">
-                        <span>{player.rank}. {player.name}</span>
-                        {mine ? null : (
+                      <li key={player.userId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm">
+                        <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{player.rank}. {player.name}</span>
+                          {shown ? (
+                            <span className="block truncate text-xs text-muted">{shown.fromName} teklif yaptı · {shown.daysLeft} gün</span>
+                          ) : null}
+                        </span>
+                        {player.lastMove === "UP" ? (
+                          <ArrowUp className="h-4 w-4 shrink-0 text-[#15803d]" aria-label="Yükseldi" />
+                        ) : null}
+                        {player.lastMove === "DOWN" ? (
+                          <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
+                        ) : null}
+                        {betweenUs && player.userId !== user?.id ? (
+                          <span className="flex shrink-0 items-center gap-1">
+                            <span className="text-xs text-muted">Sonuç</span>
+                            <button type="button" aria-label={`${betweenUs.fromName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.fromUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.fromName.split(" ")[0]}</button>
+                            <button type="button" aria-label={`${betweenUs.toName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.toUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.toName.split(" ")[0]}</button>
+                          </span>
+                        ) : null}
+                        {neighbor && !betweenUs ? (
                           <button
                             type="button"
-                            disabled={pending || offeringId === player.userId}
-                            onClick={() => void offerMatch(player)}
+                            disabled={offeringId === player.userId}
+                            onClick={() => void offerMatch(ladder.id, player)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
-                            {pending ? "Teklif bekliyor" : "Maç teklif et"}
+                            Teklif yap
                           </button>
-                        )}
+                        ) : null}
                       </li>
                     );
                   })}
@@ -274,24 +316,6 @@ export default function LadderPage() {
           </section>
         );
       })}
-      <section className="space-y-2">
-        <h2 className="font-semibold">Maç teklifleri</h2>
-        {offerError ? <ErrorState message={offerError} onRetry={reloadOffers} /> : null}
-        {!offerError && (offerData?.data.length ?? 0) === 0 ? (
-          <p className="text-sm text-muted">Bekleyen teklif yok.</p>
-        ) : null}
-        {(offerData?.data ?? []).map((offer) => {
-          const incoming = offer.toUserId === user?.id;
-          const text = incoming
-            ? `${offer.fromName || "Bir oyuncu"} sana maç teklif etti`
-            : `${offer.toName} için teklifin duruyor`;
-          return (
-            <p key={offer.id} className="rounded-2xl border border-line px-4 py-3 text-sm">
-              {text} · bekliyor
-            </p>
-          );
-        })}
-      </section>
     </div>
   );
 }

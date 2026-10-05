@@ -443,6 +443,11 @@ export const ladderListSchema = z.object({
 export const matchOfferCreateSchema = z.object({
   toUserId: z.string().min(1),
   clubId: z.string().min(1),
+  ladderId: z.string().min(1).optional(),
+});
+
+export const matchOfferResultSchema = z.object({
+  winnerId: z.string().min(1),
 });
 
 export const matchOfferListSchema = z.object({
