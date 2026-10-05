@@ -450,10 +450,6 @@ export const matchOfferResultSchema = z.object({
   winnerId: z.string().min(1),
 });
 
-export const matchOfferScheduleSchema = z.object({
-  date: dateSchema,
-});
-
 export const matchOfferListSchema = z.object({
   clubId: z.string().min(1),
 });
