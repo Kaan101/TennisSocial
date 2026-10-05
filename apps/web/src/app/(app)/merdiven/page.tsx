@@ -61,13 +61,70 @@ const LADDER_RULES = [
   "Tüm defi sonuçları ve sıralama değişiklikleri sistemde saklanır.",
 ];
 
-const LADDER_NOTES = [
-  "Yeşil ok: oyuncu yükseldi",
-  "Kırmızı ok: oyuncu düştü",
-  "— : sıra değişmedi",
-  "Aktif: son 30 günde hareketi olan oyuncu",
-  "Pasif: 30 gündür hareketi olmayan oyuncu",
-];
+function LadderAciklama() {
+  return (
+    <article className="space-y-3 text-sm leading-snug text-muted">
+      <h2 className="text-base font-semibold text-ink">DEFİ SİSTEMİ</h2>
+      <p>
+        Defi Sistemi, oyuncuların sıralamada yükselmek amacıyla üst sıradaki oyunculara maç teklif ettiği rekabet sistemidir.
+      </p>
+      <p>Her oyuncu mevcut sıralamasında kendisinden en fazla 3 sıra yukarıdaki oyunculardan birine defi gönderebilir.</p>
+      <p>Oyuncu kendisinden alt sıradaki bir oyuncuya defi gönderemez. Ancak alt sıradaki oyunculardan defi alabilir.</p>
+      <p>Defi alan oyuncu, teklif tarihinden itibaren belirlenen süre içinde maçı kabul etmeli veya uygun olduğu tarihleri bildirmelidir.</p>
+      <p>Kabul edilen defi maçı, mümkünse belirlenen süre içerisinde oynanmalıdır.</p>
+      <p>Bir oyuncunun aynı anda yalnızca bir aktif defi maçı bulunabilir. Aktif defi tamamlanmadan yeni defi gönderilemez.</p>
+      <p>
+        Defi maçının formatı kulüp tarafından belirlenir. Örneğin maçlar 8 oyunluk Pro Set, normal set veya başka bir kısa maç formatında oynanabilir.
+      </p>
+      <p>Alt sıradaki oyuncu maçı kazanırsa, mağlup ettiği oyuncunun bulunduğu sıraya yükselir. Aradaki oyuncular birer sıra aşağı kaydırılır.</p>
+      <div className="rounded-2xl border border-line bg-paper/60 p-3 text-ink">
+        <p className="font-semibold">Örnek</p>
+        <p className="mt-2">Maç öncesi sıralama:</p>
+        <p className="mt-1 whitespace-pre-line font-medium">
+          {`Ahmet\nMehmet\nKaan\nMurat`}
+        </p>
+        <p className="mt-2">sıradaki Selçuk, 5. sıradaki Ahmet&apos;e defi gönderir.</p>
+        <p className="mt-2">Selçuk kazanırsa yeni sıralama:</p>
+        <p className="mt-1 whitespace-pre-line font-medium">
+          {`Kaan\nAhmet\nMehmet\nMurat`}
+        </p>
+      </div>
+      <p>Bu sistemde oyuncular doğrudan yer değiştirmez; sıralama kaydırmalı olarak güncellenir.</p>
+      <p>Üst sıradaki oyuncu maçı kazanırsa sıralamada herhangi bir değişiklik yapılmaz.</p>
+      <p>Defi maçının sonucu, maç tamamlandıktan sonra oyunculardan biri tarafından sisteme girilir ve diğer oyuncu tarafından onaylanır.</p>
+      <p>Sonuç onaylandığında sistem sıralamayı otomatik olarak günceller.</p>
+      <p>
+        Oyuncunun sakatlık, seyahat, tatil veya başka bir nedenle maç yapamayacağı dönemlerde durumu Pasif / Müsait Değil olarak işaretlenebilir.
+      </p>
+      <p>
+        Pasif durumdaki oyuncuya defi gönderilemez. Oyuncu tekrar aktif olduğunda mevcut sırasından veya kulüp yönetiminin belirlediği kurala göre sisteme devam eder.
+      </p>
+      <p>
+        Defi alan oyuncunun makul bir gerekçe olmaksızın sürekli olarak maçı reddetmesi veya belirlenen süre içinde cevap vermemesi halinde defi gönderen oyuncu lehine sıralama düzenlemesi yapılabilir.
+      </p>
+      <p>
+        Aynı iki oyuncu arasında arka arkaya sürekli defi yapılmasını önlemek için rövanş süresi uygulanabilir. Örneğin aynı oyuncuya yeniden defi göndermek için 7 gün bekleme süresi konulabilir.
+      </p>
+      <p>Oyuncular yalnızca kendi defi aralıklarında bulunan oyuncular için “Defi Et” butonunu görür.</p>
+      <p>Defi ekranında oyuncular aşağıdaki bilgileri görebilir:</p>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>Güncel sıralama</li>
+        <li>Defi yapılabilecek oyuncular</li>
+        <li>Aktif defi</li>
+        <li>Bekleyen teklifler</li>
+        <li>Planlanan maçlar</li>
+        <li>Son oynanan defi maçları</li>
+        <li>Kazanılan ve kaybedilen defi maçları</li>
+        <li>Sıralama değişimleri</li>
+      </ul>
+      <p>Sistem tüm sıralama değişikliklerini geçmiş kayıtlarında saklar. Böylece oyuncunun zaman içerisindeki yükselme ve düşüşleri takip edilebilir.</p>
+      <p>Kulüp yönetimi gerekli gördüğünde defi mesafesini, maç formatını, cevap süresini ve pasiflik kurallarını değiştirebilir.</p>
+      <p>
+        Defi sisteminin temel amacı yalnızca sıralama oluşturmak değil; oyuncular arasında düzenli maç yapılmasını, benzer seviyelerdeki oyuncuların karşılaşmasını ve kulüp içi rekabetin canlı tutulmasını sağlamaktır.
+      </p>
+    </article>
+  );
+}
 
 function LadderSide() {
   const [tab, setTab] = useState<"kurallar" | "aciklama">("kurallar");
@@ -76,8 +133,8 @@ function LadderSide() {
     { id: "aciklama" as const, label: "Açıklama" },
   ];
   return (
-    <aside className="min-w-0 rounded-3xl border border-line bg-surface p-4 lg:col-span-1">
-      <div className="flex gap-4 border-b border-line" role="tablist" aria-label="Merdiven">
+    <aside className="flex min-w-0 max-h-[calc(100dvh-11.5rem)] flex-col overflow-hidden rounded-3xl border border-line bg-surface p-4 lg:col-span-2 lg:sticky lg:top-2">
+      <div className="flex shrink-0 gap-4 border-b border-line" role="tablist" aria-label="Merdiven">
         {tabs.map((item) => {
           const on = tab === item.id;
           return (
@@ -96,7 +153,12 @@ function LadderSide() {
           );
         })}
       </div>
-      <div role="tabpanel" id={`merdiven-${tab}-panel`} aria-labelledby={`merdiven-${tab}`} className="pt-3">
+      <div
+        role="tabpanel"
+        id={`merdiven-${tab}-panel`}
+        aria-labelledby={`merdiven-${tab}`}
+        className="min-h-0 flex-1 overflow-y-auto pt-3"
+      >
         {tab === "kurallar" ? (
           <ol className="list-decimal space-y-2 pl-5 text-sm leading-snug">
             {LADDER_RULES.map((rule) => (
@@ -104,11 +166,7 @@ function LadderSide() {
             ))}
           </ol>
         ) : (
-          <ul className="space-y-2 text-sm leading-snug text-muted">
-            {LADDER_NOTES.map((note) => (
-              <li key={note}>{note}</li>
-            ))}
-          </ul>
+          <LadderAciklama />
         )}
       </div>
     </aside>
@@ -256,8 +314,8 @@ export default function LadderPage() {
   }
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-3">
-      <div className="min-w-0 space-y-4 lg:col-span-2">
+    <div className="grid items-start gap-4 lg:grid-cols-5">
+      <div className="min-w-0 space-y-4 lg:col-span-3">
       <PageHeader
         title="Merdiven"
         action={
