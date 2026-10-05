@@ -13,7 +13,7 @@ afterAll(async () => {
   await app.close();
 });
 
-test("a club ladder accepts a player once and stores a match offer the recipient can see", async () => {
+test("a club ladder accepts a player once and stores a challenge the recipient can see", async () => {
   const host = await registerUser(app, { firstName: "Ev", lastName: "Sahibi" });
   const guest = await registerUser(app, { firstName: "Konuk", lastName: "Oyuncu" });
   const club = await app.inject({
@@ -65,17 +65,33 @@ test("a club ladder accepts a player once and stores a match offer the recipient
   const seats = await prisma.ladderPlayer.count({ where: { ladderId, userId: guest.user.id } });
   expect(seats).toBe(1);
 
+  await app.inject({
+    method: "POST",
+    url: `/api/ladders/${ladderId}/players`,
+    headers: auth(host.token),
+    payload: { userId: host.user.id },
+  });
+
+  const below = await app.inject({
+    method: "POST",
+    url: "/api/match-offers",
+    headers: auth(guest.token),
+    payload: { toUserId: host.user.id, clubId, ladderId },
+  });
+  expect(below.statusCode).toBe(400);
+
   const offer = await app.inject({
     method: "POST",
     url: "/api/match-offers",
     headers: auth(host.token),
-    payload: { toUserId: guest.user.id, clubId },
+    payload: { toUserId: guest.user.id, clubId, ladderId },
   });
   expect(offer.statusCode).toBe(201);
   expect(offer.json()).toMatchObject({
     fromUserId: host.user.id,
     toUserId: guest.user.id,
     clubId,
+    ladderId,
     status: "PENDING",
   });
 
@@ -92,6 +108,7 @@ test("a club ladder accepts a player once and stores a match offer the recipient
       toUserId: guest.user.id,
       clubId,
       status: "PENDING",
+      phase: "pending",
     }),
   ]);
 
@@ -99,7 +116,7 @@ test("a club ladder accepts a player once and stores a match offer the recipient
   expect(stored?.status).toBe("PENDING");
 });
 
-test("a result swaps the two seats and an offer older than seven days is not pending", async () => {
+test("a scheduled result swaps the seats and an unanswered offer older than 48 hours is not pending", async () => {
   const lower = await registerUser(app, { firstName: "Alt", lastName: "Oyuncu" });
   const upper = await registerUser(app, { firstName: "Ust", lastName: "Oyuncu" });
   const club = await app.inject({
@@ -129,6 +146,18 @@ test("a result swaps the two seats and an offer older than seven days is not pen
     payload: { userId: lower.user.id },
   });
 
+  const before = await app.inject({
+    method: "GET",
+    url: `/api/ladders?clubId=${clubId}`,
+    headers: auth(lower.token),
+  });
+  const open = before.json().data[0];
+  expect(open.summary).toEqual({ playerCount: 2, activeChallenges: 0, pendingOffers: 0, passivePlayers: 0 });
+  expect(open.players[0].canChallenge).toBe(true);
+  expect(open.players[0].challengeRight).toBe(0);
+  expect(open.players[1].challengeRight).toBe(1);
+  expect(open.players[1].passive).toBe(false);
+
   const offer = await app.inject({
     method: "POST",
     url: "/api/match-offers",
@@ -140,11 +169,44 @@ test("a result swaps the two seats and an offer older than seven days is not pen
   const listed = await app.inject({
     method: "GET",
     url: `/api/ladders?clubId=${clubId}`,
+    headers: auth(lower.token),
+  });
+  const shown = listed.json().data[0];
+  expect(shown.offers[0].fromName).toBe("Alt Oyuncu");
+  expect(shown.offers[0].phase).toBe("pending");
+  expect(shown.summary).toEqual({ playerCount: 2, activeChallenges: 1, pendingOffers: 1, passivePlayers: 0 });
+  expect(shown.players[0].canChallenge).toBe(false);
+
+  const early = await app.inject({
+    method: "POST",
+    url: `/api/match-offers/${offer.json().id}/result`,
+    headers: auth(lower.token),
+    payload: { winnerId: lower.user.id },
+  });
+  expect(early.statusCode).toBe(400);
+
+  const sender = await app.inject({
+    method: "POST",
+    url: `/api/match-offers/${offer.json().id}/accept`,
+    headers: auth(lower.token),
+  });
+  expect(sender.statusCode).toBe(403);
+
+  const accepted = await app.inject({
+    method: "POST",
+    url: `/api/match-offers/${offer.json().id}/accept`,
     headers: auth(upper.token),
   });
-  const shown = listed.json().data[0].offers[0];
-  expect(shown.fromName).toBe("Alt Oyuncu");
-  expect(shown.daysLeft).toBe(7);
+  expect(accepted.statusCode).toBe(200);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const scheduled = await app.inject({
+    method: "POST",
+    url: `/api/match-offers/${offer.json().id}/schedule`,
+    headers: auth(lower.token),
+    payload: { date: today },
+  });
+  expect(scheduled.statusCode).toBe(200);
 
   const result = await app.inject({
     method: "POST",
@@ -156,7 +218,9 @@ test("a result swaps the two seats and an offer older than seven days is not pen
   const seats = await prisma.ladderPlayer.findMany({ where: { ladderId }, orderBy: { rank: "asc" } });
   expect(seats.map((seat) => seat.userId)).toEqual([lower.user.id, upper.user.id]);
   expect(seats[0]?.lastMove).toBe("UP");
+  expect(seats[0]?.lastMoveSteps).toBe(1);
   expect(seats[1]?.lastMove).toBe("DOWN");
+  expect(seats[1]?.lastMoveSteps).toBe(1);
 
   const stale = await prisma.matchOffer.create({
     data: {

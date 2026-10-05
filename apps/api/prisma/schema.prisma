@@ -713,11 +713,12 @@ model LadderPlayer {
   userId    String
   ladder    Ladder   @relation(fields: [ladderId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
-  rank      Int
-  points    Int         @default(0)
-  lastMove  LadderMove?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  rank          Int
+  points        Int          @default(0)
+  lastMove      LadderMove?
+  lastMoveSteps Int?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@unique([ladderId, userId])
   @@unique([ladderId, rank])
@@ -844,6 +845,9 @@ enum SlotOfferStatus {
 
 enum MatchOfferStatus {
   PENDING
+  ACCEPTED
+  REJECTED
+  SCHEDULED
 }
 
 enum LadderMove {
@@ -983,22 +987,26 @@ model CourtSlotGroup {
   @@index([groupId])
 }
 
-/// A stored match offer: the two players, the club, and a pending state.
+/// A ladder challenge. The answer window, acceptance, and match date are stored here.
+/// A missed window is computed from these times when the ladder is read.
 model MatchOffer {
-  id         String           @id @default(cuid())
-  fromUserId String
-  toUserId   String
-  clubId     String
-  ladderId   String?
-  winnerId   String?
-  fromUser   User             @relation("MatchOfferFrom", fields: [fromUserId], references: [id])
-  toUser     User             @relation("MatchOfferTo", fields: [toUserId], references: [id])
-  club       Club             @relation(fields: [clubId], references: [id])
-  ladder     Ladder?          @relation(fields: [ladderId], references: [id])
-  winner     User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
-  status     MatchOfferStatus @default(PENDING)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id          String           @id @default(cuid())
+  fromUserId  String
+  toUserId    String
+  clubId      String
+  ladderId    String?
+  winnerId    String?
+  fromUser    User             @relation("MatchOfferFrom", fields: [fromUserId], references: [id])
+  toUser      User             @relation("MatchOfferTo", fields: [toUserId], references: [id])
+  club        Club             @relation(fields: [clubId], references: [id])
+  ladder      Ladder?          @relation(fields: [ladderId], references: [id])
+  winner      User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
+  status      MatchOfferStatus @default(PENDING)
+  respondedAt DateTime?
+  acceptedAt  DateTime?
+  scheduledAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   @@index([toUserId, status])
   @@index([fromUserId])
