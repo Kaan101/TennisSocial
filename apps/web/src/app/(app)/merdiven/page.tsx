@@ -604,48 +604,49 @@ export default function LadderPage() {
                 {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
                 <ol className="space-y-2">
                   {ladder.players.map((player, index) => {
-                    const withinSpan = mineIndex >= 0 && index < mineIndex && mineIndex - index <= ladder.maxRankSpan;
-                    const openWithPlayer = (ladder.offers ?? []).find((offer) =>
-                      (offer.fromUserId === player.userId && offer.toUserId === user?.id)
-                      || (offer.toUserId === player.userId && offer.fromUserId === user?.id),
+                    const withinSpan =
+                      mineIndex >= 0
+                      && index < mineIndex
+                      && mineIndex - index <= ladder.maxRankSpan;
+                    const openWithPlayer = (ladder.offers ?? []).find(
+                      (offer) =>
+                        (offer.status === "PENDING" || offer.status === "ACCEPTED")
+                        && (
+                          (offer.fromUserId === player.userId && offer.toUserId === user?.id)
+                          || (offer.toUserId === player.userId && offer.fromUserId === user?.id)
+                        ),
                     );
-                    const rowOffer = (ladder.offers ?? []).find(
-                      (offer) => offer.toUserId === player.userId && (offer.status === "PENDING" || offer.status === "ACCEPTED"),
-                    );
-                    const showAccept =
-                      rowOffer?.status === "PENDING"
-                      && player.userId === rowOffer.toUserId
-                      && user?.id === rowOffer.toUserId;
-                    const acceptedRow =
-                      rowOffer?.status === "ACCEPTED" && rowOffer.acceptedAt
-                        ? rowOffer
+                    const incomingPending =
+                      player.userId === user?.id
+                        ? (ladder.offers ?? []).find(
+                            (offer) => offer.status === "PENDING" && offer.toUserId === user.id,
+                          )
                         : null;
+                    const showAccept = Boolean(incomingPending);
+                    const acceptedRow = (ladder.offers ?? []).find(
+                      (offer) =>
+                        offer.toUserId === player.userId
+                        && offer.status === "ACCEPTED"
+                        && offer.acceptedAt,
+                    );
                     const canOffer =
                       withinSpan
                       && player.userId !== user?.id
-                      && !openWithPlayer
-                      && !(ladder.offers ?? []).some(
-                        (offer) =>
-                          (offer.fromUserId === user?.id || offer.toUserId === user?.id)
-                          && (offer.status === "PENDING" || offer.status === "ACCEPTED"),
-                      );
+                      && !openWithPlayer;
                     return (
                       <li key={player.userId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm">
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{player.rank}. {player.name}</span>
-                          {rowOffer?.status === "PENDING" && player.userId === rowOffer.toUserId ? (
-                            <span className="block truncate text-xs text-muted">{rowOffer.fromName}</span>
+                          {incomingPending ? (
+                            <span className="block truncate text-xs text-muted">{incomingPending.fromName}</span>
                           ) : null}
-                          {acceptedRow && player.userId === acceptedRow.toUserId ? (
+                          {acceptedRow ? (
                             <span className="block truncate text-xs text-muted">
                               {acceptedRow.fromName} · {acceptedRow.toName}
                               {" · "}
                               <AcceptCountdown acceptedAt={acceptedRow.acceptedAt!} acceptDays={acceptedRow.acceptDays} />
                             </span>
-                          ) : null}
-                          {rowOffer?.status === "PENDING" && ladder.showOfferingPlayer && player.userId !== rowOffer.toUserId ? (
-                            <span className="block truncate text-xs text-muted">{rowOffer.fromName} teklif yaptı</span>
                           ) : null}
                         </span>
                         {player.lastMove === "UP" ? (
@@ -654,11 +655,11 @@ export default function LadderPage() {
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
-                        {showAccept && rowOffer ? (
+                        {showAccept && incomingPending ? (
                           <button
                             type="button"
-                            disabled={acceptingId === rowOffer.id}
-                            onClick={() => void acceptOffer(rowOffer.id)}
+                            disabled={acceptingId === incomingPending.id}
+                            onClick={() => void acceptOffer(incomingPending.id)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
                             Kabul et
