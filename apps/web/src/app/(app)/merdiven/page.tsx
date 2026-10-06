@@ -48,6 +48,19 @@ type Ladder = {
   offers: LadderOffer[];
 } & LadderSettings;
 
+function ladderViewerId(user: { id: string } | null | undefined): string | null {
+  return user?.id ?? null;
+}
+
+function playerIsViewer(playerUserId: string, viewerId: string | null): boolean {
+  return viewerId !== null && playerUserId === viewerId;
+}
+
+function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number): boolean {
+  const gap = myRank - theirRank;
+  return gap >= 1 && gap <= maxRankSpan;
+}
+
 const LADDER_RULES = [
   "Oyuncu en fazla 3 sıra üstündeki oyuncuya defi yapabilir.",
   "Aynı anda yalnızca 1 aktif defi olabilir.",
@@ -423,7 +436,7 @@ export default function LadderPage() {
     showChallengeResult: ladder.showChallengeResult ?? true,
     acceptDays: ladder.acceptDays ?? 7,
     responseHours: ladder.responseHours ?? 48,
-    maxRankSpan: ladder.maxRankSpan ?? 3,
+    maxRankSpan: Number(ladder.maxRankSpan) > 0 ? Number(ladder.maxRankSpan) : 3,
   }));
   const target = rows.find((ladder) => ladder.id === (targetId ?? rows[0]?.id)) ?? null;
   const canManageLadder = user?.role === "ADMIN" || user?.role === "CLUB_MANAGER";
@@ -587,7 +600,9 @@ export default function LadderPage() {
       ) : null}
       {rows.map((ladder) => {
         const open = !closedIds.has(ladder.id);
-        const mineIndex = ladder.players.findIndex((item) => item.userId === user?.id);
+        const viewerId = ladderViewerId(user);
+        const myRank = ladder.players.find((item) => playerIsViewer(item.userId, viewerId))?.rank;
+        const maxRankSpan = ladder.maxRankSpan;
         return (
           <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
             <button
@@ -603,23 +618,22 @@ export default function LadderPage() {
               <div className="space-y-2 px-3 pb-3">
                 {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
                 <ol className="space-y-2">
-                  {ladder.players.map((player, index) => {
+                  {ladder.players.map((player) => {
                     const withinSpan =
-                      mineIndex >= 0
-                      && index < mineIndex
-                      && mineIndex - index <= ladder.maxRankSpan;
+                      myRank !== undefined
+                      && withinRankSpan(myRank, player.rank, maxRankSpan);
                     const openWithPlayer = (ladder.offers ?? []).find(
                       (offer) =>
                         (offer.status === "PENDING" || offer.status === "ACCEPTED")
                         && (
-                          (offer.fromUserId === player.userId && offer.toUserId === user?.id)
-                          || (offer.toUserId === player.userId && offer.fromUserId === user?.id)
+                          (offer.fromUserId === player.userId && offer.toUserId === viewerId)
+                          || (offer.toUserId === player.userId && offer.fromUserId === viewerId)
                         ),
                     );
                     const incomingPending =
-                      player.userId === user?.id
+                      playerIsViewer(player.userId, viewerId)
                         ? (ladder.offers ?? []).find(
-                            (offer) => offer.status === "PENDING" && offer.toUserId === user.id,
+                            (offer) => offer.status === "PENDING" && offer.toUserId === viewerId,
                           )
                         : null;
                     const showAccept = Boolean(incomingPending);
@@ -630,8 +644,9 @@ export default function LadderPage() {
                         && offer.acceptedAt,
                     );
                     const canOffer =
-                      withinSpan
-                      && player.userId !== user?.id
+                      viewerId !== null
+                      && withinSpan
+                      && !playerIsViewer(player.userId, viewerId)
                       && !openWithPlayer;
                     return (
                       <li key={player.userId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm">
