@@ -26,7 +26,10 @@ type LadderOffer = {
   toUserId: string;
   fromName: string;
   toName: string;
-  daysLeft: number;
+  status: string;
+  acceptedAt: string | null;
+  acceptDays: number;
+  acceptRemaining?: { days: number; hours: number };
 };
 type LadderSettings = {
   showOfferingPlayer: boolean;
@@ -89,12 +92,12 @@ function LadderAciklama() {
         <p className="font-semibold">Örnek</p>
         <p className="mt-2">Maç öncesi sıralama:</p>
         <p className="mt-1 whitespace-pre-line font-medium">
-          {`Ahmet\nMehmet\nKaan\nMurat`}
+          {`3. Ahmet\n4. Mehmet\n5. Kaan\n6. Murat`}
         </p>
-        <p className="mt-2">sıradaki Kaan, 5. sıradaki Ahmet&apos;e defi gönderir.</p>
-        <p className="mt-2">Selçuk kazanırsa yeni sıralama:</p>
+        <p className="mt-2">5. sıradaki Kaan, 3. sıradaki Ahmet&apos;e defi gönderir.</p>
+        <p className="mt-2">Kaan kazanırsa yeni sıralama:</p>
         <p className="mt-1 whitespace-pre-line font-medium">
-          {`Kaan\nAhmet\nMehmet\nMurat`}
+          {`3. Kaan\n4. Ahmet\n5. Mehmet\n6. Murat`}
         </p>
       </div>
       <p>Bu sistemde oyuncular doğrudan yer değiştirmez; sıralama kaydırmalı olarak güncellenir.</p>
@@ -131,6 +134,31 @@ function LadderAciklama() {
         Defi sisteminin temel amacı yalnızca sıralama oluşturmak değil; oyuncular arasında düzenli maç yapılmasını, benzer seviyelerdeki oyuncuların karşılaşmasını ve kulüp içi rekabetin canlı tutulmasını sağlamaktır.
       </p>
     </article>
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+function acceptRemainingFromStored(acceptedAt: string, acceptDays: number): { days: number; hours: number } {
+  const left = new Date(acceptedAt).getTime() + acceptDays * DAY_MS - Date.now();
+  const totalHours = Math.max(0, Math.floor(left / HOUR_MS));
+  return { days: Math.floor(totalHours / 24), hours: totalHours % 24 };
+}
+
+function AcceptCountdown({ acceptedAt, acceptDays }: { acceptedAt: string; acceptDays: number }) {
+  const [remaining, setRemaining] = useState(() => acceptRemainingFromStored(acceptedAt, acceptDays));
+  useEffect(() => {
+    setRemaining(acceptRemainingFromStored(acceptedAt, acceptDays));
+    const timer = window.setInterval(() => {
+      setRemaining(acceptRemainingFromStored(acceptedAt, acceptDays));
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [acceptedAt, acceptDays]);
+  return (
+    <span className="text-xs text-muted">
+      {remaining.days} gün {remaining.hours} saat
+    </span>
   );
 }
 
@@ -339,6 +367,7 @@ export default function LadderPage() {
   const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [offeringId, setOfferingId] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
   useEffect(() => {
     ensured.current = null;
@@ -460,6 +489,20 @@ export default function LadderPage() {
     }
   }
 
+  async function acceptOffer(offerId: string) {
+    setAcceptingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/accept`, { method: "POST", body: JSON.stringify({}) });
+      setMessage("Teklif kabul edildi.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Teklif kabul edilemedi");
+    } finally {
+      setAcceptingId(null);
+    }
+  }
+
   async function recordWinner(offerId: string, winnerId: string) {
     setMessage(null);
     try {
@@ -562,21 +605,47 @@ export default function LadderPage() {
                 <ol className="space-y-2">
                   {ladder.players.map((player, index) => {
                     const withinSpan = mineIndex >= 0 && index < mineIndex && mineIndex - index <= ladder.maxRankSpan;
-                    const betweenUs = (ladder.offers ?? []).find((offer) =>
-                      Boolean(user) && (
-                        (offer.fromUserId === user?.id && offer.toUserId === player.userId)
-                        || (offer.toUserId === user?.id && offer.fromUserId === player.userId)
-                      ),
+                    const openWithPlayer = (ladder.offers ?? []).find((offer) =>
+                      (offer.fromUserId === player.userId && offer.toUserId === user?.id)
+                      || (offer.toUserId === player.userId && offer.fromUserId === user?.id),
                     );
-                    const incoming = (ladder.offers ?? []).find((offer) => offer.toUserId === player.userId);
-                    const shown = player.userId === user?.id ? incoming : (betweenUs ?? incoming);
+                    const rowOffer = (ladder.offers ?? []).find(
+                      (offer) => offer.toUserId === player.userId && (offer.status === "PENDING" || offer.status === "ACCEPTED"),
+                    );
+                    const showAccept =
+                      rowOffer?.status === "PENDING"
+                      && player.userId === rowOffer.toUserId
+                      && user?.id === rowOffer.toUserId;
+                    const acceptedRow =
+                      rowOffer?.status === "ACCEPTED" && rowOffer.acceptedAt
+                        ? rowOffer
+                        : null;
+                    const canOffer =
+                      withinSpan
+                      && player.userId !== user?.id
+                      && !openWithPlayer
+                      && !(ladder.offers ?? []).some(
+                        (offer) =>
+                          (offer.fromUserId === user?.id || offer.toUserId === user?.id)
+                          && (offer.status === "PENDING" || offer.status === "ACCEPTED"),
+                      );
                     return (
                       <li key={player.userId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm">
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{player.rank}. {player.name}</span>
-                          {shown && ladder.showOfferingPlayer ? (
-                            <span className="block truncate text-xs text-muted">{shown.fromName} teklif yaptı · {shown.daysLeft} gün</span>
+                          {rowOffer?.status === "PENDING" && player.userId === rowOffer.toUserId ? (
+                            <span className="block truncate text-xs text-muted">{rowOffer.fromName}</span>
+                          ) : null}
+                          {acceptedRow && player.userId === acceptedRow.toUserId ? (
+                            <span className="block truncate text-xs text-muted">
+                              {acceptedRow.fromName} · {acceptedRow.toName}
+                              {" · "}
+                              <AcceptCountdown acceptedAt={acceptedRow.acceptedAt!} acceptDays={acceptedRow.acceptDays} />
+                            </span>
+                          ) : null}
+                          {rowOffer?.status === "PENDING" && ladder.showOfferingPlayer && player.userId !== rowOffer.toUserId ? (
+                            <span className="block truncate text-xs text-muted">{rowOffer.fromName} teklif yaptı</span>
                           ) : null}
                         </span>
                         {player.lastMove === "UP" ? (
@@ -585,21 +654,31 @@ export default function LadderPage() {
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
-                        {betweenUs && player.userId !== user?.id && ladder.showChallengeResult ? (
+                        {showAccept && rowOffer ? (
+                          <button
+                            type="button"
+                            disabled={acceptingId === rowOffer.id}
+                            onClick={() => void acceptOffer(rowOffer.id)}
+                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                          >
+                            Kabul et
+                          </button>
+                        ) : null}
+                        {openWithPlayer?.status === "ACCEPTED" && ladder.showChallengeResult ? (
                           <span className="flex shrink-0 items-center gap-1">
                             <span className="text-xs text-muted">Sonuç</span>
-                            <button type="button" aria-label={`${betweenUs.fromName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.fromUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.fromName.split(" ")[0]}</button>
-                            <button type="button" aria-label={`${betweenUs.toName} kazandı`} onClick={() => void recordWinner(betweenUs.id, betweenUs.toUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{betweenUs.toName.split(" ")[0]}</button>
+                            <button type="button" aria-label={`${openWithPlayer.fromName} kazandı`} onClick={() => void recordWinner(openWithPlayer.id, openWithPlayer.fromUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{openWithPlayer.fromName.split(" ")[0]}</button>
+                            <button type="button" aria-label={`${openWithPlayer.toName} kazandı`} onClick={() => void recordWinner(openWithPlayer.id, openWithPlayer.toUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{openWithPlayer.toName.split(" ")[0]}</button>
                           </span>
                         ) : null}
-                        {withinSpan && !betweenUs ? (
+                        {canOffer ? (
                           <button
                             type="button"
                             disabled={offeringId === player.userId}
                             onClick={() => void offerMatch(ladder.id, player)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
-                            Teklif yap
+                            Teklif
                           </button>
                         ) : null}
                       </li>

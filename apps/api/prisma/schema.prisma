@@ -848,6 +848,9 @@ enum SlotOfferStatus {
 
 enum MatchOfferStatus {
   PENDING
+  ACCEPTED
+  REJECTED
+  SCHEDULED
 }
 
 enum LadderMove {
@@ -999,10 +1002,13 @@ model MatchOffer {
   toUser     User             @relation("MatchOfferTo", fields: [toUserId], references: [id])
   club       Club             @relation(fields: [clubId], references: [id])
   ladder     Ladder?          @relation(fields: [ladderId], references: [id])
-  winner     User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
-  status     MatchOfferStatus @default(PENDING)
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  winner      User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
+  status      MatchOfferStatus @default(PENDING)
+  respondedAt DateTime?
+  acceptedAt  DateTime?
+  scheduledAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   @@index([toUserId, status])
   @@index([fromUserId])

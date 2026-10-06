@@ -13,25 +13,32 @@ async function lockKey(tx: Prisma.TransactionClient, key: string): Promise<void>
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 function displayName(profile: { firstName: string; lastName: string } | null | undefined): string {
   return `${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`.trim();
 }
 
-function pendingSince(maxAcceptDays: number): Date {
-  return new Date(Date.now() - maxAcceptDays * DAY_MS);
-}
+type LadderTiming = { acceptDays: number; responseHours: number };
 
-function offerStillPending(
-  offer: { winnerId: string | null; createdAt: Date; status: string },
-  acceptDays: number,
+function offerOpen(
+  offer: { winnerId: string | null; createdAt: Date; status: string; acceptedAt: Date | null },
+  timing: LadderTiming,
 ): boolean {
-  return offer.status === "PENDING" && !offer.winnerId && offer.createdAt.getTime() + acceptDays * DAY_MS > Date.now();
+  if (offer.winnerId) return false;
+  if (offer.status === "PENDING") {
+    return offer.createdAt.getTime() + timing.responseHours * HOUR_MS > Date.now();
+  }
+  if (offer.status === "ACCEPTED" && offer.acceptedAt) {
+    return offer.acceptedAt.getTime() + timing.acceptDays * DAY_MS > Date.now();
+  }
+  return false;
 }
 
-function daysLeft(createdAt: Date, acceptDays: number): number {
-  const left = createdAt.getTime() + acceptDays * DAY_MS - Date.now();
-  return Math.max(1, Math.ceil(left / DAY_MS));
+function acceptCountdown(acceptedAt: Date, acceptDays: number): { days: number; hours: number } {
+  const left = acceptedAt.getTime() + acceptDays * DAY_MS - Date.now();
+  const totalHours = Math.max(0, Math.floor(left / HOUR_MS));
+  return { days: Math.floor(totalHours / 24), hours: totalHours % 24 };
 }
 
 function ladderSettings(row: {
@@ -77,12 +84,14 @@ function presentOffer(
     clubId: string;
     ladderId: string | null;
     createdAt: Date;
-    status: "PENDING";
+    acceptedAt: Date | null;
+    status: string;
     fromUser: { profile: { firstName: string; lastName: string } | null };
     toUser: { profile: { firstName: string; lastName: string } | null };
   },
-  acceptDays: number,
+  timing: LadderTiming,
 ) {
+  const acceptedAt = row.acceptedAt?.toISOString() ?? null;
   return {
     id: row.id,
     fromUserId: row.fromUserId,
@@ -93,7 +102,24 @@ function presentOffer(
     ladderId: row.ladderId,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
-    daysLeft: daysLeft(row.createdAt, acceptDays),
+    acceptedAt,
+    acceptDays: timing.acceptDays,
+    ...(row.status === "ACCEPTED" && row.acceptedAt
+      ? { acceptRemaining: acceptCountdown(row.acceptedAt, timing.acceptDays) }
+      : {}),
+  };
+}
+
+function ladderTimingForOffer(
+  offer: { ladderId: string | null },
+  acceptDaysByLadder: Map<string, number>,
+  responseHoursByLadder: Map<string, number>,
+  fallback: LadderTiming,
+): LadderTiming {
+  if (!offer.ladderId) return fallback;
+  return {
+    acceptDays: acceptDaysByLadder.get(offer.ladderId) ?? fallback.acceptDays,
+    responseHours: responseHoursByLadder.get(offer.ladderId) ?? fallback.responseHours,
   };
 }
 
@@ -109,19 +135,23 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       },
       orderBy: { name: "asc" },
     });
-    const maxAcceptDays = rows.reduce((max, row) => Math.max(max, row.acceptDays), 7);
     const offers = query.clubId
       ? await prisma.matchOffer.findMany({
-          where: { clubId: query.clubId, status: "PENDING", winnerId: null, createdAt: { gt: pendingSince(maxAcceptDays) } },
+          where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED"] } },
           include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
           orderBy: { createdAt: "desc" },
         })
       : [];
     const acceptDaysByLadder = new Map(rows.map((row) => [row.id, row.acceptDays]));
-    const defaultAcceptDays = rows[0]?.acceptDays ?? 7;
+    const responseHoursByLadder = new Map(rows.map((row) => [row.id, row.responseHours]));
+    const defaultTiming: LadderTiming = {
+      acceptDays: rows[0]?.acceptDays ?? 7,
+      responseHours: rows[0]?.responseHours ?? 48,
+    };
     return {
       data: rows.map((row) => {
         const playerIds = new Set(row.players.map((player) => player.userId));
+        const rowTiming: LadderTiming = { acceptDays: row.acceptDays, responseHours: row.responseHours };
         return {
           id: row.id,
           name: row.name,
@@ -134,8 +164,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           offers: offers
             .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))
             .filter((offer) => playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId))
-            .filter((offer) => offerStillPending(offer, offer.ladderId ? (acceptDaysByLadder.get(offer.ladderId) ?? defaultAcceptDays) : row.acceptDays))
-            .map((offer) => presentOffer(offer, offer.ladderId ? (acceptDaysByLadder.get(offer.ladderId) ?? defaultAcceptDays) : row.acceptDays)),
+            .filter((offer) => offerOpen(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming)))
+            .map((offer) => presentOffer(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming))),
         };
       }),
     };
@@ -267,16 +297,19 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const query = parse(matchOfferListSchema, req.query);
     const clubLadders = await prisma.ladder.findMany({
       where: { clubId: query.clubId, deletedAt: null },
-      select: { id: true, acceptDays: true },
+      select: { id: true, acceptDays: true, responseHours: true },
     });
     const acceptDaysByLadder = new Map(clubLadders.map((row) => [row.id, row.acceptDays]));
-    const maxAcceptDays = clubLadders.reduce((max, row) => Math.max(max, row.acceptDays), 7);
+    const responseHoursByLadder = new Map(clubLadders.map((row) => [row.id, row.responseHours]));
+    const defaultTiming: LadderTiming = {
+      acceptDays: clubLadders.reduce((max, row) => Math.max(max, row.acceptDays), 7),
+      responseHours: clubLadders.reduce((max, row) => Math.max(max, row.responseHours), 48),
+    };
     const rows = await prisma.matchOffer.findMany({
       where: {
         clubId: query.clubId,
-        status: "PENDING",
+        status: { in: ["PENDING", "ACCEPTED"] },
         winnerId: null,
-        createdAt: { gt: pendingSince(maxAcceptDays) },
         OR: [{ fromUserId: viewer.id }, { toUserId: viewer.id }],
       },
       include: {
@@ -287,8 +320,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     return {
       data: rows
-        .filter((offer) => offerStillPending(offer, offer.ladderId ? (acceptDaysByLadder.get(offer.ladderId) ?? 7) : maxAcceptDays))
-        .map((offer) => presentOffer(offer, offer.ladderId ? (acceptDaysByLadder.get(offer.ladderId) ?? 7) : maxAcceptDays)),
+        .filter((offer) => offerOpen(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming)))
+        .map((offer) => presentOffer(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming))),
     };
   });
 
@@ -306,12 +339,12 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     if (!recipient?.profile || recipient.profile.deletedAt) throw notFound("Oyuncu bulunamadı");
     let ladderId: string | null = null;
-    let offerAcceptDays = 7;
+    let offerTiming: LadderTiming = { acceptDays: 7, responseHours: 48 };
     if (body.ladderId) {
       const ladder = await prisma.ladder.findFirst({ where: { id: body.ladderId, clubId: club.id, deletedAt: null } });
       if (!ladder) throw notFound("Merdiven bulunamadı");
       ladderId = ladder.id;
-      offerAcceptDays = ladder.acceptDays;
+      offerTiming = { acceptDays: ladder.acceptDays, responseHours: ladder.responseHours };
       await assertLadderChallenge({ ladderId: ladder.id, challengerId: viewer.id, recipientId: body.toUserId });
     }
     const onLadder = await prisma.ladderPlayer.findFirst({
@@ -322,15 +355,18 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
       const existing = await tx.matchOffer.findFirst({
         where: {
-          fromUserId: viewer.id,
-          toUserId: body.toUserId,
           clubId: body.clubId,
-          status: "PENDING",
           winnerId: null,
-          createdAt: { gt: pendingSince(offerAcceptDays) },
+          status: { in: ["PENDING", "ACCEPTED"] },
+          ...(ladderId ? { ladderId } : {}),
+          OR: [
+            { fromUserId: viewer.id, toUserId: body.toUserId },
+            { fromUserId: body.toUserId, toUserId: viewer.id },
+          ],
         },
+        orderBy: { createdAt: "desc" },
       });
-      if (existing && offerStillPending(existing, offerAcceptDays)) return { offer: existing, created: false };
+      if (existing && offerOpen(existing, offerTiming)) return { offer: existing, created: false };
       const offer = await tx.matchOffer.create({
         data: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, ladderId, status: "PENDING" },
       });
@@ -347,6 +383,36 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     return result.created ? reply.status(201).send(payload) : payload;
   });
 
+  app.post("/api/match-offers/:id/accept", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const offer = await prisma.matchOffer.findUnique({
+      where: { id },
+      include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
+    });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Yalnızca teklif alan oyuncu kabul edebilir");
+    }
+    const offerLadder = offer.ladderId
+      ? await prisma.ladder.findFirst({
+          where: { id: offer.ladderId, deletedAt: null },
+          select: { acceptDays: true, responseHours: true },
+        })
+      : null;
+    const timing: LadderTiming = offerLadder ?? { acceptDays: 7, responseHours: 48 };
+    if (offer.status !== "PENDING" || !offerOpen(offer, timing)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
+    }
+    const acceptedAt = new Date();
+    const updated = await prisma.matchOffer.update({
+      where: { id },
+      data: { status: "ACCEPTED", acceptedAt, respondedAt: acceptedAt },
+      include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
+    });
+    return presentOffer(updated, timing);
+  });
+
   app.post("/api/match-offers/:id/result", async (req) => {
     const viewer = requireUser(req);
     const { id } = req.params as { id: string };
@@ -354,10 +420,15 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const offer = await prisma.matchOffer.findUnique({ where: { id } });
     if (!offer) throw notFound("Teklif bulunamadı");
     const offerLadder = offer.ladderId
-      ? await prisma.ladder.findFirst({ where: { id: offer.ladderId, deletedAt: null }, select: { acceptDays: true } })
+      ? await prisma.ladder.findFirst({
+          where: { id: offer.ladderId, deletedAt: null },
+          select: { acceptDays: true, responseHours: true },
+        })
       : null;
-    const offerAcceptDays = offerLadder?.acceptDays ?? 7;
-    if (!offerStillPending(offer, offerAcceptDays)) throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
+    const timing: LadderTiming = offerLadder ?? { acceptDays: 7, responseHours: 48 };
+    if (offer.status !== "ACCEPTED" || !offerOpen(offer, timing)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
+    }
     if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
       throw new AppError(403, "FORBIDDEN", "Bu teklifin sonucunu yazamazsın");
     }
@@ -370,7 +441,9 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     await prisma.$transaction(async (tx) => {
       await lockKey(tx, `ladder:${ladderId}`);
       const fresh = await tx.matchOffer.findUnique({ where: { id } });
-      if (!fresh || !offerStillPending(fresh, offerAcceptDays)) throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
+      if (!fresh || fresh.status !== "ACCEPTED" || !offerOpen(fresh, timing)) {
+        throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
+      }
       const winner = await tx.ladderPlayer.findUnique({
         where: { ladderId_userId: { ladderId, userId: body.winnerId } },
       });
