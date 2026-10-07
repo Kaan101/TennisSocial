@@ -3,7 +3,7 @@
 import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan } from "@club/shared";
 import type { AuthUser, PlayerCard } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { Input } from "@/components/ui/input";
@@ -136,7 +136,7 @@ function findOutgoingChallenge(
   return (offers ?? []).find((offer) => offerOpenForUi(offer, responseHours) && offer.fromUserId === playerUserId);
 }
 
-const LADDER_ROW_BASE = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
+const LADDER_ROW_BASE = "flex items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
 
 function findRowDefi(
   offers: LadderOffer[] | undefined,
@@ -318,10 +318,39 @@ function AcceptCountdown({ acceptedAt, acceptDays }: { acceptedAt: string; accep
     return () => window.clearInterval(timer);
   }, [acceptedAt, acceptDays]);
   return (
-    <span className="text-xs text-muted">
-      {remaining.days} gün {remaining.hours} saat
-    </span>
+    <>
+      {remaining.days} gün {remaining.hours} saat kaldı
+    </>
   );
+}
+
+function formatDefiScheduledAt(iso: string): string {
+  return new Date(iso).toLocaleString("tr-TR", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** One quiet subtitle under the player name on the recipient’s row. */
+function incomingDefiSubtitle(offer: LadderOffer): React.ReactNode {
+  const challenger = offer.fromName.trim();
+  if (offer.scheduledAt) {
+    return (
+      <>
+        {challenger} · {formatDefiScheduledAt(offer.scheduledAt)}
+      </>
+    );
+  }
+  if (offer.status === "ACCEPTED" && offer.acceptedAt) {
+    return (
+      <>
+        {challenger} · <AcceptCountdown acceptedAt={offer.acceptedAt} acceptDays={offer.acceptDays} />
+      </>
+    );
+  }
+  return <>{challenger} · defi bekliyor</>;
 }
 
 function LadderAyarlar({
@@ -929,32 +958,18 @@ export default function LadderPage() {
                         className={ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })}
                       >
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium leading-snug">
                             {player.rank}. {player.name}
                             {player.passive ? <span className="ml-2 text-xs font-normal text-muted">Pasif</span> : null}
-                          </span>
+                          </p>
                           {incomingChallenge ? (
-                            <span className="mt-1 block text-xs font-semibold text-ink">
-                              {incomingChallenge.fromName} · {incomingChallenge.toName}
-                            </span>
+                            <p className="mt-0.5 truncate text-xs leading-snug text-muted">
+                              {incomingDefiSubtitle(incomingChallenge)}
+                            </p>
                           ) : null}
-                          {incomingChallenge?.status === "ACCEPTED" && incomingChallenge.acceptedAt ? (
-                            <span className="mt-0.5 block text-xs text-muted">
-                              <AcceptCountdown acceptedAt={incomingChallenge.acceptedAt} acceptDays={incomingChallenge.acceptDays} />
-                            </span>
-                          ) : null}
-                          {incomingChallenge?.scheduledAt ? (
-                            <span className="mt-0.5 block text-xs text-muted">
-                              {new Date(incomingChallenge.scheduledAt).toLocaleString("tr-TR", {
-                                day: "numeric",
-                                month: "short",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          ) : null}
-                        </span>
+                        </div>
+                        <div className="flex shrink-0 flex-nowrap items-center gap-1">
                         {player.lastMove === "UP" ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-[#15803d]" aria-label="Yükseldi" />
                         ) : null}
@@ -972,7 +987,7 @@ export default function LadderPage() {
                           </button>
                         ) : null}
                         {(showSchedule || showReschedule) && incomingChallenge ? (
-                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                          <span className="flex shrink-0 flex-nowrap items-center gap-1">
                             <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
                               Tarih
                             </label>
@@ -1010,7 +1025,7 @@ export default function LadderPage() {
                           </span>
                         ) : null}
                         {showRecipientResult && incomingChallenge ? (
-                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                          <span className="flex shrink-0 flex-nowrap items-center gap-1">
                             <button
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
@@ -1059,6 +1074,7 @@ export default function LadderPage() {
                             Teklif
                           </button>
                         ) : null}
+                        </div>
                       </li>
                     );
                   })}
