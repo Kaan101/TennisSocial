@@ -38,7 +38,9 @@ export function offerStillActive(
   timing: LadderTiming,
 ): boolean {
   if (offer.winnerId) return false;
-  if (offer.proposedWinnerId && offer.resultEnteredAt && !offer.disputedAt) return true;
+  if (offer.proposedWinnerId && offer.resultEnteredAt && !offer.disputedAt) {
+    return offer.resultEnteredAt.getTime() + RESULT_CONFIRM_HOURS * HOUR_MS > Date.now();
+  }
   if (offer.status === "REJECTED") return false;
   if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS <= Date.now()) return false;
   if (offer.status === "PENDING") {
@@ -178,6 +180,14 @@ export async function assertSingleActiveOffer(
       OR: [{ fromUserId: input.userId }, { toUserId: input.userId }],
     },
   });
+  for (const row of active) {
+    if (row.status === "PENDING" && !offerStillActive(row, input.timing)) {
+      await tx.matchOffer.update({
+        where: { id: row.id },
+        data: { status: "REJECTED", respondedAt: new Date() },
+      });
+    }
+  }
   if (active.some((row) => offerStillActive(row, input.timing))) {
     throw new AppError(400, "VALIDATION_ERROR", "Aynı anda yalnızca bir aktif defi olabilir");
   }

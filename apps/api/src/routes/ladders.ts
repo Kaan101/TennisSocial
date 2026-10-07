@@ -376,6 +376,13 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (isLadderPlayerPassive(challengerSeat) || isLadderPlayerPassive(onLadder)) {
       throw new AppError(400, "VALIDATION_ERROR", "Pasif oyuncu defi gönderemez veya alamaz");
     }
+    const clubLadders = await prisma.ladder.findMany({
+      where: { clubId: body.clubId, deletedAt: null },
+      select: { id: true, acceptDays: true, responseHours: true },
+    });
+    const acceptDaysByLadder = new Map(clubLadders.map((row) => [row.id, row.acceptDays]));
+    const responseHoursByLadder = new Map(clubLadders.map((row) => [row.id, row.responseHours]));
+    await syncLadderOffers(body.clubId, acceptDaysByLadder, responseHoursByLadder, offerTiming);
     const result = await prisma.$transaction(async (tx) => {
       await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
       if (ladderId) {
