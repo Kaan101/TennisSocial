@@ -29,6 +29,7 @@ type LadderOffer = {
   fromName: string;
   toName: string;
   status: string;
+  createdAt?: string;
   acceptedAt: string | null;
   scheduledAt: string | null;
   scheduleDeadlineAt?: string | null;
@@ -86,25 +87,25 @@ function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number):
 
 const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
 
-function offerOpenForUi(offer: LadderOffer): boolean {
-  return ACTIVE_CHALLENGE_STATUSES.has(offer.status) && !offer.proposedWinnerId;
+function offerOpenForUi(offer: LadderOffer, responseHours: number): boolean {
+  return offerStillActiveOnClient(offer, responseHours) && !offer.proposedWinnerId;
 }
 
 /** Matches ladder API offerStillActive for whether this player is still in an open defi. */
-function offerOccupiesPlayer(offer: LadderOffer, userId: string): boolean {
+function offerOccupiesPlayer(offer: LadderOffer, userId: string, responseHours: number): boolean {
   if (offer.fromUserId !== userId && offer.toUserId !== userId) return false;
-  if (offer.proposedWinnerId) return true;
-  return offerOpenForUi(offer);
+  return offerStillActiveOnClient(offer, responseHours);
 }
 
 function findPairOffer(
   offers: LadderOffer[] | undefined,
   viewerId: string,
   otherUserId: string,
+  responseHours: number,
 ): LadderOffer | undefined {
   return (offers ?? []).find(
     (offer) =>
-      offerOccupiesPlayer(offer, viewerId)
+      offerOccupiesPlayer(offer, viewerId, responseHours)
       && (
         (offer.fromUserId === viewerId && offer.toUserId === otherUserId)
         || (offer.fromUserId === otherUserId && offer.toUserId === viewerId)
@@ -112,16 +113,26 @@ function findPairOffer(
   );
 }
 
-function recipientHasOpenDefi(offers: LadderOffer[] | undefined, recipientUserId: string): boolean {
-  return (offers ?? []).some((offer) => offer.toUserId === recipientUserId && offerOccupiesPlayer(offer, recipientUserId));
+function recipientHasOpenDefi(offers: LadderOffer[] | undefined, recipientUserId: string, responseHours: number): boolean {
+  return (offers ?? []).some(
+    (offer) => offer.toUserId === recipientUserId && offerOccupiesPlayer(offer, recipientUserId, responseHours),
+  );
 }
 
-function findIncomingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
-  return (offers ?? []).find((offer) => offerOpenForUi(offer) && offer.toUserId === playerUserId);
+function findIncomingChallenge(
+  offers: LadderOffer[] | undefined,
+  playerUserId: string,
+  responseHours: number,
+): LadderOffer | undefined {
+  return (offers ?? []).find((offer) => offerOpenForUi(offer, responseHours) && offer.toUserId === playerUserId);
 }
 
-function findOutgoingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
-  return (offers ?? []).find((offer) => offerOpenForUi(offer) && offer.fromUserId === playerUserId);
+function findOutgoingChallenge(
+  offers: LadderOffer[] | undefined,
+  playerUserId: string,
+  responseHours: number,
+): LadderOffer | undefined {
+  return (offers ?? []).find((offer) => offerOpenForUi(offer, responseHours) && offer.fromUserId === playerUserId);
 }
 
 function challengeRowClass(offer: LadderOffer | undefined): string {
@@ -150,6 +161,37 @@ function datetimeLocalValue(iso: string | null | undefined): string {
 }
 
 const RESULT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MATCH_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
+const SCHEDULE_DEADLINE_MS = 72 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function offerStillActiveOnClient(offer: LadderOffer, responseHours: number): boolean {
+  if (offer.proposedWinnerId && offer.resultEnteredAt && !offer.disputedAt) {
+    return new Date(offer.resultEnteredAt).getTime() + RESULT_WINDOW_MS > Date.now();
+  }
+  if (!ACTIVE_CHALLENGE_STATUSES.has(offer.status)) return false;
+  const createdAt = offer.createdAt ? new Date(offer.createdAt).getTime() : null;
+  if (createdAt !== null && createdAt + MATCH_WINDOW_MS <= Date.now()) return false;
+  if (offer.status === "PENDING" && createdAt !== null) {
+    return createdAt + responseHours * HOUR_MS > Date.now();
+  }
+  if (offer.status === "ACCEPTED" && offer.acceptedAt) {
+    const acceptedMs = new Date(offer.acceptedAt).getTime();
+    if (!offer.scheduledAt) {
+      const scheduleBy =
+        offer.scheduleDeadlineAt != null
+          ? new Date(offer.scheduleDeadlineAt).getTime()
+          : acceptedMs + SCHEDULE_DEADLINE_MS;
+      if (scheduleBy <= Date.now()) return false;
+    }
+    return acceptedMs + offer.acceptDays * DAY_MS > Date.now();
+  }
+  if (offer.status === "SCHEDULED" && createdAt !== null) {
+    return createdAt + MATCH_WINDOW_MS > Date.now();
+  }
+  return false;
+}
 
 const LADDER_RULES = [
   "Oyuncu en fazla 3 sıra üstündeki oyuncuya defi yapabilir.",
@@ -783,7 +825,10 @@ export default function LadderPage() {
         const viewerId = ladderViewerId(ladder.players, user);
         const myRank = mySeat?.rank;
         const maxRankSpan = ladder.maxRankSpan;
-        const viewerDefiOpen = viewerId !== null && (ladder.offers ?? []).some((offer) => offerOccupiesPlayer(offer, viewerId));
+        const responseHours = ladder.responseHours;
+        const viewerDefiOpen =
+          viewerId !== null
+          && (ladder.offers ?? []).some((offer) => offerOccupiesPlayer(offer, viewerId, responseHours));
         return (
           <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
             <button
@@ -803,10 +848,12 @@ export default function LadderPage() {
                     const withinSpan =
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
-                    const incomingChallenge = findIncomingChallenge(ladder.offers, player.userId);
-                    const outgoingChallenge = findOutgoingChallenge(ladder.offers, player.userId);
+                    const incomingChallenge = findIncomingChallenge(ladder.offers, player.userId, responseHours);
+                    const outgoingChallenge = findOutgoingChallenge(ladder.offers, player.userId, responseHours);
                     const pairOffer =
-                      viewerId !== null ? findPairOffer(ladder.offers, viewerId, player.userId) : undefined;
+                      viewerId !== null
+                        ? findPairOffer(ladder.offers, viewerId, player.userId, responseHours)
+                        : undefined;
                     const showAccept =
                       incomingChallenge?.status === "PENDING"
                       && playerIsViewer(player.userId, viewerId)
@@ -850,7 +897,7 @@ export default function LadderPage() {
                       && !playerIsViewer(player.userId, viewerId)
                       && !player.passive
                       && !pairOffer
-                      && !recipientHasOpenDefi(ladder.offers, player.userId);
+                      && !recipientHasOpenDefi(ladder.offers, player.userId, responseHours);
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
                     const cancelOfferRow =
                       isViewerRow

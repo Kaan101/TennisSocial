@@ -31,6 +31,7 @@ export function offerStillActive(
     createdAt: Date;
     status: string;
     acceptedAt: Date | null;
+    scheduledAt: Date | null;
     proposedWinnerId: string | null;
     resultEnteredAt: Date | null;
     disputedAt: Date | null;
@@ -47,6 +48,10 @@ export function offerStillActive(
     return offer.createdAt.getTime() + timing.responseHours * HOUR_MS > Date.now();
   }
   if (offer.status === "ACCEPTED" && offer.acceptedAt) {
+    if (!offer.scheduledAt) {
+      const scheduleBy = scheduleDeadline(offer.acceptedAt);
+      if (scheduleBy && scheduleBy.getTime() <= Date.now()) return false;
+    }
     return offer.acceptedAt.getTime() + timing.acceptDays * DAY_MS > Date.now();
   }
   if (offer.status === "SCHEDULED") {
@@ -82,6 +87,21 @@ export async function syncLadderOffers(
         data: { status: "REJECTED", respondedAt: new Date() },
       });
       continue;
+    }
+    if (
+      offer.status === "ACCEPTED"
+      && offer.acceptedAt
+      && !offer.scheduledAt
+      && !offer.proposedWinnerId
+    ) {
+      const scheduleBy = scheduleDeadline(offer.acceptedAt);
+      if (scheduleBy && scheduleBy.getTime() <= now) {
+        await prisma.matchOffer.update({
+          where: { id: offer.id },
+          data: { status: "REJECTED", respondedAt: new Date() },
+        });
+        continue;
+      }
     }
     if (
       offer.proposedWinnerId
@@ -168,27 +188,45 @@ export async function assertNoRecentRematch(
   }
 }
 
+async function closeInactiveOffersTx(
+  tx: Prisma.TransactionClient,
+  rows: {
+    id: string;
+    status: string;
+    createdAt: Date;
+    acceptedAt: Date | null;
+    scheduledAt: Date | null;
+    proposedWinnerId: string | null;
+    resultEnteredAt: Date | null;
+    disputedAt: Date | null;
+    winnerId: string | null;
+  }[],
+  timing: LadderTiming,
+): Promise<void> {
+  for (const row of rows) {
+    if (offerStillActive(row, timing)) continue;
+    if (row.status === "REJECTED" || row.winnerId) continue;
+    await tx.matchOffer.update({
+      where: { id: row.id },
+      data: { status: "REJECTED", respondedAt: new Date() },
+    });
+  }
+}
+
 export async function assertSingleActiveOffer(
   tx: Prisma.TransactionClient,
   input: { ladderId: string; userId: string; timing: LadderTiming },
 ): Promise<void> {
-  const active = await tx.matchOffer.findMany({
-    where: {
-      ladderId: input.ladderId,
-      winnerId: null,
-      status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] },
-      OR: [{ fromUserId: input.userId }, { toUserId: input.userId }],
-    },
-  });
-  for (const row of active) {
-    if (row.status === "PENDING" && !offerStillActive(row, input.timing)) {
-      await tx.matchOffer.update({
-        where: { id: row.id },
-        data: { status: "REJECTED", respondedAt: new Date() },
-      });
-    }
-  }
-  if (active.some((row) => offerStillActive(row, input.timing))) {
+  const where = {
+    ladderId: input.ladderId,
+    winnerId: null,
+    status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] },
+    OR: [{ fromUserId: input.userId }, { toUserId: input.userId }],
+  };
+  const active = await tx.matchOffer.findMany({ where });
+  await closeInactiveOffersTx(tx, active, input.timing);
+  const remaining = await tx.matchOffer.findMany({ where });
+  if (remaining.some((row) => offerStillActive(row, input.timing))) {
     throw new AppError(400, "VALIDATION_ERROR", "Aynı anda yalnızca bir aktif defi olabilir");
   }
 }
