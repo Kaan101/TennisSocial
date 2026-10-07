@@ -19,6 +19,8 @@ type LadderPlayer = {
   photoUrl: string | null;
   rank: number;
   lastMove: "UP" | "DOWN" | null;
+  passive?: boolean;
+  passiveUntil?: string | null;
 };
 type LadderOffer = {
   id: string;
@@ -29,6 +31,12 @@ type LadderOffer = {
   status: string;
   acceptedAt: string | null;
   scheduledAt: string | null;
+  scheduleDeadlineAt?: string | null;
+  proposedWinnerId?: string | null;
+  resultEnteredAt?: string | null;
+  disputedAt?: string | null;
+  postponeCount?: number;
+  forfeit?: boolean;
   acceptDays: number;
   acceptRemaining?: { days: number; hours: number };
 };
@@ -70,11 +78,22 @@ function findIncomingChallenge(offers: LadderOffer[] | undefined, playerUserId: 
   );
 }
 
+function findOutgoingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
+  return (offers ?? []).find(
+    (offer) => ACTIVE_CHALLENGE_STATUSES.has(offer.status) && offer.fromUserId === playerUserId,
+  );
+}
+
 function challengeRowClass(offer: LadderOffer | undefined): string {
   const base = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
   if (!offer) return `${base} border-line`;
+  if (offer.scheduledAt) {
+    return `${base} border-[#15803d] bg-[#15803d]/10 ring-2 ring-[#15803d]/35`;
+  }
   return `${base} border-court bg-paper/70 ring-2 ring-court/40`;
 }
+
+const RESULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const LADDER_RULES = [
   "Oyuncu en fazla 3 sıra üstündeki oyuncuya defi yapabilir.",
@@ -397,6 +416,8 @@ export default function LadderPage() {
   const [offeringId, setOfferingId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [resultingId, setResultingId] = useState<string | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState("");
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
   useEffect(() => {
     ensured.current = null;
@@ -532,15 +553,76 @@ export default function LadderPage() {
     }
   }
 
-  async function recordWinner(offerId: string, winnerId: string) {
+  async function proposeResult(offerId: string, winnerId: string) {
     setResultingId(offerId);
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
-      setMessage("Sonuç kaydedildi.");
+      setMessage("Sonuç gönderildi, rakip onayını bekliyor.");
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
+    } finally {
+      setResultingId(null);
+    }
+  }
+
+  async function confirmResult(offerId: string) {
+    setResultingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/confirm`, { method: "POST", body: JSON.stringify({}) });
+      setMessage("Sonuç onaylandı.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Sonuç onaylanamadı");
+    } finally {
+      setResultingId(null);
+    }
+  }
+
+  async function disputeResult(offerId: string) {
+    setResultingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/dispute`, { method: "POST", body: JSON.stringify({}) });
+      setMessage("Sonuca itiraz edildi.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "İtiraz kaydedilemedi");
+    } finally {
+      setResultingId(null);
+    }
+  }
+
+  async function scheduleMatch(offerId: string) {
+    if (!scheduleDraft) return;
+    setSchedulingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/schedule`, {
+        method: "POST",
+        body: JSON.stringify({ scheduledAt: new Date(scheduleDraft).toISOString() }),
+      });
+      setMessage("Maç tarihi kaydedildi.");
+      setScheduleDraft("");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Maç tarihi kaydedilemedi");
+    } finally {
+      setSchedulingId(null);
+    }
+  }
+
+  async function recordForfeit(offerId: string) {
+    setResultingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/forfeit`, { method: "POST", body: JSON.stringify({}) });
+      setMessage("Hükmen sonuç kaydedildi.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Hükmen sonuç kaydedilemedi");
     } finally {
       setResultingId(null);
     }
@@ -642,6 +724,7 @@ export default function LadderPage() {
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
                     const incomingChallenge = findIncomingChallenge(ladder.offers, player.userId);
+                    const outgoingChallenge = findOutgoingChallenge(ladder.offers, player.userId);
                     const openWithPlayer = (ladder.offers ?? []).find(
                       (offer) =>
                         ACTIVE_CHALLENGE_STATUSES.has(offer.status)
@@ -654,20 +737,48 @@ export default function LadderPage() {
                       incomingChallenge?.status === "PENDING"
                       && playerIsViewer(player.userId, viewerId)
                       && incomingChallenge.toUserId === viewerId;
+                    const matchStart = incomingChallenge?.scheduledAt
+                      ? new Date(incomingChallenge.scheduledAt).getTime()
+                      : null;
+                    const nowMs = Date.now();
                     const showRecipientResult =
-                      incomingChallenge?.status === "ACCEPTED"
+                      Boolean(incomingChallenge?.scheduledAt)
                       && playerIsViewer(player.userId, viewerId)
-                      && incomingChallenge.toUserId === viewerId;
+                      && incomingChallenge?.toUserId === viewerId
+                      && !incomingChallenge?.proposedWinnerId
+                      && matchStart !== null
+                      && nowMs >= matchStart
+                      && nowMs <= matchStart + RESULT_WINDOW_MS;
+                    const showSchedule =
+                      Boolean(incomingChallenge)
+                      && player.userId === incomingChallenge.toUserId
+                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
+                      && !incomingChallenge.scheduledAt
+                      && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
+                    const showConfirmDispute =
+                      Boolean(outgoingChallenge?.proposedWinnerId)
+                      && playerIsViewer(player.userId, viewerId)
+                      && outgoingChallenge?.fromUserId === viewerId;
+                    const showForfeit =
+                      Boolean(incomingChallenge?.scheduledAt)
+                      && playerIsViewer(player.userId, viewerId)
+                      && matchStart !== null
+                      && nowMs >= matchStart
+                      && !incomingChallenge?.proposedWinnerId;
                     const canOffer =
                       viewerId !== null
                       && withinSpan
                       && !playerIsViewer(player.userId, viewerId)
+                      && !player.passive
                       && !openWithPlayer;
                     return (
                       <li key={player.userId} className={challengeRowClass(incomingChallenge)}>
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{player.rank}. {player.name}</span>
+                          <span className="block truncate font-medium">
+                            {player.rank}. {player.name}
+                            {player.passive ? <span className="ml-2 text-xs font-normal text-muted">Pasif</span> : null}
+                          </span>
                           {incomingChallenge ? (
                             <span className="mt-1 block text-xs font-semibold text-ink">
                               {incomingChallenge.fromName} · {incomingChallenge.toName}
@@ -705,12 +816,30 @@ export default function LadderPage() {
                             Kabul et
                           </button>
                         ) : null}
+                        {showSchedule && incomingChallenge ? (
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <input
+                              type="datetime-local"
+                              value={scheduleDraft}
+                              onChange={(event) => setScheduleDraft(event.target.value)}
+                              className="h-8 rounded-md border border-line px-2 text-xs"
+                            />
+                            <button
+                              type="button"
+                              disabled={schedulingId === incomingChallenge.id || !scheduleDraft}
+                              onClick={() => void scheduleMatch(incomingChallenge.id)}
+                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                            >
+                              Tarih
+                            </button>
+                          </span>
+                        ) : null}
                         {showRecipientResult && incomingChallenge ? (
                           <span className="flex shrink-0 flex-wrap items-center gap-1">
                             <button
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
-                              onClick={() => void recordWinner(incomingChallenge.id, incomingChallenge.toUserId)}
+                              onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
                               className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Kazandı
@@ -718,10 +847,40 @@ export default function LadderPage() {
                             <button
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
-                              onClick={() => void recordWinner(incomingChallenge.id, incomingChallenge.fromUserId)}
+                              onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
                               className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Kaybetti
+                            </button>
+                          </span>
+                        ) : null}
+                        {showForfeit && incomingChallenge ? (
+                          <button
+                            type="button"
+                            disabled={resultingId === incomingChallenge.id}
+                            onClick={() => void recordForfeit(incomingChallenge.id)}
+                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                          >
+                            Hükmen
+                          </button>
+                        ) : null}
+                        {showConfirmDispute && outgoingChallenge ? (
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={resultingId === outgoingChallenge.id}
+                              onClick={() => void confirmResult(outgoingChallenge.id)}
+                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                            >
+                              Onayla
+                            </button>
+                            <button
+                              type="button"
+                              disabled={resultingId === outgoingChallenge.id}
+                              onClick={() => void disputeResult(outgoingChallenge.id)}
+                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                            >
+                              İtiraz
                             </button>
                           </span>
                         ) : null}

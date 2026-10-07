@@ -458,6 +458,14 @@ export const matchOfferResultSchema = z.object({
   winnerId: z.string().min(1),
 });
 
+export const matchOfferScheduleSchema = z.object({
+  scheduledAt: z.string().datetime(),
+});
+
+export const ladderPlayerPassiveSchema = z.object({
+  passiveUntil: z.string().datetime().nullable(),
+});
+
 export const matchOfferListSchema = z.object({
   clubId: z.string().min(1),
 });

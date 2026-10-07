@@ -1,8 +1,34 @@
 import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
-import { ladderCreateSchema, ladderEnsureSchema, ladderListSchema, ladderPlayerSchema, ladderSettingsUpdateSchema, matchOfferCreateSchema, matchOfferListSchema, matchOfferResultSchema } from "@club/shared";
+import {
+  ladderCreateSchema,
+  ladderEnsureSchema,
+  ladderListSchema,
+  ladderPlayerPassiveSchema,
+  ladderPlayerSchema,
+  ladderSettingsUpdateSchema,
+  matchOfferCreateSchema,
+  matchOfferListSchema,
+  matchOfferResultSchema,
+  matchOfferScheduleSchema,
+} from "@club/shared";
 import { assertRole, requireUser } from "../lib/authz";
-import { applyLadderChallengeShiftTx, assertLadderChallenge } from "../services/ladders";
+import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
+import {
+  assertNoRecentRematch,
+  assertSingleActiveOffer,
+  canPostpone,
+  finalizeConfirmedOffer,
+  MATCH_WINDOW_DAYS,
+  offerStillActive,
+  offerTimingFor,
+  scheduleDeadline,
+  syncLadderOffers,
+  DAY_MS,
+  HOUR_MS,
+  RESULT_CONFIRM_HOURS,
+  SCHEDULE_HOURS,
+} from "../services/matchOfferFlow";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 
@@ -20,21 +46,6 @@ function displayName(profile: { firstName: string; lastName: string } | null | u
 }
 
 type LadderTiming = { acceptDays: number; responseHours: number };
-
-function offerOpen(
-  offer: { winnerId: string | null; createdAt: Date; status: string; acceptedAt: Date | null },
-  timing: LadderTiming,
-): boolean {
-  if (offer.winnerId) return false;
-  if (offer.status === "PENDING") {
-    return offer.createdAt.getTime() + timing.responseHours * HOUR_MS > Date.now();
-  }
-  if (offer.status === "ACCEPTED" && offer.acceptedAt) {
-    return offer.acceptedAt.getTime() + timing.acceptDays * DAY_MS > Date.now();
-  }
-  if (offer.status === "SCHEDULED") return true;
-  return false;
-}
 
 function acceptCountdown(acceptedAt: Date, acceptDays: number): { days: number; hours: number } {
   const left = acceptedAt.getTime() + acceptDays * DAY_MS - Date.now();
@@ -63,6 +74,7 @@ function presentPlayer(player: {
   rank: number;
   points: number;
   lastMove: "UP" | "DOWN" | null;
+  passiveUntil: Date | null;
   user: { profile: { firstName: string; lastName: string; photoUrl: string | null } | null };
 }) {
   return {
@@ -74,6 +86,8 @@ function presentPlayer(player: {
     lastName: player.user.profile?.lastName ?? "",
     photoUrl: player.user.profile?.photoUrl ?? null,
     lastMove: player.lastMove,
+    passiveUntil: player.passiveUntil?.toISOString() ?? null,
+    passive: isLadderPlayerPassive(player),
   };
 }
 
@@ -87,6 +101,11 @@ function presentOffer(
     createdAt: Date;
     acceptedAt: Date | null;
     scheduledAt: Date | null;
+    proposedWinnerId: string | null;
+    resultEnteredAt: Date | null;
+    disputedAt: Date | null;
+    postponeCount: number;
+    forfeit: boolean;
     status: string;
     fromUser: { profile: { firstName: string; lastName: string } | null };
     toUser: { profile: { firstName: string; lastName: string } | null };
@@ -94,6 +113,7 @@ function presentOffer(
   timing: LadderTiming,
 ) {
   const acceptedAt = row.acceptedAt?.toISOString() ?? null;
+  const deadline = scheduleDeadline(row.acceptedAt);
   return {
     id: row.id,
     fromUserId: row.fromUserId,
@@ -106,23 +126,16 @@ function presentOffer(
     createdAt: row.createdAt.toISOString(),
     acceptedAt,
     scheduledAt: row.scheduledAt?.toISOString() ?? null,
+    proposedWinnerId: row.proposedWinnerId,
+    resultEnteredAt: row.resultEnteredAt?.toISOString() ?? null,
+    disputedAt: row.disputedAt?.toISOString() ?? null,
+    postponeCount: row.postponeCount,
+    forfeit: row.forfeit,
+    scheduleDeadlineAt: deadline?.toISOString() ?? null,
     acceptDays: timing.acceptDays,
     ...(row.status === "ACCEPTED" && row.acceptedAt
       ? { acceptRemaining: acceptCountdown(row.acceptedAt, timing.acceptDays) }
       : {}),
-  };
-}
-
-function ladderTimingForOffer(
-  offer: { ladderId: string | null },
-  acceptDaysByLadder: Map<string, number>,
-  responseHoursByLadder: Map<string, number>,
-  fallback: LadderTiming,
-): LadderTiming {
-  if (!offer.ladderId) return fallback;
-  return {
-    acceptDays: acceptDaysByLadder.get(offer.ladderId) ?? fallback.acceptDays,
-    responseHours: responseHoursByLadder.get(offer.ladderId) ?? fallback.responseHours,
   };
 }
 
@@ -138,6 +151,15 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       },
       orderBy: { name: "asc" },
     });
+    const acceptDaysByLadder = new Map(rows.map((row) => [row.id, row.acceptDays]));
+    const responseHoursByLadder = new Map(rows.map((row) => [row.id, row.responseHours]));
+    const defaultTiming: LadderTiming = {
+      acceptDays: rows[0]?.acceptDays ?? 7,
+      responseHours: rows[0]?.responseHours ?? 48,
+    };
+    if (query.clubId) {
+      await syncLadderOffers(query.clubId, acceptDaysByLadder, responseHoursByLadder, defaultTiming);
+    }
     const offers = query.clubId
       ? await prisma.matchOffer.findMany({
           where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] } },
@@ -145,12 +167,6 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           orderBy: { createdAt: "desc" },
         })
       : [];
-    const acceptDaysByLadder = new Map(rows.map((row) => [row.id, row.acceptDays]));
-    const responseHoursByLadder = new Map(rows.map((row) => [row.id, row.responseHours]));
-    const defaultTiming: LadderTiming = {
-      acceptDays: rows[0]?.acceptDays ?? 7,
-      responseHours: rows[0]?.responseHours ?? 48,
-    };
     return {
       data: rows.map((row) => {
         const playerIds = new Set(row.players.map((player) => player.userId));
@@ -167,8 +183,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           offers: offers
             .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))
             .filter((offer) => playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId))
-            .filter((offer) => offerOpen(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming)))
-            .map((offer) => presentOffer(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming))),
+            .filter((offer) => offerStillActive(offer, offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming)))
+            .map((offer) => presentOffer(offer, offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming))),
         };
       }),
     };
@@ -323,8 +339,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     return {
       data: rows
-        .filter((offer) => offerOpen(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming)))
-        .map((offer) => presentOffer(offer, ladderTimingForOffer(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming))),
+        .filter((offer) => offerStillActive(offer, offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming)))
+        .map((offer) => presentOffer(offer, offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, defaultTiming))),
     };
   });
 
@@ -354,8 +370,19 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       where: { userId: recipient.id, ladder: { id: ladderId ?? undefined, clubId: club.id, deletedAt: null } },
     });
     if (!onLadder) throw new AppError(400, "VALIDATION_ERROR", "Bu oyuncu kulübün merdiveninde değil");
+    const challengerSeat = ladderId
+      ? await prisma.ladderPlayer.findUnique({ where: { ladderId_userId: { ladderId, userId: viewer.id } } })
+      : null;
+    if (isLadderPlayerPassive(challengerSeat) || isLadderPlayerPassive(onLadder)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Pasif oyuncu defi gönderemez veya alamaz");
+    }
     const result = await prisma.$transaction(async (tx) => {
       await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
+      if (ladderId) {
+        await assertSingleActiveOffer(tx, { ladderId, userId: viewer.id, timing: offerTiming });
+        await assertSingleActiveOffer(tx, { ladderId, userId: body.toUserId, timing: offerTiming });
+        await assertNoRecentRematch(tx, { ladderId, firstId: viewer.id, secondId: body.toUserId });
+      }
       const existing = await tx.matchOffer.findFirst({
         where: {
           clubId: body.clubId,
@@ -369,7 +396,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
         },
         orderBy: { createdAt: "desc" },
       });
-      if (existing && offerOpen(existing, offerTiming)) return { offer: existing, created: false };
+      if (existing && offerStillActive(existing, offerTiming)) return { offer: existing, created: false };
       const offer = await tx.matchOffer.create({
         data: { fromUserId: viewer.id, toUserId: body.toUserId, clubId: body.clubId, ladderId, status: "PENDING" },
       });
@@ -404,7 +431,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
         })
       : null;
     const timing: LadderTiming = offerLadder ?? { acceptDays: 7, responseHours: 48 };
-    if (offer.status !== "PENDING" || !offerOpen(offer, timing)) {
+    if (offer.status !== "PENDING" || !offerStillActive(offer, timing)) {
       throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık beklemede değil");
     }
     const acceptedAt = new Date();
@@ -416,70 +443,158 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     return presentOffer(updated, timing);
   });
 
+  app.post("/api/match-offers/:id/schedule", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const body = parse(matchOfferScheduleSchema, req.body);
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Bu teklife tarih yazamazsın");
+    }
+    if (!offer.acceptedAt) throw new AppError(400, "VALIDATION_ERROR", "Önce teklif kabul edilmeli");
+    const deadline = scheduleDeadline(offer.acceptedAt);
+    if (!deadline || deadline.getTime() < Date.now()) {
+      throw new AppError(400, "VALIDATION_ERROR", "Maç tarihi için 72 saatlik süre doldu");
+    }
+    if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS < Date.parse(body.scheduledAt)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Maç, defi oluşturulduktan en geç 10 gün içinde oynanmalı");
+    }
+    const scheduledAt = new Date(body.scheduledAt);
+    const updated = await prisma.matchOffer.update({
+      where: { id },
+      data: { scheduledAt, status: "SCHEDULED" },
+    });
+    return { id: updated.id, scheduledAt: updated.scheduledAt?.toISOString() ?? null, status: updated.status };
+  });
+
+  app.post("/api/match-offers/:id/postpone", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const body = parse(matchOfferScheduleSchema, req.body);
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Bu teklifi erteleyemezsin");
+    }
+    if (!offer.scheduledAt) throw new AppError(400, "VALIDATION_ERROR", "Planlı maç yok");
+    if (!canPostpone(offer.scheduledAt, offer.postponeCount)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Erteleme kurallarına uygun değil");
+    }
+    const scheduledAt = new Date(body.scheduledAt);
+    if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS < scheduledAt.getTime()) {
+      throw new AppError(400, "VALIDATION_ERROR", "Ertelenen maç 10 gün sınırını aşamaz");
+    }
+    const updated = await prisma.matchOffer.update({
+      where: { id },
+      data: { scheduledAt, postponeCount: offer.postponeCount + 1 },
+    });
+    return { id: updated.id, scheduledAt: updated.scheduledAt?.toISOString() ?? null, postponeCount: updated.postponeCount };
+  });
+
   app.post("/api/match-offers/:id/result", async (req) => {
     const viewer = requireUser(req);
     const { id } = req.params as { id: string };
     const body = parse(matchOfferResultSchema, req.body);
     const offer = await prisma.matchOffer.findUnique({ where: { id } });
     if (!offer) throw notFound("Teklif bulunamadı");
-    const offerLadder = offer.ladderId
-      ? await prisma.ladder.findFirst({
-          where: { id: offer.ladderId, deletedAt: null },
-          select: { acceptDays: true, responseHours: true },
-        })
-      : null;
-    const timing: LadderTiming = offerLadder ?? { acceptDays: 7, responseHours: 48 };
-    if (offer.status !== "ACCEPTED" || !offerOpen(offer, timing)) {
-      throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
-    }
     if (viewer.id !== offer.toUserId) {
       throw new AppError(403, "FORBIDDEN", "Sonucu yalnızca teklif alan oyuncu girebilir");
+    }
+    if (!offer.scheduledAt) throw new AppError(400, "VALIDATION_ERROR", "Önce maç tarihi belirlenmeli");
+    const afterMatch = offer.scheduledAt.getTime();
+    const now = Date.now();
+    if (now < afterMatch) throw new AppError(400, "VALIDATION_ERROR", "Maç saatinden önce sonuç girilemez");
+    if (now > afterMatch + RESULT_CONFIRM_HOURS * HOUR_MS) {
+      throw new AppError(400, "VALIDATION_ERROR", "Sonuç giriş süresi doldu");
     }
     if (body.winnerId !== offer.fromUserId && body.winnerId !== offer.toUserId) {
       throw new AppError(400, "VALIDATION_ERROR", "Kazanan bu teklifin oyuncusu olmalı");
     }
-    const ladderId = offer.ladderId ?? (await sharedLadderId(offer.clubId, offer.fromUserId, offer.toUserId));
-    if (!ladderId) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
-    const fresh = await prisma.matchOffer.findUnique({ where: { id } });
-    if (!fresh || fresh.status !== "ACCEPTED" || !offerOpen(fresh, timing)) {
-      throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
+    if (offer.proposedWinnerId) throw new AppError(409, "CONFLICT", "Sonuç zaten girildi");
+    const updated = await prisma.matchOffer.update({
+      where: { id },
+      data: { proposedWinnerId: body.winnerId, resultEnteredAt: new Date(), disputedAt: null, forfeit: false },
+    });
+    return { id: updated.id, proposedWinnerId: updated.proposedWinnerId };
+  });
+
+  app.post("/api/match-offers/:id/confirm", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.fromUserId) {
+      throw new AppError(403, "FORBIDDEN", "Yalnızca rakip sonucu onaylayabilir");
     }
-    if (body.winnerId === offer.toUserId) {
-      await prisma.$transaction(async (tx) => {
-        await lockKey(tx, `ladder:${ladderId}`);
-        const stillOpen = await tx.matchOffer.findUnique({ where: { id } });
-        if (!stillOpen || stillOpen.status !== "ACCEPTED" || !offerOpen(stillOpen, timing)) {
-          throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
-        }
-        const recipient = await tx.ladderPlayer.findUnique({
-          where: { ladderId_userId: { ladderId, userId: offer.toUserId } },
-        });
-        if (!recipient) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
-        await tx.ladderHistory.create({
-          data: {
-            ladderId,
-            userId: offer.toUserId,
-            previousRank: recipient.rank,
-            newRank: recipient.rank,
-            previousPoints: recipient.points,
-            newPoints: recipient.points,
-            reason: "Merdiven defi, üst sıra kazandı",
-          },
-        });
-        await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
-      });
-    } else {
-      await prisma.$transaction(async (tx) => {
-        await lockKey(tx, `ladder:${ladderId}`);
-        await applyLadderChallengeShiftTx(tx, {
-          ladderId,
-          challengerId: offer.fromUserId,
-          recipientId: offer.toUserId,
-        });
-        await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
-      });
+    if (!offer.proposedWinnerId || !offer.resultEnteredAt || offer.disputedAt) {
+      throw new AppError(400, "VALIDATION_ERROR", "Onaylanacak sonuç yok");
     }
-    return { id, winnerId: body.winnerId };
+    await finalizeConfirmedOffer(id);
+    return { id, winnerId: offer.proposedWinnerId };
+  });
+
+  app.post("/api/match-offers/:id/dispute", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.fromUserId) {
+      throw new AppError(403, "FORBIDDEN", "Yalnızca rakip itiraz edebilir");
+    }
+    if (!offer.proposedWinnerId || !offer.resultEnteredAt) {
+      throw new AppError(400, "VALIDATION_ERROR", "İtiraz edilecek sonuç yok");
+    }
+    await prisma.matchOffer.update({
+      where: { id },
+      data: { disputedAt: new Date(), proposedWinnerId: null, resultEnteredAt: null },
+    });
+    return { id, disputed: true };
+  });
+
+  app.post("/api/match-offers/:id/forfeit", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Hükmen sonucu yalnızca teklif alan girebilir");
+    }
+    if (!offer.scheduledAt || offer.scheduledAt.getTime() > Date.now()) {
+      throw new AppError(400, "VALIDATION_ERROR", "Maç saati gelmeden hükmen sonuç yazılamaz");
+    }
+    await prisma.matchOffer.update({
+      where: { id },
+      data: {
+        proposedWinnerId: offer.toUserId,
+        resultEnteredAt: new Date(),
+        forfeit: true,
+        disputedAt: null,
+      },
+    });
+    await finalizeConfirmedOffer(id);
+    return { id, winnerId: offer.toUserId, forfeit: true };
+  });
+
+  app.patch("/api/ladders/:ladderId/players/:userId/passive", async (req) => {
+    const viewer = requireUser(req);
+    const { ladderId, userId } = req.params as { ladderId: string; userId: string };
+    if (viewer.id !== userId && viewer.role !== "CLUB_MANAGER" && viewer.role !== "ADMIN") {
+      throw new AppError(403, "FORBIDDEN", "Bu pasiflik ayarını değiştiremezsin");
+    }
+    const body = parse(ladderPlayerPassiveSchema, req.body);
+    const seat = await prisma.ladderPlayer.findUnique({ where: { ladderId_userId: { ladderId, userId } } });
+    if (!seat) throw notFound("Oyuncu merdivende değil");
+    let passiveUntil: Date | null = null;
+    if (body.passiveUntil) {
+      passiveUntil = new Date(body.passiveUntil);
+      const maxUntil = new Date(Date.now() + 30 * DAY_MS);
+      if (passiveUntil.getTime() > maxUntil.getTime()) {
+        throw new AppError(400, "VALIDATION_ERROR", "Pasiflik en fazla 30 gün olabilir");
+      }
+    }
+    const updated = await prisma.ladderPlayer.update({ where: { id: seat.id }, data: { passiveUntil } });
+    return { userId: updated.userId, passiveUntil: updated.passiveUntil?.toISOString() ?? null };
   });
 }
 

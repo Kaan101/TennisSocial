@@ -717,11 +717,12 @@ model LadderPlayer {
   userId    String
   ladder    Ladder   @relation(fields: [ladderId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id])
-  rank      Int
-  points    Int         @default(0)
-  lastMove  LadderMove?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  rank         Int
+  points       Int         @default(0)
+  lastMove     LadderMove?
+  passiveUntil DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@unique([ladderId, userId])
   @@unique([ladderId, rank])
@@ -1004,11 +1005,16 @@ model MatchOffer {
   ladder     Ladder?          @relation(fields: [ladderId], references: [id])
   winner      User?            @relation("MatchOfferWinner", fields: [winnerId], references: [id])
   status      MatchOfferStatus @default(PENDING)
-  respondedAt DateTime?
-  acceptedAt  DateTime?
-  scheduledAt DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  respondedAt      DateTime?
+  acceptedAt       DateTime?
+  scheduledAt      DateTime?
+  proposedWinnerId String?
+  resultEnteredAt  DateTime?
+  disputedAt       DateTime?
+  postponeCount    Int              @default(0)
+  forfeit          Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([toUserId, status])
   @@index([fromUserId])

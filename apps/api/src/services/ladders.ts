@@ -54,6 +54,10 @@ export async function recordLadderChange(input: {
   });
 }
 
+export function isLadderPlayerPassive(row: { passiveUntil: Date | null } | null | undefined, at = Date.now()): boolean {
+  return Boolean(row?.passiveUntil && row.passiveUntil.getTime() > at);
+}
+
 export async function assertLadderChallenge(input: { ladderId: string; challengerId: string; recipientId: string }): Promise<void> {
   const ladder = await prisma.ladder.findFirst({ where: { id: input.ladderId, deletedAt: null } });
   if (!ladder) throw notFound("Merdiven bulunamadı");
@@ -62,12 +66,44 @@ export async function assertLadderChallenge(input: { ladderId: string; challenge
     prisma.ladderPlayer.findUnique({ where: { ladderId_userId: { ladderId: ladder.id, userId: input.recipientId } } }),
   ]);
   if (!challenger || !recipient) throw new AppError(400, "VALIDATION_ERROR", "İkiniz de bu merdivende olmalısınız");
+  if (isLadderPlayerPassive(challenger) || isLadderPlayerPassive(recipient)) {
+    throw new AppError(400, "VALIDATION_ERROR", "Pasif oyuncu defi gönderemez veya alamaz");
+  }
   if (recipient.rank >= challenger.rank) {
     throw new AppError(400, "VALIDATION_ERROR", "Yalnızca üst sıradaki bir oyuncuya merdiven defisi atabilirsin");
   }
   if (challenger.rank - recipient.rank > ladder.maxRankSpan) {
     throw new AppError(400, "VALIDATION_ERROR", `Bu oyuncu ${ladder.maxRankSpan} sıra sınırının dışında`);
   }
+}
+
+export async function applyOfferWinnerTx(
+  tx: Prisma.TransactionClient,
+  input: { ladderId: string; offer: { fromUserId: string; toUserId: string }; winnerId: string; forfeit?: boolean },
+): Promise<void> {
+  if (input.winnerId === input.offer.toUserId) {
+    const recipient = await tx.ladderPlayer.findUnique({
+      where: { ladderId_userId: { ladderId: input.ladderId, userId: input.offer.toUserId } },
+    });
+    if (!recipient) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
+    await tx.ladderHistory.create({
+      data: {
+        ladderId: input.ladderId,
+        userId: input.offer.toUserId,
+        previousRank: recipient.rank,
+        newRank: recipient.rank,
+        previousPoints: recipient.points,
+        newPoints: recipient.points,
+        reason: input.forfeit ? "Merdiven defi, hükmen üst sıra" : "Merdiven defi, üst sıra kazandı",
+      },
+    });
+    return;
+  }
+  await applyLadderChallengeShiftTx(tx, {
+    ladderId: input.ladderId,
+    challengerId: input.offer.fromUserId,
+    recipientId: input.offer.toUserId,
+  });
 }
 
 export async function applyLadderChallengeShiftTx(
