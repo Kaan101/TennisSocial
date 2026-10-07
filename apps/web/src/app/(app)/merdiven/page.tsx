@@ -72,16 +72,16 @@ function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number):
 
 const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
 
+function offerOpenForUi(offer: LadderOffer): boolean {
+  return ACTIVE_CHALLENGE_STATUSES.has(offer.status) && !offer.proposedWinnerId;
+}
+
 function findIncomingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
-  return (offers ?? []).find(
-    (offer) => ACTIVE_CHALLENGE_STATUSES.has(offer.status) && offer.toUserId === playerUserId,
-  );
+  return (offers ?? []).find((offer) => offerOpenForUi(offer) && offer.toUserId === playerUserId);
 }
 
 function findOutgoingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
-  return (offers ?? []).find(
-    (offer) => ACTIVE_CHALLENGE_STATUSES.has(offer.status) && offer.fromUserId === playerUserId,
-  );
+  return (offers ?? []).find((offer) => offerOpenForUi(offer) && offer.fromUserId === playerUserId);
 }
 
 function challengeRowClass(offer: LadderOffer | undefined): string {
@@ -444,6 +444,7 @@ export default function LadderPage() {
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
     ensured.current = null;
@@ -641,6 +642,20 @@ export default function LadderPage() {
     }
   }
 
+  async function cancelOffer(offerId: string) {
+    setCancellingId(offerId);
+    setMessage(null);
+    try {
+      await api(`/match-offers/${offerId}/cancel`, { method: "POST", body: JSON.stringify({}) });
+      setMessage("Defi iptal edildi.");
+      await reloadLadders();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Defi iptal edilemedi");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
   async function recordForfeit(offerId: string) {
     setResultingId(offerId);
     setMessage(null);
@@ -761,7 +776,7 @@ export default function LadderPage() {
                     const outgoingChallenge = findOutgoingChallenge(ladder.offers, player.userId);
                     const openWithPlayer = (ladder.offers ?? []).find(
                       (offer) =>
-                        ACTIVE_CHALLENGE_STATUSES.has(offer.status)
+                        (ACTIVE_CHALLENGE_STATUSES.has(offer.status) || Boolean(offer.proposedWinnerId))
                         && (
                           (offer.fromUserId === player.userId && offer.toUserId === viewerId)
                           || (offer.toUserId === player.userId && offer.fromUserId === viewerId)
@@ -795,10 +810,6 @@ export default function LadderPage() {
                       && Boolean(incomingChallenge.scheduledAt)
                       && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
                       && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
-                    const showConfirmDispute =
-                      Boolean(outgoingChallenge?.proposedWinnerId)
-                      && playerIsViewer(player.userId, viewerId)
-                      && outgoingChallenge?.fromUserId === viewerId;
                     const showForfeit =
                       Boolean(incomingChallenge?.scheduledAt)
                       && playerIsViewer(player.userId, viewerId)
@@ -816,6 +827,12 @@ export default function LadderPage() {
                       && !openWithPlayer
                       && !incomingChallenge;
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
+                    const cancelOfferRow =
+                      isViewerRow
+                      && (
+                        (outgoingChallenge && viewerId === outgoingChallenge.fromUserId)
+                        || (incomingChallenge && viewerId === incomingChallenge.toUserId)
+                      );
                     return (
                       <li
                         key={player.userId}
@@ -932,25 +949,15 @@ export default function LadderPage() {
                             Hükmen
                           </button>
                         ) : null}
-                        {showConfirmDispute && outgoingChallenge ? (
-                          <span className="flex shrink-0 flex-wrap items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={resultingId === outgoingChallenge.id}
-                              onClick={() => void confirmResult(outgoingChallenge.id)}
-                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                            >
-                              Onayla
-                            </button>
-                            <button
-                              type="button"
-                              disabled={resultingId === outgoingChallenge.id}
-                              onClick={() => void disputeResult(outgoingChallenge.id)}
-                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                            >
-                              İtiraz
-                            </button>
-                          </span>
+                        {cancelOfferRow && (outgoingChallenge ?? incomingChallenge) ? (
+                          <button
+                            type="button"
+                            disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
+                            onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
+                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                          >
+                            İptal
+                          </button>
                         ) : null}
                         {canOffer ? (
                           <button

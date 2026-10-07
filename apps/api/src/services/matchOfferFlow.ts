@@ -92,6 +92,39 @@ export async function syncLadderOffers(
   }
 }
 
+async function createLadderDefiMatchTx(
+  tx: Prisma.TransactionClient,
+  offer: {
+    fromUserId: string;
+    toUserId: string;
+    ladderId: string | null;
+    scheduledAt: Date | null;
+    resultEnteredAt: Date | null;
+    proposedWinnerId: string;
+  },
+): Promise<void> {
+  if (!offer.ladderId) return;
+  const scheduledAt = offer.scheduledAt ?? offer.resultEnteredAt ?? new Date();
+  const winnerSide = offer.proposedWinnerId === offer.fromUserId ? "A" : "B";
+  await tx.match.create({
+    data: {
+      format: "SINGLE",
+      scheduledAt,
+      status: "COMPLETED",
+      kind: "DEFI",
+      ladderId: offer.ladderId,
+      winnerSide,
+      createdById: offer.fromUserId,
+      players: {
+        create: [
+          { userId: offer.fromUserId, side: "A" },
+          { userId: offer.toUserId, side: "B" },
+        ],
+      },
+    },
+  });
+}
+
 export async function finalizeConfirmedOffer(offerId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const offer = await tx.matchOffer.findUnique({ where: { id: offerId } });
@@ -104,6 +137,7 @@ export async function finalizeConfirmedOffer(offerId: string): Promise<void> {
       winnerId: offer.proposedWinnerId,
       forfeit: offer.forfeit,
     });
+    await createLadderDefiMatchTx(tx, offer);
     await tx.matchOffer.update({
       where: { id: offerId },
       data: { winnerId: offer.proposedWinnerId },

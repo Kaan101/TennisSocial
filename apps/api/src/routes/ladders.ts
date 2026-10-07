@@ -555,6 +555,24 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     return { id, disputed: true };
   });
 
+  app.post("/api/match-offers/:id/cancel", async (req) => {
+    const viewer = requireUser(req);
+    const { id } = req.params as { id: string };
+    const offer = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!offer) throw notFound("Teklif bulunamadı");
+    if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Bu defiyi iptal edemezsin");
+    }
+    if (offer.winnerId || offer.proposedWinnerId) {
+      throw new AppError(400, "VALIDATION_ERROR", "Sonuç girilmiş defi iptal edilemez");
+    }
+    if (!["PENDING", "ACCEPTED", "SCHEDULED"].includes(offer.status)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Bu defi artık açık değil");
+    }
+    await prisma.matchOffer.delete({ where: { id } });
+    return { id, cancelled: true };
+  });
+
   app.post("/api/match-offers/:id/forfeit", async (req) => {
     const viewer = requireUser(req);
     const { id } = req.params as { id: string };

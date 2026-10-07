@@ -157,6 +157,11 @@ enum MatchStatus {
   CANCELLED
 }
 
+enum MatchKind {
+  NORMAL
+  DEFI
+}
+
 enum SetFormat {
   BEST_OF_3
   BEST_OF_3_SUPER_TIEBREAK
@@ -531,6 +536,7 @@ model Match {
   score       String?
   winnerSide  MatchSide?
   note        String?
+  kind        MatchKind   @default(NORMAL)
   status      MatchStatus @default(SCHEDULED)
   groupId     String?
   group       Group?      @relation(fields: [groupId], references: [id])
