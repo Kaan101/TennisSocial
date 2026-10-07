@@ -32,6 +32,7 @@ function offerOpen(
   if (offer.status === "ACCEPTED" && offer.acceptedAt) {
     return offer.acceptedAt.getTime() + timing.acceptDays * DAY_MS > Date.now();
   }
+  if (offer.status === "SCHEDULED") return true;
   return false;
 }
 
@@ -85,6 +86,7 @@ function presentOffer(
     ladderId: string | null;
     createdAt: Date;
     acceptedAt: Date | null;
+    scheduledAt: Date | null;
     status: string;
     fromUser: { profile: { firstName: string; lastName: string } | null };
     toUser: { profile: { firstName: string; lastName: string } | null };
@@ -103,6 +105,7 @@ function presentOffer(
     status: row.status,
     createdAt: row.createdAt.toISOString(),
     acceptedAt,
+    scheduledAt: row.scheduledAt?.toISOString() ?? null,
     acceptDays: timing.acceptDays,
     ...(row.status === "ACCEPTED" && row.acceptedAt
       ? { acceptRemaining: acceptCountdown(row.acceptedAt, timing.acceptDays) }
@@ -137,7 +140,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     });
     const offers = query.clubId
       ? await prisma.matchOffer.findMany({
-          where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED"] } },
+          where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] } },
           include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
           orderBy: { createdAt: "desc" },
         })
@@ -308,7 +311,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const rows = await prisma.matchOffer.findMany({
       where: {
         clubId: query.clubId,
-        status: { in: ["PENDING", "ACCEPTED"] },
+        status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] },
         winnerId: null,
         OR: [{ fromUserId: viewer.id }, { toUserId: viewer.id }],
       },
@@ -357,7 +360,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
         where: {
           clubId: body.clubId,
           winnerId: null,
-          status: { in: ["PENDING", "ACCEPTED"] },
+          status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] },
           ...(ladderId ? { ladderId } : {}),
           OR: [
             { fromUserId: viewer.id, toUserId: body.toUserId },

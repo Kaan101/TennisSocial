@@ -28,6 +28,7 @@ type LadderOffer = {
   toName: string;
   status: string;
   acceptedAt: string | null;
+  scheduledAt: string | null;
   acceptDays: number;
   acceptRemaining?: { days: number; hours: number };
 };
@@ -59,6 +60,29 @@ function playerIsViewer(playerUserId: string, viewerId: string | null): boolean 
 function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number): boolean {
   const gap = myRank - theirRank;
   return gap >= 1 && gap <= maxRankSpan;
+}
+
+const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
+
+function findRowChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
+  return (offers ?? []).find(
+    (offer) =>
+      ACTIVE_CHALLENGE_STATUSES.has(offer.status)
+      && (offer.fromUserId === playerUserId || offer.toUserId === playerUserId),
+  );
+}
+
+function challengePlanned(offer: LadderOffer): boolean {
+  return offer.status === "SCHEDULED" || offer.scheduledAt !== null;
+}
+
+function challengeRowClass(offer: LadderOffer | undefined): string {
+  const base = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
+  if (!offer) return `${base} border-line`;
+  if (challengePlanned(offer)) {
+    return `${base} border-[#15803d] bg-[#15803d]/10 ring-2 ring-[#15803d]/35`;
+  }
+  return `${base} border-court bg-paper/70 ring-2 ring-court/40`;
 }
 
 const LADDER_RULES = [
@@ -622,45 +646,47 @@ export default function LadderPage() {
                     const withinSpan =
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
+                    const rowChallenge = findRowChallenge(ladder.offers, player.userId);
                     const openWithPlayer = (ladder.offers ?? []).find(
                       (offer) =>
-                        (offer.status === "PENDING" || offer.status === "ACCEPTED")
+                        ACTIVE_CHALLENGE_STATUSES.has(offer.status)
                         && (
                           (offer.fromUserId === player.userId && offer.toUserId === viewerId)
                           || (offer.toUserId === player.userId && offer.fromUserId === viewerId)
                         ),
                     );
-                    const incomingPending =
-                      playerIsViewer(player.userId, viewerId)
-                        ? (ladder.offers ?? []).find(
-                            (offer) => offer.status === "PENDING" && offer.toUserId === viewerId,
-                          )
-                        : null;
-                    const showAccept = Boolean(incomingPending);
-                    const acceptedRow = (ladder.offers ?? []).find(
-                      (offer) =>
-                        offer.toUserId === player.userId
-                        && offer.status === "ACCEPTED"
-                        && offer.acceptedAt,
-                    );
+                    const showAccept =
+                      rowChallenge?.status === "PENDING"
+                      && playerIsViewer(player.userId, viewerId)
+                      && rowChallenge.toUserId === viewerId;
                     const canOffer =
                       viewerId !== null
                       && withinSpan
                       && !playerIsViewer(player.userId, viewerId)
                       && !openWithPlayer;
                     return (
-                      <li key={player.userId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm">
+                      <li key={player.userId} className={challengeRowClass(rowChallenge)}>
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{player.rank}. {player.name}</span>
-                          {incomingPending ? (
-                            <span className="block truncate text-xs text-muted">{incomingPending.fromName}</span>
+                          {rowChallenge ? (
+                            <span className="mt-1 block text-xs font-semibold text-ink">
+                              {rowChallenge.fromName} · {rowChallenge.toName}
+                            </span>
                           ) : null}
-                          {acceptedRow ? (
-                            <span className="block truncate text-xs text-muted">
-                              {acceptedRow.fromName} · {acceptedRow.toName}
-                              {" · "}
-                              <AcceptCountdown acceptedAt={acceptedRow.acceptedAt!} acceptDays={acceptedRow.acceptDays} />
+                          {rowChallenge?.status === "ACCEPTED" && rowChallenge.acceptedAt ? (
+                            <span className="mt-0.5 block text-xs text-muted">
+                              <AcceptCountdown acceptedAt={rowChallenge.acceptedAt} acceptDays={rowChallenge.acceptDays} />
+                            </span>
+                          ) : null}
+                          {rowChallenge && challengePlanned(rowChallenge) && rowChallenge.scheduledAt ? (
+                            <span className="mt-0.5 block text-xs text-[#15803d]">
+                              {new Date(rowChallenge.scheduledAt).toLocaleString("tr-TR", {
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
                             </span>
                           ) : null}
                         </span>
@@ -670,11 +696,11 @@ export default function LadderPage() {
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
-                        {showAccept && incomingPending ? (
+                        {showAccept && rowChallenge ? (
                           <button
                             type="button"
-                            disabled={acceptingId === incomingPending.id}
-                            onClick={() => void acceptOffer(incomingPending.id)}
+                            disabled={acceptingId === rowChallenge.id}
+                            onClick={() => void acceptOffer(rowChallenge.id)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
                             Kabul et
