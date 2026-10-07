@@ -282,9 +282,6 @@ function LadderAciklama() {
   );
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
-
 function acceptRemainingFromStored(acceptedAt: string, acceptDays: number): { days: number; hours: number } {
   const left = new Date(acceptedAt).getTime() + acceptDays * DAY_MS - Date.now();
   const totalHours = Math.max(0, Math.floor(left / HOUR_MS));
