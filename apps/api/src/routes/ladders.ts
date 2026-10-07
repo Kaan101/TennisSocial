@@ -15,6 +15,7 @@ import {
 import { assertRole, requireUser } from "../lib/authz";
 import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
 import {
+  applyFinalizedOfferResultTx,
   assertSingleActiveOffer,
   canPostpone,
   finalizeConfirmedOffer,
@@ -519,12 +520,16 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (body.winnerId !== offer.fromUserId && body.winnerId !== offer.toUserId) {
       throw new AppError(400, "VALIDATION_ERROR", "Kazanan bu teklifin oyuncusu olmalı");
     }
-    if (offer.proposedWinnerId) throw new AppError(409, "CONFLICT", "Sonuç zaten girildi");
-    const updated = await prisma.matchOffer.update({
-      where: { id },
-      data: { proposedWinnerId: body.winnerId, resultEnteredAt: new Date(), disputedAt: null, forfeit: false },
+    if (offer.proposedWinnerId || offer.winnerId) throw new AppError(409, "CONFLICT", "Sonuç zaten girildi");
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.matchOffer.update({
+        where: { id },
+        data: { proposedWinnerId: body.winnerId, resultEnteredAt: new Date(), disputedAt: null, forfeit: false },
+      });
+      await applyFinalizedOfferResultTx(tx, row);
+      return tx.matchOffer.findUniqueOrThrow({ where: { id } });
     });
-    return { id: updated.id, proposedWinnerId: updated.proposedWinnerId };
+    return { id: updated.id, proposedWinnerId: updated.proposedWinnerId, winnerId: updated.winnerId };
   });
 
   app.post("/api/match-offers/:id/confirm", async (req) => {

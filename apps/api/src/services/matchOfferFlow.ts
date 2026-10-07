@@ -80,6 +80,10 @@ export async function syncLadderOffers(
   });
   const now = Date.now();
   for (const offer of offers) {
+    if (offer.proposedWinnerId && !offer.disputedAt) {
+      await finalizeConfirmedOffer(offer.id);
+      continue;
+    }
     const timing = offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, fallback);
     if (offer.status === "PENDING" && offer.createdAt.getTime() + timing.responseHours * HOUR_MS <= now) {
       await prisma.matchOffer.update({
@@ -102,14 +106,6 @@ export async function syncLadderOffers(
         });
         continue;
       }
-    }
-    if (
-      offer.proposedWinnerId
-      && offer.resultEnteredAt
-      && !offer.disputedAt
-      && offer.resultEnteredAt.getTime() + RESULT_CONFIRM_HOURS * HOUR_MS <= now
-    ) {
-      await finalizeConfirmedOffer(offer.id);
     }
   }
 }
@@ -147,23 +143,43 @@ async function createLadderDefiMatchTx(
   });
 }
 
+type OfferResultRow = {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  ladderId: string | null;
+  scheduledAt: Date | null;
+  resultEnteredAt: Date | null;
+  proposedWinnerId: string | null;
+  winnerId: string | null;
+  forfeit: boolean;
+};
+
+export async function applyFinalizedOfferResultTx(
+  tx: Prisma.TransactionClient,
+  offer: OfferResultRow,
+): Promise<void> {
+  if (!offer.proposedWinnerId || offer.winnerId) return;
+  const ladderId = offer.ladderId;
+  if (!ladderId) return;
+  await applyOfferWinnerTx(tx, {
+    ladderId,
+    offer: { fromUserId: offer.fromUserId, toUserId: offer.toUserId },
+    winnerId: offer.proposedWinnerId,
+    forfeit: offer.forfeit,
+  });
+  await createLadderDefiMatchTx(tx, { ...offer, proposedWinnerId: offer.proposedWinnerId });
+  await tx.matchOffer.update({
+    where: { id: offer.id },
+    data: { winnerId: offer.proposedWinnerId },
+  });
+}
+
 export async function finalizeConfirmedOffer(offerId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const offer = await tx.matchOffer.findUnique({ where: { id: offerId } });
-    if (!offer || offer.winnerId || !offer.proposedWinnerId) return;
-    const ladderId = offer.ladderId;
-    if (!ladderId) return;
-    await applyOfferWinnerTx(tx, {
-      ladderId,
-      offer: { fromUserId: offer.fromUserId, toUserId: offer.toUserId },
-      winnerId: offer.proposedWinnerId,
-      forfeit: offer.forfeit,
-    });
-    await createLadderDefiMatchTx(tx, offer);
-    await tx.matchOffer.update({
-      where: { id: offerId },
-      data: { winnerId: offer.proposedWinnerId },
-    });
+    if (!offer) return;
+    await applyFinalizedOfferResultTx(tx, offer);
   });
 }
 

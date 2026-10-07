@@ -675,7 +675,7 @@ export default function LadderPage() {
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
-      setMessage("Sonuç gönderildi, rakip onayını bekliyor.");
+      setMessage("Sonuç kaydedildi, sıralama güncellendi.");
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
