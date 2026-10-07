@@ -93,6 +93,31 @@ function challengeRowClass(offer: LadderOffer | undefined): string {
   return `${base} border-court bg-paper/70 ring-2 ring-court/40`;
 }
 
+function ladderPlayerRowClass(input: { isViewerRow: boolean; incomingChallenge: LadderOffer | undefined }): string {
+  if (input.isViewerRow) {
+    return "flex flex-wrap items-center gap-3 rounded-2xl border border-court bg-paper px-3 py-2 text-sm";
+  }
+  if (input.incomingChallenge) return challengeRowClass(input.incomingChallenge);
+  return "flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm";
+}
+
+function viewerHasActiveChallenge(offers: LadderOffer[] | undefined, viewerId: string | null): boolean {
+  if (viewerId === null) return false;
+  return (offers ?? []).some(
+    (offer) =>
+      ACTIVE_CHALLENGE_STATUSES.has(offer.status)
+      && (offer.fromUserId === viewerId || offer.toUserId === viewerId),
+  );
+}
+
+function datetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 const RESULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const LADDER_RULES = [
@@ -417,6 +442,7 @@ export default function LadderPage() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [resultingId, setResultingId] = useState<string | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState("");
+  const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -595,17 +621,18 @@ export default function LadderPage() {
     }
   }
 
-  async function scheduleMatch(offerId: string) {
-    if (!scheduleDraft) return;
+  async function scheduleMatch(offerId: string, scheduledAtLocal: string) {
+    if (!scheduledAtLocal) return;
     setSchedulingId(offerId);
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/schedule`, {
         method: "POST",
-        body: JSON.stringify({ scheduledAt: new Date(scheduleDraft).toISOString() }),
+        body: JSON.stringify({ scheduledAt: new Date(scheduledAtLocal).toISOString() }),
       });
       setMessage("Maç tarihi kaydedildi.");
       setScheduleDraft("");
+      setScheduleDraftOfferId(null);
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Maç tarihi kaydedilemedi");
@@ -646,6 +673,11 @@ export default function LadderPage() {
           ) : null
         }
       />
+      {user ? (
+        <p className="text-sm font-semibold text-ink">
+          {user.firstName} {user.lastName}
+        </p>
+      ) : null}
       {message ? <p className="text-sm">{message}</p> : null}
       {rows.length === 0 ? <LoadingBlock label="Merdiven hazırlanıyor" /> : null}
       {pickerOpen && target ? (
@@ -702,8 +734,10 @@ export default function LadderPage() {
       {rows.map((ladder) => {
         const open = !closedIds.has(ladder.id);
         const viewerId = ladderViewerId(user);
-        const myRank = ladder.players.find((item) => playerIsViewer(item.userId, viewerId))?.rank;
+        const mySeat = ladder.players.find((item) => playerIsViewer(item.userId, viewerId));
+        const myRank = mySeat?.rank;
         const maxRankSpan = ladder.maxRankSpan;
+        const viewerBusy = viewerHasActiveChallenge(ladder.offers, viewerId);
         return (
           <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
             <button
@@ -755,6 +789,12 @@ export default function LadderPage() {
                       && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
                       && !incomingChallenge.scheduledAt
                       && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
+                    const showReschedule =
+                      incomingChallenge != null
+                      && player.userId === incomingChallenge.toUserId
+                      && Boolean(incomingChallenge.scheduledAt)
+                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
+                      && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
                     const showConfirmDispute =
                       Boolean(outgoingChallenge?.proposedWinnerId)
                       && playerIsViewer(player.userId, viewerId)
@@ -767,12 +807,20 @@ export default function LadderPage() {
                       && !incomingChallenge?.proposedWinnerId;
                     const canOffer =
                       viewerId !== null
+                      && myRank !== undefined
+                      && !mySeat?.passive
+                      && !viewerBusy
                       && withinSpan
                       && !playerIsViewer(player.userId, viewerId)
                       && !player.passive
-                      && !openWithPlayer;
+                      && !openWithPlayer
+                      && !incomingChallenge;
+                    const isViewerRow = playerIsViewer(player.userId, viewerId);
                     return (
-                      <li key={player.userId} className={challengeRowClass(incomingChallenge)}>
+                      <li
+                        key={player.userId}
+                        className={ladderPlayerRowClass({ isViewerRow, incomingChallenge: isViewerRow ? undefined : incomingChallenge })}
+                      >
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">
@@ -816,18 +864,38 @@ export default function LadderPage() {
                             Kabul et
                           </button>
                         ) : null}
-                        {showSchedule && incomingChallenge ? (
+                        {(showSchedule || showReschedule) && incomingChallenge ? (
                           <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
+                              Tarih
+                            </label>
                             <input
+                              id={`schedule-${incomingChallenge.id}`}
                               type="datetime-local"
-                              value={scheduleDraft}
-                              onChange={(event) => setScheduleDraft(event.target.value)}
+                              value={
+                                scheduleDraftOfferId === incomingChallenge.id
+                                  ? scheduleDraft
+                                  : datetimeLocalValue(incomingChallenge.scheduledAt)
+                              }
+                              onChange={(event) => {
+                                setScheduleDraftOfferId(incomingChallenge.id);
+                                setScheduleDraft(event.target.value);
+                              }}
                               className="h-8 rounded-md border border-line px-2 text-xs"
                             />
                             <button
                               type="button"
-                              disabled={schedulingId === incomingChallenge.id || !scheduleDraft}
-                              onClick={() => void scheduleMatch(incomingChallenge.id)}
+                              disabled={
+                                schedulingId === incomingChallenge.id
+                                || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
+                              }
+                              onClick={() => {
+                                const local =
+                                  scheduleDraftOfferId === incomingChallenge.id
+                                    ? scheduleDraft
+                                    : datetimeLocalValue(incomingChallenge.scheduledAt);
+                                void scheduleMatch(incomingChallenge.id, local);
+                              }}
                               className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Tarih

@@ -453,9 +453,12 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(403, "FORBIDDEN", "Bu teklife tarih yazamazsın");
     }
     if (!offer.acceptedAt) throw new AppError(400, "VALIDATION_ERROR", "Önce teklif kabul edilmeli");
-    const deadline = scheduleDeadline(offer.acceptedAt);
-    if (!deadline || deadline.getTime() < Date.now()) {
-      throw new AppError(400, "VALIDATION_ERROR", "Maç tarihi için 72 saatlik süre doldu");
+    const rescheduling = Boolean(offer.scheduledAt);
+    if (!rescheduling) {
+      const deadline = scheduleDeadline(offer.acceptedAt);
+      if (!deadline || deadline.getTime() < Date.now()) {
+        throw new AppError(400, "VALIDATION_ERROR", "Maç tarihi için 72 saatlik süre doldu");
+      }
     }
     if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS < Date.parse(body.scheduledAt)) {
       throw new AppError(400, "VALIDATION_ERROR", "Maç, defi oluşturulduktan en geç 10 gün içinde oynanmalı");
