@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { shiftDate, weekdayOf } from "@/components/court-ui";
 import { EmptyState, ErrorState, LoadingBlock } from "@/components/states";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useClub } from "@/lib/club";
 import { useResource } from "@/lib/use-resource";
@@ -88,10 +89,14 @@ function versus(players: BoardPlayer[]): string {
   return left || right || "Oyuncular";
 }
 
+function personName(player: BoardPlayer): string {
+  return `${player.firstName} ${player.lastName}`.trim();
+}
+
 function cellLine(match: BoardMatch): string {
   return [...match.players]
     .sort((left, right) => (left.side < right.side ? -1 : left.side > right.side ? 1 : 0))
-    .map((player) => player.mark)
+    .map(personName)
     .filter(Boolean)
     .join(" · ");
 }
@@ -167,7 +172,7 @@ export function MaclarView() {
           {!loading && !error && listed.length > 0 ? (
             <ul className="space-y-2" aria-label="Planlı ve oynanan maçlar">
               {listed.map((match) => (
-                <MatchRow key={`${match.source}:${match.id}`} match={match} />
+                <MatchRow key={`${match.source}:${match.id}`} match={match} onRefresh={() => reload()} />
               ))}
             </ul>
           ) : null}
@@ -278,35 +283,69 @@ function MatchCell({ day, hour, matches }: { day: BoardDay; hour: string; matche
       title={lines.join("\n")}
       aria-label={`${day.label} ${hour}, ${lines.join(", ")}`}
     >
-      {matches.map((match) => (
-        <p key={`${match.source}:${match.id}`} className="truncate text-[10px] leading-tight font-semibold text-ink">
-          {cellLine(match)}
-        </p>
-      ))}
+      {matches.map((match) => {
+        const line = cellLine(match);
+        return (
+          <p key={`${match.source}:${match.id}`} className="truncate text-[10px] leading-tight font-semibold text-ink" title={line}>
+            {line}
+          </p>
+        );
+      })}
     </div>
   );
 }
 
-function MatchRow({ match }: { match: BoardMatch }) {
+function MatchRow({ match, onRefresh }: { match: BoardMatch; onRefresh: () => Promise<void> }) {
   const played = match.status === "COMPLETED";
   const result = resultOf(match);
   const href = match.source === "match" ? `/maclar/${match.id}` : "/merdiven";
+  const [busy, setBusy] = useState(false);
+  const [fail, setFail] = useState<string | null>(null);
+
+  async function cancel() {
+    if (busy) return;
+    setBusy(true);
+    setFail(null);
+    const path = match.source === "offer" ? `/match-offers/${match.id}/cancel` : `/matches/${match.id}/cancel`;
+    try {
+      await api(path, { method: "POST", body: JSON.stringify({}) });
+      await onRefresh();
+    } catch (err) {
+      setFail(err instanceof Error ? err.message : "Maç iptal edilemedi");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <li className="rounded-2xl border border-line px-3 py-2 text-sm">
-      <Link href={href} className="block">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 flex-1 font-semibold">{versus(match.players)}</p>
-          {played && match.kind === "DEFI" ? (
-            <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-court px-1 text-[11px] font-semibold text-white" title="Defi">
-              <span className="sr-only">Defi</span>D
-            </span>
-          ) : null}
-        </div>
-        {played && result ? <p className="mt-0.5 font-semibold text-court">{result}</p> : null}
-        <p className="mt-0.5 text-xs text-muted">
-          {formatTrDate(match.scheduledAt)} · {istanbulClock(match.scheduledAt)}
-        </p>
-      </Link>
+      <div className="flex items-start gap-2">
+        <Link href={href} className="block min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 flex-1 font-semibold">{versus(match.players)}</p>
+            {played && match.kind === "DEFI" ? (
+              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-court px-1 text-[11px] font-semibold text-white" title="Defi">
+                <span className="sr-only">Defi</span>D
+              </span>
+            ) : null}
+          </div>
+          {played && result ? <p className="mt-0.5 font-semibold text-court">{result}</p> : null}
+          <p className="mt-0.5 text-xs text-muted">
+            {formatTrDate(match.scheduledAt)} · {istanbulClock(match.scheduledAt)}
+          </p>
+        </Link>
+        {played ? null : (
+          <button
+            type="button"
+            onClick={() => void cancel()}
+            disabled={busy}
+            className="court-press mt-0.5 shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-50"
+          >
+            İptal
+          </button>
+        )}
+      </div>
+      {fail ? <p className="mt-1 text-xs text-clay">{fail}</p> : null}
     </li>
   );
 }
