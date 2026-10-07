@@ -1,5 +1,6 @@
 "use client";
 
+import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan } from "@club/shared";
 import type { AuthUser, PlayerCard } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -36,6 +37,7 @@ type LadderOffer = {
   proposedWinnerId?: string | null;
   resultEnteredAt?: string | null;
   disputedAt?: string | null;
+  winnerId?: string | null;
   postponeCount?: number;
   forfeit?: boolean;
   acceptDays: number;
@@ -81,8 +83,7 @@ function playerIsViewer(playerUserId: string, viewerId: string | null): boolean 
 }
 
 function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number): boolean {
-  const gap = myRank - theirRank;
-  return gap >= 1 && gap <= maxRankSpan;
+  return isWithinLadderChallengeSpan(myRank, theirRank, maxRankSpan);
 }
 
 const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
@@ -188,9 +189,8 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function offerStillActiveOnClient(offer: LadderOffer, responseHours: number): boolean {
-  if (offer.proposedWinnerId && offer.resultEnteredAt && !offer.disputedAt) {
-    return new Date(offer.resultEnteredAt).getTime() + RESULT_WINDOW_MS > Date.now();
-  }
+  if (offer.winnerId) return false;
+  if (offer.proposedWinnerId && !offer.disputedAt) return false;
   if (!ACTIVE_CHALLENGE_STATUSES.has(offer.status)) return false;
   const createdAt = offer.createdAt ? new Date(offer.createdAt).getTime() : null;
   if (createdAt !== null && createdAt + MATCH_WINDOW_MS <= Date.now()) return false;
@@ -590,7 +590,7 @@ export default function LadderPage() {
     showChallengeResult: ladder.showChallengeResult ?? true,
     acceptDays: ladder.acceptDays ?? 7,
     responseHours: ladder.responseHours ?? 48,
-    maxRankSpan: Number(ladder.maxRankSpan) > 0 ? Number(ladder.maxRankSpan) : 3,
+    maxRankSpan: effectiveLadderMaxRankSpan(ladder.maxRankSpan),
   }));
   const target = rows.find((ladder) => ladder.id === (targetId ?? rows[0]?.id)) ?? null;
   const canManageLadder = user?.role === "ADMIN" || user?.role === "CLUB_MANAGER";

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan } from "@club/shared";
 import { prisma } from "../lib/prisma";
 import { AppError, notFound } from "../lib/errors";
 
@@ -69,11 +70,15 @@ export async function assertLadderChallenge(input: { ladderId: string; challenge
   if (isLadderPlayerPassive(challenger) || isLadderPlayerPassive(recipient)) {
     throw new AppError(400, "VALIDATION_ERROR", "Pasif oyuncu defi gönderemez veya alamaz");
   }
-  if (recipient.rank >= challenger.rank) {
-    throw new AppError(400, "VALIDATION_ERROR", "Yalnızca üst sıradaki bir oyuncuya merdiven defisi atabilirsin");
-  }
-  if (challenger.rank - recipient.rank > ladder.maxRankSpan) {
-    throw new AppError(400, "VALIDATION_ERROR", `Bu oyuncu ${ladder.maxRankSpan} sıra sınırının dışında`);
+  if (!isWithinLadderChallengeSpan(challenger.rank, recipient.rank, ladder.maxRankSpan)) {
+    if (recipient.rank >= challenger.rank) {
+      throw new AppError(400, "VALIDATION_ERROR", "Yalnızca üst sıradaki bir oyuncuya merdiven defisi atabilirsin");
+    }
+    throw new AppError(
+      400,
+      "VALIDATION_ERROR",
+      `Bu oyuncu ${ladder.maxRankSpan} sıra sınırının dışında`,
+    );
   }
 }
 

@@ -39,9 +39,7 @@ export function offerStillActive(
   timing: LadderTiming,
 ): boolean {
   if (offer.winnerId) return false;
-  if (offer.proposedWinnerId && offer.resultEnteredAt && !offer.disputedAt) {
-    return offer.resultEnteredAt.getTime() + RESULT_CONFIRM_HOURS * HOUR_MS > Date.now();
-  }
+  if (offer.proposedWinnerId && !offer.disputedAt) return false;
   if (offer.status === "REJECTED") return false;
   if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS <= Date.now()) return false;
   if (offer.status === "PENDING") {
@@ -222,6 +220,7 @@ async function closeInactiveOffersTx(
   for (const row of rows) {
     if (offerStillActive(row, timing)) continue;
     if (row.status === "REJECTED" || row.winnerId) continue;
+    if (row.proposedWinnerId && !row.disputedAt) continue;
     await tx.matchOffer.update({
       where: { id: row.id },
       data: { status: "REJECTED", respondedAt: new Date() },

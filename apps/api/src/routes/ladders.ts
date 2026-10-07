@@ -11,6 +11,7 @@ import {
   matchOfferListSchema,
   matchOfferResultSchema,
   matchOfferScheduleSchema,
+  effectiveLadderMaxRankSpan,
 } from "@club/shared";
 import { assertRole, requireUser } from "../lib/authz";
 import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
@@ -61,7 +62,7 @@ function ladderSettings(row: {
   responseHours: number;
 }) {
   return {
-    maxRankSpan: row.maxRankSpan,
+    maxRankSpan: effectiveLadderMaxRankSpan(row.maxRankSpan),
     showOfferingPlayer: row.showOfferingPlayer,
     showChallengeResult: row.showChallengeResult,
     acceptDays: row.acceptDays,
