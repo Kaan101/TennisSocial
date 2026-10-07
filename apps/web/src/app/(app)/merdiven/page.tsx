@@ -1,6 +1,6 @@
 "use client";
 
-import type { PlayerCard } from "@club/types";
+import type { AuthUser, PlayerCard } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/player-card";
@@ -57,8 +57,22 @@ type Ladder = {
   offers: LadderOffer[];
 } & LadderSettings;
 
-function ladderViewerId(user: { id: string } | null | undefined): string | null {
-  return user?.id ?? null;
+function resolveViewerSeat(players: LadderPlayer[], user: AuthUser | null | undefined): LadderPlayer | undefined {
+  if (!user) return undefined;
+  const byId = players.find((player) => player.userId === user.id);
+  if (byId) return byId;
+  const first = user.firstName.trim().toLocaleLowerCase("tr-TR");
+  const last = user.lastName.trim().toLocaleLowerCase("tr-TR");
+  if (!first || !last) return undefined;
+  return players.find(
+    (player) =>
+      player.firstName.trim().toLocaleLowerCase("tr-TR") === first
+      && player.lastName.trim().toLocaleLowerCase("tr-TR") === last,
+  );
+}
+
+function ladderViewerId(players: LadderPlayer[], user: AuthUser | null | undefined): string | null {
+  return resolveViewerSeat(players, user)?.userId ?? user?.id ?? null;
 }
 
 function playerIsViewer(playerUserId: string, viewerId: string | null): boolean {
@@ -74,6 +88,32 @@ const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
 
 function offerOpenForUi(offer: LadderOffer): boolean {
   return ACTIVE_CHALLENGE_STATUSES.has(offer.status) && !offer.proposedWinnerId;
+}
+
+/** Matches ladder API offerStillActive for whether this player is still in an open defi. */
+function offerOccupiesPlayer(offer: LadderOffer, userId: string): boolean {
+  if (offer.fromUserId !== userId && offer.toUserId !== userId) return false;
+  if (offer.proposedWinnerId) return true;
+  return offerOpenForUi(offer);
+}
+
+function findPairOffer(
+  offers: LadderOffer[] | undefined,
+  viewerId: string,
+  otherUserId: string,
+): LadderOffer | undefined {
+  return (offers ?? []).find(
+    (offer) =>
+      offerOccupiesPlayer(offer, viewerId)
+      && (
+        (offer.fromUserId === viewerId && offer.toUserId === otherUserId)
+        || (offer.fromUserId === otherUserId && offer.toUserId === viewerId)
+      ),
+  );
+}
+
+function recipientHasOpenDefi(offers: LadderOffer[] | undefined, recipientUserId: string): boolean {
+  return (offers ?? []).some((offer) => offer.toUserId === recipientUserId && offerOccupiesPlayer(offer, recipientUserId));
 }
 
 function findIncomingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
@@ -99,15 +139,6 @@ function ladderPlayerRowClass(input: { isViewerRow: boolean; incomingChallenge: 
   }
   if (input.incomingChallenge) return challengeRowClass(input.incomingChallenge);
   return "flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm";
-}
-
-function viewerHasActiveChallenge(offers: LadderOffer[] | undefined, viewerId: string | null): boolean {
-  if (viewerId === null) return false;
-  return (offers ?? []).some(
-    (offer) =>
-      ACTIVE_CHALLENGE_STATUSES.has(offer.status)
-      && (offer.fromUserId === viewerId || offer.toUserId === viewerId),
-  );
 }
 
 function datetimeLocalValue(iso: string | null | undefined): string {
@@ -551,8 +582,8 @@ export default function LadderPage() {
     }
   }
 
-  async function offerMatch(ladderId: string, player: LadderPlayer) {
-    if (!clubId || player.userId === user?.id) return;
+  async function offerMatch(ladderId: string, player: LadderPlayer, viewerUserId: string | null) {
+    if (!clubId || !viewerUserId || player.userId === viewerUserId) return;
     setOfferingId(player.userId);
     setMessage(null);
     try {
@@ -748,11 +779,11 @@ export default function LadderPage() {
       ) : null}
       {rows.map((ladder) => {
         const open = !closedIds.has(ladder.id);
-        const viewerId = ladderViewerId(user);
-        const mySeat = ladder.players.find((item) => playerIsViewer(item.userId, viewerId));
+        const mySeat = resolveViewerSeat(ladder.players, user);
+        const viewerId = ladderViewerId(ladder.players, user);
         const myRank = mySeat?.rank;
         const maxRankSpan = ladder.maxRankSpan;
-        const viewerBusy = viewerHasActiveChallenge(ladder.offers, viewerId);
+        const viewerDefiOpen = viewerId !== null && (ladder.offers ?? []).some((offer) => offerOccupiesPlayer(offer, viewerId));
         return (
           <section key={ladder.id} className="overflow-hidden rounded-3xl border border-line bg-surface">
             <button
@@ -774,14 +805,8 @@ export default function LadderPage() {
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
                     const incomingChallenge = findIncomingChallenge(ladder.offers, player.userId);
                     const outgoingChallenge = findOutgoingChallenge(ladder.offers, player.userId);
-                    const openWithPlayer = (ladder.offers ?? []).find(
-                      (offer) =>
-                        (ACTIVE_CHALLENGE_STATUSES.has(offer.status) || Boolean(offer.proposedWinnerId))
-                        && (
-                          (offer.fromUserId === player.userId && offer.toUserId === viewerId)
-                          || (offer.toUserId === player.userId && offer.fromUserId === viewerId)
-                        ),
-                    );
+                    const pairOffer =
+                      viewerId !== null ? findPairOffer(ladder.offers, viewerId, player.userId) : undefined;
                     const showAccept =
                       incomingChallenge?.status === "PENDING"
                       && playerIsViewer(player.userId, viewerId)
@@ -820,12 +845,12 @@ export default function LadderPage() {
                       viewerId !== null
                       && myRank !== undefined
                       && !mySeat?.passive
-                      && !viewerBusy
+                      && !viewerDefiOpen
                       && withinSpan
                       && !playerIsViewer(player.userId, viewerId)
                       && !player.passive
-                      && !openWithPlayer
-                      && !incomingChallenge;
+                      && !pairOffer
+                      && !recipientHasOpenDefi(ladder.offers, player.userId);
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
                     const cancelOfferRow =
                       isViewerRow
@@ -963,7 +988,7 @@ export default function LadderPage() {
                           <button
                             type="button"
                             disabled={offeringId === player.userId}
-                            onClick={() => void offerMatch(ladder.id, player)}
+                            onClick={() => void offerMatch(ladder.id, player, viewerId)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
                             Teklif
