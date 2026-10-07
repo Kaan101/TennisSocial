@@ -82,30 +82,37 @@ function sideNames(players: BoardPlayer[], side: "A" | "B"): string {
     .join(", ");
 }
 
-function versus(players: BoardPlayer[]): string {
-  const left = sideNames(players, "A");
-  const right = sideNames(players, "B");
-  if (left && right) return `${left} – ${right}`;
-  return left || right || "Oyuncular";
+function Pairing({ match }: { match: BoardMatch }) {
+  const played = match.status === "COMPLETED";
+  const sides = (["A", "B"] as const)
+    .map((side) => ({ side, label: sideNames(match.players, side) }))
+    .filter((item) => item.label);
+  if (sides.length === 0) return "Oyuncular";
+  return sides.map((item, index) => {
+    const won = played && match.winnerSide === item.side;
+    return (
+      <span key={item.side}>
+        {index > 0 ? " – " : null}
+        <span className={won ? "font-bold text-court" : undefined}>{item.label}</span>
+      </span>
+    );
+  });
 }
 
-function personName(player: BoardPlayer): string {
-  return `${player.firstName} ${player.lastName}`.trim();
+/** Full given name, then the surname’s first letter and a dot. “Simona H.” */
+function cellName(player: BoardPlayer): string {
+  const given = player.firstName.trim();
+  const initial = Array.from(player.lastName.trim())[0]?.toLocaleUpperCase("tr-TR") ?? "";
+  if (given && initial) return `${given} ${initial}.`;
+  return given || (initial ? `${initial}.` : "");
 }
 
 function cellLine(match: BoardMatch): string {
   return [...match.players]
     .sort((left, right) => (left.side < right.side ? -1 : left.side > right.side ? 1 : 0))
-    .map(personName)
+    .map(cellName)
     .filter(Boolean)
     .join(" · ");
-}
-
-function resultOf(match: BoardMatch): string | null {
-  if (match.status !== "COMPLETED") return null;
-  if (match.score) return match.score;
-  if (match.winnerName) return match.winnerName;
-  return "Oynandı";
 }
 
 export function MaclarView() {
@@ -297,7 +304,6 @@ function MatchCell({ day, hour, matches }: { day: BoardDay; hour: string; matche
 
 function MatchRow({ match, onRefresh }: { match: BoardMatch; onRefresh: () => Promise<void> }) {
   const played = match.status === "COMPLETED";
-  const result = resultOf(match);
   const href = match.source === "match" ? `/maclar/${match.id}` : "/merdiven";
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState<string | null>(null);
@@ -322,14 +328,15 @@ function MatchRow({ match, onRefresh }: { match: BoardMatch; onRefresh: () => Pr
       <div className="flex items-start gap-2">
         <Link href={href} className="block min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 flex-1 font-semibold">{versus(match.players)}</p>
+            <p className="min-w-0 flex-1 font-semibold">
+              <Pairing match={match} />
+            </p>
             {played && match.kind === "DEFI" ? (
               <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md bg-court px-1 text-[11px] font-semibold text-white" title="Defi">
                 <span className="sr-only">Defi</span>D
               </span>
             ) : null}
           </div>
-          {played && result ? <p className="mt-0.5 font-semibold text-court">{result}</p> : null}
           <p className="mt-0.5 text-xs text-muted">
             {formatTrDate(match.scheduledAt)} · {istanbulClock(match.scheduledAt)}
           </p>

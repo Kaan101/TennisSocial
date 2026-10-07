@@ -491,11 +491,11 @@ export function CourtDayGrid({
     <div className="flex w-full min-w-0 flex-col gap-3">
       <h1 className="text-2xl font-semibold tracking-tight">Kortlar</h1>
       <DateBar date={date} today={today} onDate={moveDay} />
-      <div className="pl-4">
-        <PurposeChips value={mode} onChange={setMode} />
-      </div>
       <div className="flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:flex-nowrap lg:items-start">
         <div className="min-w-0 flex-1 lg:px-[calc(0.75rem+1px)]">
+          <div className="mb-3 flex justify-center">
+            <PurposeChips value={mode} onChange={setMode} />
+          </div>
           {failed && !active ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
           {!failed && !active ? <LoadingBlock label="Gün yükleniyor" /> : null}
           {active && courts.length === 0 ? (
