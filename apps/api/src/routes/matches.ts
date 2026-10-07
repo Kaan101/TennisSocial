@@ -10,6 +10,7 @@ import { recordActivity } from "../services/activity";
 import { applyLadderMatchResult } from "../services/ladders";
 import { notify } from "../services/notify";
 import { areFriends } from "../services/friends";
+import { listMatchBoard } from "../services/matchBoard";
 import { matchInclude, toMatchSummary, toUserDetail, userInclude } from "../services/present";
 
 export async function matchRoutes(app: FastifyInstance): Promise<void> {
@@ -95,6 +96,12 @@ export async function matchRoutes(app: FastifyInstance): Promise<void> {
         ),
     );
     return reply.status(201).send(toMatchSummary(match, viewer.id, viewer.role));
+  });
+
+  app.get("/api/matches/board", async (req) => {
+    requireUser(req);
+    const query = parse(z.object({ club: z.string().min(1).optional() }), req.query);
+    return listMatchBoard(query.club);
   });
 
   app.get("/api/matches/:id", async (req) => {
