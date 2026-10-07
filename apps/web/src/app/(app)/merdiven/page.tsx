@@ -3,7 +3,7 @@
 import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan } from "@club/shared";
 import type { AuthUser, PlayerCard } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { Input } from "@/components/ui/input";
@@ -136,7 +136,8 @@ function findOutgoingChallenge(
   return (offers ?? []).find((offer) => offerOpenForUi(offer, responseHours) && offer.fromUserId === playerUserId);
 }
 
-const LADDER_ROW_BASE = "flex items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
+const LADDER_ROW_SHELL = "rounded-2xl border px-3 py-2 text-sm";
+const LADDER_DEFI_ACTIONS_INDENT = "pl-[3.25rem]";
 
 function findRowDefi(
   offers: LadderOffer[] | undefined,
@@ -163,15 +164,21 @@ function ladderPlayerRowClass(input: {
     && input.viewerId != null
     && (input.rowDefi.fromUserId === input.viewerId || input.rowDefi.toUserId === input.viewerId);
   if (input.rowDefi && viewerInDefi) {
-    return `${LADDER_ROW_BASE} border-[#15803d] bg-[#15803d]/10`;
+    return `${LADDER_ROW_SHELL} border-[#15803d] bg-[#15803d]/10`;
   }
   if (input.rowDefi) {
-    return `${LADDER_ROW_BASE} border-line bg-paper/70`;
+    return `${LADDER_ROW_SHELL} border-line bg-paper/70`;
   }
   if (input.isViewerRow) {
-    return `${LADDER_ROW_BASE} border-court bg-paper`;
+    return `${LADDER_ROW_SHELL} border-court bg-paper`;
   }
-  return `${LADDER_ROW_BASE} border-line`;
+  return `${LADDER_ROW_SHELL} border-line`;
+}
+
+/** Other player in the defi (never the row seat’s own name). */
+function defiCounterpartyName(offer: LadderOffer, rowPlayerUserId: string): string {
+  if (offer.fromUserId === rowPlayerUserId) return offer.toName.trim();
+  return offer.fromName.trim();
 }
 
 function datetimeLocalValue(iso: string | null | undefined): string {
@@ -331,26 +338,6 @@ function formatDefiScheduledAt(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-/** One quiet subtitle under the player name on the recipient’s row. */
-function incomingDefiSubtitle(offer: LadderOffer): React.ReactNode {
-  const challenger = offer.fromName.trim();
-  if (offer.scheduledAt) {
-    return (
-      <>
-        {challenger} · {formatDefiScheduledAt(offer.scheduledAt)}
-      </>
-    );
-  }
-  if (offer.status === "ACCEPTED" && offer.acceptedAt) {
-    return (
-      <>
-        {challenger} · <AcceptCountdown acceptedAt={offer.acceptedAt} acceptDays={offer.acceptDays} />
-      </>
-    );
-  }
-  return <>{challenger} · defi bekliyor</>;
 }
 
 function LadderAyarlar({
@@ -952,30 +939,23 @@ export default function LadderPage() {
                         (outgoingChallenge && viewerId === outgoingChallenge.fromUserId)
                         || (incomingChallenge && viewerId === incomingChallenge.toUserId)
                       );
-                    return (
-                      <li
-                        key={player.userId}
-                        className={ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })}
-                      >
-                        <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium leading-snug">
-                            {player.rank}. {player.name}
-                            {player.passive ? <span className="ml-2 text-xs font-normal text-muted">Pasif</span> : null}
-                          </p>
-                          {incomingChallenge ? (
-                            <p className="mt-0.5 truncate text-xs leading-snug text-muted">
-                              {incomingDefiSubtitle(incomingChallenge)}
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="flex shrink-0 flex-nowrap items-center gap-1">
+                    const defiOffer = incomingChallenge ?? outgoingChallenge ?? rowDefi;
+                    const defiRow = defiOffer != null;
+                    const actionOffer = incomingChallenge ?? outgoingChallenge ?? rowDefi;
+
+                    const rankMoveIcons = (
+                      <>
                         {player.lastMove === "UP" ? (
                           <ArrowUp className="h-4 w-4 shrink-0 text-[#15803d]" aria-label="Yükseldi" />
                         ) : null}
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
+                      </>
+                    );
+
+                    const defiActionButtons = actionOffer ? (
+                      <>
                         {showAccept && incomingChallenge ? (
                           <button
                             type="button"
@@ -987,7 +967,7 @@ export default function LadderPage() {
                           </button>
                         ) : null}
                         {(showSchedule || showReschedule) && incomingChallenge ? (
-                          <span className="flex shrink-0 flex-nowrap items-center gap-1">
+                          <>
                             <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
                               Tarih
                             </label>
@@ -1003,7 +983,7 @@ export default function LadderPage() {
                                 setScheduleDraftOfferId(incomingChallenge.id);
                                 setScheduleDraft(event.target.value);
                               }}
-                              className="h-8 rounded-md border border-line px-2 text-xs"
+                              className="h-8 shrink-0 rounded-md border border-line px-2 text-xs"
                             />
                             <button
                               type="button"
@@ -1018,19 +998,19 @@ export default function LadderPage() {
                                     : datetimeLocalValue(incomingChallenge.scheduledAt);
                                 void scheduleMatch(incomingChallenge.id, local);
                               }}
-                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Tarih
                             </button>
-                          </span>
+                          </>
                         ) : null}
                         {showRecipientResult && incomingChallenge ? (
-                          <span className="flex shrink-0 flex-nowrap items-center gap-1">
+                          <>
                             <button
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
                               onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
-                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Kazandı
                             </button>
@@ -1038,11 +1018,11 @@ export default function LadderPage() {
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
                               onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
-                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                             >
                               Kaybetti
                             </button>
-                          </span>
+                          </>
                         ) : null}
                         {showForfeit && incomingChallenge ? (
                           <button
@@ -1064,19 +1044,77 @@ export default function LadderPage() {
                             İptal
                           </button>
                         ) : null}
-                        {canOffer ? (
-                          <button
-                            type="button"
-                            disabled={offeringId === player.userId}
-                            onClick={() => void offerMatch(ladder.id, player, viewerId)}
-                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                          >
-                            Teklif
-                          </button>
-                        ) : null}
-                        </div>
+                      </>
+                    ) : null;
+
+                    return (
+                      <li
+                        key={player.userId}
+                        className={
+                          defiRow
+                            ? `${ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })} flex flex-col gap-2`
+                            : `${ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })} flex items-center gap-3`
+                        }
+                      >
+                        {defiRow && defiOffer ? (
+                          <>
+                            <div className="flex min-w-0 items-center gap-3">
+                              <Avatar
+                                first={player.firstName}
+                                last={player.lastName}
+                                photo={player.photoUrl}
+                                className="h-10 w-10 shrink-0 text-xs"
+                              />
+                              <p className="min-w-0 flex-1 truncate font-medium leading-snug">
+                                {player.rank}. {player.name}
+                                {player.passive ? (
+                                  <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
+                                ) : null}
+                                {" · "}
+                                {defiCounterpartyName(defiOffer, player.userId)}
+                                {defiOffer.scheduledAt ? (
+                                  <>
+                                    {" · "}
+                                    {formatDefiScheduledAt(defiOffer.scheduledAt)}
+                                  </>
+                                ) : null}
+                              </p>
+                              {rankMoveIcons}
+                            </div>
+                            <div className={`flex flex-wrap items-center gap-1 ${LADDER_DEFI_ACTIONS_INDENT}`}>
+                              {defiActionButtons}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <Avatar
+                              first={player.firstName}
+                              last={player.lastName}
+                              photo={player.photoUrl}
+                              className="h-10 w-10 shrink-0 text-xs"
+                            />
+                            <span className="min-w-0 flex-1 truncate font-medium">
+                              {player.rank}. {player.name}
+                              {player.passive ? (
+                                <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
+                              ) : null}
+                            </span>
+                            {rankMoveIcons}
+                            {canOffer ? (
+                              <button
+                                type="button"
+                                disabled={offeringId === player.userId}
+                                onClick={() => void offerMatch(ladder.id, player, viewerId)}
+                                className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              >
+                                Teklif
+                              </button>
+                            ) : null}
+                          </>
+                        )}
                       </li>
                     );
+                    
                   })}
                 </ol>
               </div>
