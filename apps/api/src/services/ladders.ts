@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AppError, notFound } from "../lib/errors";
 
@@ -67,6 +68,69 @@ export async function assertLadderChallenge(input: { ladderId: string; challenge
   if (challenger.rank - recipient.rank > ladder.maxRankSpan) {
     throw new AppError(400, "VALIDATION_ERROR", `Bu oyuncu ${ladder.maxRankSpan} sıra sınırının dışında`);
   }
+}
+
+export async function applyLadderChallengeShiftTx(
+  tx: Prisma.TransactionClient,
+  input: { ladderId: string; challengerId: string; recipientId: string },
+): Promise<void> {
+  const challenger = await tx.ladderPlayer.findUnique({
+    where: { ladderId_userId: { ladderId: input.ladderId, userId: input.challengerId } },
+  });
+  const recipient = await tx.ladderPlayer.findUnique({
+    where: { ladderId_userId: { ladderId: input.ladderId, userId: input.recipientId } },
+  });
+  if (!challenger || !recipient) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
+  const fromRank = challenger.rank;
+  const toRank = recipient.rank;
+  if (fromRank <= toRank) throw new AppError(400, "VALIDATION_ERROR", "Defi sıralaması geçersiz");
+
+  await tx.ladderPlayer.update({ where: { id: challenger.id }, data: { rank: 1_000_000 } });
+  const bumped = await tx.ladderPlayer.findMany({
+    where: { ladderId: input.ladderId, rank: { gte: toRank, lt: fromRank } },
+    orderBy: { rank: "desc" },
+  });
+  for (const row of bumped) {
+    await tx.ladderPlayer.update({
+      where: { id: row.id },
+      data: { rank: row.rank + 1, lastMove: "DOWN" },
+    });
+  }
+  const challengerPoints = challenger.points + 3;
+  await tx.ladderPlayer.update({
+    where: { id: challenger.id },
+    data: { rank: toRank, points: challengerPoints, lastMove: "UP" },
+  });
+  await tx.ladderHistory.createMany({
+    data: [
+      {
+        ladderId: input.ladderId,
+        userId: input.challengerId,
+        previousRank: fromRank,
+        newRank: toRank,
+        previousPoints: challenger.points,
+        newPoints: challengerPoints,
+        reason: "Merdiven defi kazandı",
+      },
+      {
+        ladderId: input.ladderId,
+        userId: input.recipientId,
+        previousRank: toRank,
+        newRank: toRank + 1,
+        previousPoints: recipient.points,
+        newPoints: recipient.points,
+        reason: "Merdiven defi kaybetti",
+      },
+    ],
+  });
+}
+
+export async function applyLadderChallengeShift(input: {
+  ladderId: string;
+  challengerId: string;
+  recipientId: string;
+}): Promise<void> {
+  await prisma.$transaction(async (tx) => applyLadderChallengeShiftTx(tx, input));
 }
 
 export async function applyLadderMatchResult(input: { ladderId: string; winnerId: string; loserId: string }): Promise<void> {

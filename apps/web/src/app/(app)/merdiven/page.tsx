@@ -64,24 +64,15 @@ function withinRankSpan(myRank: number, theirRank: number, maxRankSpan: number):
 
 const ACTIVE_CHALLENGE_STATUSES = new Set(["PENDING", "ACCEPTED", "SCHEDULED"]);
 
-function findRowChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
+function findIncomingChallenge(offers: LadderOffer[] | undefined, playerUserId: string): LadderOffer | undefined {
   return (offers ?? []).find(
-    (offer) =>
-      ACTIVE_CHALLENGE_STATUSES.has(offer.status)
-      && (offer.fromUserId === playerUserId || offer.toUserId === playerUserId),
+    (offer) => ACTIVE_CHALLENGE_STATUSES.has(offer.status) && offer.toUserId === playerUserId,
   );
-}
-
-function challengePlanned(offer: LadderOffer): boolean {
-  return offer.status === "SCHEDULED" || offer.scheduledAt !== null;
 }
 
 function challengeRowClass(offer: LadderOffer | undefined): string {
   const base = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
   if (!offer) return `${base} border-line`;
-  if (challengePlanned(offer)) {
-    return `${base} border-[#15803d] bg-[#15803d]/10 ring-2 ring-[#15803d]/35`;
-  }
   return `${base} border-court bg-paper/70 ring-2 ring-court/40`;
 }
 
@@ -405,6 +396,7 @@ export default function LadderPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [offeringId, setOfferingId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [resultingId, setResultingId] = useState<string | null>(null);
 
   useEffect(() => {
     ensured.current = null;
@@ -541,6 +533,7 @@ export default function LadderPage() {
   }
 
   async function recordWinner(offerId: string, winnerId: string) {
+    setResultingId(offerId);
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
@@ -548,6 +541,8 @@ export default function LadderPage() {
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
+    } finally {
+      setResultingId(null);
     }
   }
 
@@ -646,7 +641,7 @@ export default function LadderPage() {
                     const withinSpan =
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
-                    const rowChallenge = findRowChallenge(ladder.offers, player.userId);
+                    const incomingChallenge = findIncomingChallenge(ladder.offers, player.userId);
                     const openWithPlayer = (ladder.offers ?? []).find(
                       (offer) =>
                         ACTIVE_CHALLENGE_STATUSES.has(offer.status)
@@ -656,32 +651,36 @@ export default function LadderPage() {
                         ),
                     );
                     const showAccept =
-                      rowChallenge?.status === "PENDING"
+                      incomingChallenge?.status === "PENDING"
                       && playerIsViewer(player.userId, viewerId)
-                      && rowChallenge.toUserId === viewerId;
+                      && incomingChallenge.toUserId === viewerId;
+                    const showRecipientResult =
+                      incomingChallenge?.status === "ACCEPTED"
+                      && playerIsViewer(player.userId, viewerId)
+                      && incomingChallenge.toUserId === viewerId;
                     const canOffer =
                       viewerId !== null
                       && withinSpan
                       && !playerIsViewer(player.userId, viewerId)
                       && !openWithPlayer;
                     return (
-                      <li key={player.userId} className={challengeRowClass(rowChallenge)}>
+                      <li key={player.userId} className={challengeRowClass(incomingChallenge)}>
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{player.rank}. {player.name}</span>
-                          {rowChallenge ? (
+                          {incomingChallenge ? (
                             <span className="mt-1 block text-xs font-semibold text-ink">
-                              {rowChallenge.fromName} · {rowChallenge.toName}
+                              {incomingChallenge.fromName} · {incomingChallenge.toName}
                             </span>
                           ) : null}
-                          {rowChallenge?.status === "ACCEPTED" && rowChallenge.acceptedAt ? (
+                          {incomingChallenge?.status === "ACCEPTED" && incomingChallenge.acceptedAt ? (
                             <span className="mt-0.5 block text-xs text-muted">
-                              <AcceptCountdown acceptedAt={rowChallenge.acceptedAt} acceptDays={rowChallenge.acceptDays} />
+                              <AcceptCountdown acceptedAt={incomingChallenge.acceptedAt} acceptDays={incomingChallenge.acceptDays} />
                             </span>
                           ) : null}
-                          {rowChallenge && challengePlanned(rowChallenge) && rowChallenge.scheduledAt ? (
-                            <span className="mt-0.5 block text-xs text-[#15803d]">
-                              {new Date(rowChallenge.scheduledAt).toLocaleString("tr-TR", {
+                          {incomingChallenge?.scheduledAt ? (
+                            <span className="mt-0.5 block text-xs text-muted">
+                              {new Date(incomingChallenge.scheduledAt).toLocaleString("tr-TR", {
                                 day: "numeric",
                                 month: "short",
                                 hour: "2-digit",
@@ -696,21 +695,34 @@ export default function LadderPage() {
                         {player.lastMove === "DOWN" ? (
                           <ArrowDown className="h-4 w-4 shrink-0 text-[#b91c1c]" aria-label="Düştü" />
                         ) : null}
-                        {showAccept && rowChallenge ? (
+                        {showAccept && incomingChallenge ? (
                           <button
                             type="button"
-                            disabled={acceptingId === rowChallenge.id}
-                            onClick={() => void acceptOffer(rowChallenge.id)}
+                            disabled={acceptingId === incomingChallenge.id}
+                            onClick={() => void acceptOffer(incomingChallenge.id)}
                             className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                           >
                             Kabul et
                           </button>
                         ) : null}
-                        {openWithPlayer?.status === "ACCEPTED" && ladder.showChallengeResult ? (
-                          <span className="flex shrink-0 items-center gap-1">
-                            <span className="text-xs text-muted">Sonuç</span>
-                            <button type="button" aria-label={`${openWithPlayer.fromName} kazandı`} onClick={() => void recordWinner(openWithPlayer.id, openWithPlayer.fromUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{openWithPlayer.fromName.split(" ")[0]}</button>
-                            <button type="button" aria-label={`${openWithPlayer.toName} kazandı`} onClick={() => void recordWinner(openWithPlayer.id, openWithPlayer.toUserId)} className="court-press rounded-md border border-line px-2 py-1 text-xs">{openWithPlayer.toName.split(" ")[0]}</button>
+                        {showRecipientResult && incomingChallenge ? (
+                          <span className="flex shrink-0 flex-wrap items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={resultingId === incomingChallenge.id}
+                              onClick={() => void recordWinner(incomingChallenge.id, incomingChallenge.toUserId)}
+                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                            >
+                              Kazandı
+                            </button>
+                            <button
+                              type="button"
+                              disabled={resultingId === incomingChallenge.id}
+                              onClick={() => void recordWinner(incomingChallenge.id, incomingChallenge.fromUserId)}
+                              className="court-press rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                            >
+                              Kaybetti
+                            </button>
                           </span>
                         ) : null}
                         {canOffer ? (

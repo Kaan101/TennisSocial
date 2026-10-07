@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { Prisma } from "@prisma/client";
 import { ladderCreateSchema, ladderEnsureSchema, ladderListSchema, ladderPlayerSchema, ladderSettingsUpdateSchema, matchOfferCreateSchema, matchOfferListSchema, matchOfferResultSchema } from "@club/shared";
 import { assertRole, requireUser } from "../lib/authz";
-import { assertLadderChallenge } from "../services/ladders";
+import { applyLadderChallengeShiftTx, assertLadderChallenge } from "../services/ladders";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
 
@@ -432,37 +432,53 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (offer.status !== "ACCEPTED" || !offerOpen(offer, timing)) {
       throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
     }
-    if (viewer.id !== offer.fromUserId && viewer.id !== offer.toUserId) {
-      throw new AppError(403, "FORBIDDEN", "Bu teklifin sonucunu yazamazsın");
+    if (viewer.id !== offer.toUserId) {
+      throw new AppError(403, "FORBIDDEN", "Sonucu yalnızca teklif alan oyuncu girebilir");
     }
     if (body.winnerId !== offer.fromUserId && body.winnerId !== offer.toUserId) {
       throw new AppError(400, "VALIDATION_ERROR", "Kazanan bu teklifin oyuncusu olmalı");
     }
-    const loserId = body.winnerId === offer.fromUserId ? offer.toUserId : offer.fromUserId;
     const ladderId = offer.ladderId ?? (await sharedLadderId(offer.clubId, offer.fromUserId, offer.toUserId));
     if (!ladderId) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
-    await prisma.$transaction(async (tx) => {
-      await lockKey(tx, `ladder:${ladderId}`);
-      const fresh = await tx.matchOffer.findUnique({ where: { id } });
-      if (!fresh || fresh.status !== "ACCEPTED" || !offerOpen(fresh, timing)) {
-        throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
-      }
-      const winner = await tx.ladderPlayer.findUnique({
-        where: { ladderId_userId: { ladderId, userId: body.winnerId } },
+    const fresh = await prisma.matchOffer.findUnique({ where: { id } });
+    if (!fresh || fresh.status !== "ACCEPTED" || !offerOpen(fresh, timing)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
+    }
+    if (body.winnerId === offer.toUserId) {
+      await prisma.$transaction(async (tx) => {
+        await lockKey(tx, `ladder:${ladderId}`);
+        const stillOpen = await tx.matchOffer.findUnique({ where: { id } });
+        if (!stillOpen || stillOpen.status !== "ACCEPTED" || !offerOpen(stillOpen, timing)) {
+          throw new AppError(400, "VALIDATION_ERROR", "Bu teklif artık sonuç için uygun değil");
+        }
+        const recipient = await tx.ladderPlayer.findUnique({
+          where: { ladderId_userId: { ladderId, userId: offer.toUserId } },
+        });
+        if (!recipient) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
+        await tx.ladderHistory.create({
+          data: {
+            ladderId,
+            userId: offer.toUserId,
+            previousRank: recipient.rank,
+            newRank: recipient.rank,
+            previousPoints: recipient.points,
+            newPoints: recipient.points,
+            reason: "Merdiven defi, üst sıra kazandı",
+          },
+        });
+        await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
       });
-      const loser = await tx.ladderPlayer.findUnique({
-        where: { ladderId_userId: { ladderId, userId: loserId } },
+    } else {
+      await prisma.$transaction(async (tx) => {
+        await lockKey(tx, `ladder:${ladderId}`);
+        await applyLadderChallengeShiftTx(tx, {
+          ladderId,
+          challengerId: offer.fromUserId,
+          recipientId: offer.toUserId,
+        });
+        await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
       });
-      if (!winner || !loser) throw new AppError(400, "VALIDATION_ERROR", "İki oyuncu aynı merdivende değil");
-      const better = Math.min(winner.rank, loser.rank);
-      const worse = Math.max(winner.rank, loser.rank);
-      if (winner.rank !== better) {
-        await tx.ladderPlayer.update({ where: { id: winner.id }, data: { rank: 1_000_000 } });
-        await tx.ladderPlayer.update({ where: { id: loser.id }, data: { rank: worse, lastMove: "DOWN" } });
-        await tx.ladderPlayer.update({ where: { id: winner.id }, data: { rank: better, lastMove: "UP" } });
-      }
-      await tx.matchOffer.update({ where: { id }, data: { winnerId: body.winnerId } });
-    });
+    }
     return { id, winnerId: body.winnerId };
   });
 }
