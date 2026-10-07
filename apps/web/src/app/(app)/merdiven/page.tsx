@@ -750,7 +750,7 @@ export default function LadderPage() {
                       && nowMs >= matchStart
                       && nowMs <= matchStart + RESULT_WINDOW_MS;
                     const showSchedule =
-                      Boolean(incomingChallenge)
+                      incomingChallenge != null
                       && player.userId === incomingChallenge.toUserId
                       && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
                       && !incomingChallenge.scheduledAt
