@@ -135,21 +135,42 @@ function findOutgoingChallenge(
   return (offers ?? []).find((offer) => offerOpenForUi(offer, responseHours) && offer.fromUserId === playerUserId);
 }
 
-function challengeRowClass(offer: LadderOffer | undefined): string {
-  const base = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
-  if (!offer) return `${base} border-line`;
-  if (offer.scheduledAt) {
-    return `${base} border-[#15803d] bg-[#15803d]/10 ring-2 ring-[#15803d]/35`;
-  }
-  return `${base} border-court bg-paper/70 ring-2 ring-court/40`;
+const LADDER_ROW_BASE = "flex flex-wrap items-center gap-3 rounded-2xl border px-3 py-2 text-sm";
+
+function findRowDefi(
+  offers: LadderOffer[] | undefined,
+  playerUserId: string,
+  responseHours: number,
+): LadderOffer | undefined {
+  return (offers ?? []).find(
+    (offer) =>
+      offerOpenForUi(offer, responseHours)
+      && (offer.fromUserId === playerUserId || offer.toUserId === playerUserId),
+  );
 }
 
-function ladderPlayerRowClass(input: { isViewerRow: boolean; incomingChallenge: LadderOffer | undefined }): string {
-  if (input.isViewerRow) {
-    return "flex flex-wrap items-center gap-3 rounded-2xl border border-court bg-paper px-3 py-2 text-sm";
+/** defi-own-challenge: viewer is from/to on this row’s open defi */
+/** defi-other-challenge: open defi on row, viewer not involved */
+/** ladder-viewer-row: signed-in player’s row with no open defi on that row */
+function ladderPlayerRowClass(input: {
+  isViewerRow: boolean;
+  rowDefi: LadderOffer | undefined;
+  viewerId: string | null;
+}): string {
+  const viewerInDefi =
+    input.rowDefi != null
+    && input.viewerId != null
+    && (input.rowDefi.fromUserId === input.viewerId || input.rowDefi.toUserId === input.viewerId);
+  if (input.rowDefi && viewerInDefi) {
+    return `${LADDER_ROW_BASE} border-[#15803d] bg-[#15803d]/10`;
   }
-  if (input.incomingChallenge) return challengeRowClass(input.incomingChallenge);
-  return "flex flex-wrap items-center gap-3 rounded-2xl border border-line px-3 py-2 text-sm";
+  if (input.rowDefi) {
+    return `${LADDER_ROW_BASE} border-line bg-paper/70`;
+  }
+  if (input.isViewerRow) {
+    return `${LADDER_ROW_BASE} border-court bg-paper`;
+  }
+  return `${LADDER_ROW_BASE} border-line`;
 }
 
 function datetimeLocalValue(iso: string | null | undefined): string {
@@ -207,7 +228,6 @@ const LADDER_RULES = [
   "24 saat içinde itiraz edilmezse sonuç otomatik onaylanır.",
   "Defiye 48 saat cevap verilmezse, defi reddedilmiş sayılır.",
   "Defi kabul edildiği halde oyuncu maça mazeretsiz gelmezse hükmen mağlup sayılır.",
-  "Aynı rakibe tekrar defi göndermek için 7 gün beklenir.",
   "Oyuncu seyahat veya sakatlık nedeniyle en fazla 30 gün pasif olabilir.",
   "Pasif oyuncuya defi gönderilemez.",
   "30 günden uzun pasiflikte sıralama yönetim tarafından yeniden değerlendirilir.",
@@ -896,6 +916,7 @@ export default function LadderPage() {
                       && !pairOffer
                       && !recipientHasOpenDefi(ladder.offers, player.userId, responseHours);
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
+                    const rowDefi = findRowDefi(ladder.offers, player.userId, responseHours);
                     const cancelOfferRow =
                       isViewerRow
                       && (
@@ -905,7 +926,7 @@ export default function LadderPage() {
                     return (
                       <li
                         key={player.userId}
-                        className={ladderPlayerRowClass({ isViewerRow, incomingChallenge: isViewerRow ? undefined : incomingChallenge })}
+                        className={ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })}
                       >
                         <Avatar first={player.firstName} last={player.lastName} photo={player.photoUrl} className="h-10 w-10 shrink-0 text-xs" />
                         <span className="min-w-0 flex-1">

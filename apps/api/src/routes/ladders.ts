@@ -15,7 +15,6 @@ import {
 import { assertRole, requireUser } from "../lib/authz";
 import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
 import {
-  assertNoRecentRematch,
   assertSingleActiveOffer,
   canPostpone,
   finalizeConfirmedOffer,
@@ -388,7 +387,6 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       if (ladderId) {
         await assertSingleActiveOffer(tx, { ladderId, userId: viewer.id, timing: offerTiming });
         await assertSingleActiveOffer(tx, { ladderId, userId: body.toUserId, timing: offerTiming });
-        await assertNoRecentRematch(tx, { ladderId, firstId: viewer.id, secondId: body.toUserId });
       }
       const existing = await tx.matchOffer.findFirst({
         where: {
