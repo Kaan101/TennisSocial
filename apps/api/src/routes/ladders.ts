@@ -146,9 +146,28 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const query = parse(ladderListSchema, req.query);
     const rows = await prisma.ladder.findMany({
       where: { deletedAt: null, ...(query.clubId ? { clubId: query.clubId } : {}) },
-      include: {
-        club: true,
-        players: { include: { user: { include: { profile: true } } }, orderBy: { rank: "asc" } },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        clubId: true,
+        maxRankSpan: true,
+        showOfferingPlayer: true,
+        showChallengeResult: true,
+        acceptDays: true,
+        responseHours: true,
+        club: { select: { name: true } },
+        players: {
+          orderBy: { rank: "asc" },
+          select: {
+            userId: true,
+            rank: true,
+            points: true,
+            lastMove: true,
+            passiveUntil: true,
+            user: { select: { profile: { select: { firstName: true, lastName: true, photoUrl: true } } } },
+          },
+        },
       },
       orderBy: { name: "asc" },
     });
@@ -161,7 +180,25 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const offers = query.clubId
       ? await prisma.matchOffer.findMany({
           where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] } },
-          include: { fromUser: { include: { profile: true } }, toUser: { include: { profile: true } } },
+          select: {
+            id: true,
+            fromUserId: true,
+            toUserId: true,
+            clubId: true,
+            ladderId: true,
+            winnerId: true,
+            status: true,
+            createdAt: true,
+            acceptedAt: true,
+            scheduledAt: true,
+            proposedWinnerId: true,
+            resultEnteredAt: true,
+            disputedAt: true,
+            postponeCount: true,
+            forfeit: true,
+            fromUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+            toUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+          },
           orderBy: { createdAt: "desc" },
         })
       : [];

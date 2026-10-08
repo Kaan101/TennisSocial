@@ -7,6 +7,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { mkdir } from "node:fs/promises";
 import { config } from "./config";
+import { sessionAuthUser, sessionUserSelect } from "./lib/authz";
 import { AppError } from "./lib/errors";
 import { prisma } from "./lib/prisma";
 import { verifyAccessToken } from "./lib/tokens";
@@ -68,12 +69,12 @@ export async function createApp(options?: { logger?: boolean }): Promise<Fastify
     }
     try {
       const payload = await verifyAccessToken(token);
-      const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+      const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: sessionUserSelect });
       if (!user || user.deletedAt) {
         req.authUser = null;
         return;
       }
-      req.authUser = { id: user.id, role: user.role, email: user.email };
+      req.authUser = sessionAuthUser(user);
     } catch {
       req.authUser = null;
     }

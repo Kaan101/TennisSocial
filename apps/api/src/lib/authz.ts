@@ -3,7 +3,42 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { forbidden, unauthorized } from "./errors";
 import { prisma } from "./prisma";
 
-export type AuthUser = { id: string; role: Role; email: string };
+export const sessionUserSelect = {
+  id: true,
+  email: true,
+  role: true,
+  deletedAt: true,
+  boardVisible: true,
+  profile: { select: { firstName: true, lastName: true, photoUrl: true } },
+} as const;
+
+export type AuthUser = {
+  id: string;
+  role: Role;
+  email: string;
+  firstName: string;
+  lastName: string;
+  photoUrl: string | null;
+  boardVisible: boolean;
+};
+
+export function sessionAuthUser(user: {
+  id: string;
+  email: string;
+  role: Role;
+  boardVisible: boolean;
+  profile: { firstName: string; lastName: string; photoUrl: string | null } | null;
+}): AuthUser {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    boardVisible: user.boardVisible,
+    firstName: user.profile?.firstName ?? "",
+    lastName: user.profile?.lastName ?? "",
+    photoUrl: user.profile?.photoUrl ?? null,
+  };
+}
 
 export function requireUser(req: FastifyRequest): AuthUser {
   if (!req.authUser) throw unauthorized();

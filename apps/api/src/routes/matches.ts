@@ -100,8 +100,11 @@ export async function matchRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/matches/board", async (req) => {
     requireUser(req);
-    const query = parse(z.object({ club: z.string().min(1).optional() }), req.query);
-    return listMatchBoard(query.club);
+    const query = parse(z.object({
+      club: z.string().min(1).optional(),
+      week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }), req.query);
+    return listMatchBoard(query.club, query.week);
   });
 
   app.get("/api/matches/:id", async (req) => {

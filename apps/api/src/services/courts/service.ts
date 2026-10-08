@@ -32,7 +32,34 @@ import {
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type CourtViewer = { id: string; role: Role };
+export type CourtViewer = { id: string; role: Role; boardVisible?: boolean };
+
+function boardUsersWhere(viewer: CourtViewer, clubId?: string): Prisma.UserWhereInput {
+  const person = {
+    deletedAt: null,
+    profile: { is: { deletedAt: null, playerStatus: { in: ["ACTIVE", "LIMITED"] } } },
+  };
+  if (!clubId) {
+    return { ...person, OR: [{ boardVisible: true }, { id: viewer.id }] };
+  }
+  const inThisClub = {
+    OR: [
+      { ladderPlayers: { some: { ladder: { clubId, deletedAt: null } } } },
+      { ladderPlayers: { none: { ladder: { deletedAt: null, clubId: { not: null } } } } },
+    ],
+  };
+  return {
+    AND: [
+      person,
+      {
+        OR: [
+          { id: viewer.id },
+          { boardVisible: true, ...inThisClub },
+        ],
+      },
+    ],
+  };
+}
 
 type Person = {
   id: string;
@@ -648,11 +675,7 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
   });
   const [users, reservations, lead, me, friendRows] = await Promise.all([
     prisma.user.findMany({
-      where: {
-        deletedAt: null,
-        profile: { is: { deletedAt: null } },
-        OR: [{ boardVisible: true }, { id: viewer.id }],
-      },
+      where: boardUsersWhere(viewer, clubId),
       select: {
         id: true,
         boardVisible: true,
@@ -668,7 +691,10 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
           },
           select: { kind: true, weekday: true, date: true, startTime: true, endTime: true, state: true, note: true, deletedAt: true, updatedAt: true },
         },
-        absences: { where: { deletedAt: null }, select: { startDate: true, endDate: true } },
+        absences: {
+          where: { deletedAt: null, startDate: { lte: weekDate.lte }, endDate: { gte: weekDate.gte } },
+          select: { startDate: true, endDate: true },
+        },
       },
     }),
     prisma.courtReservation.findMany({
@@ -686,7 +712,9 @@ export async function boardFor(viewer: CourtViewer, weekInput?: string, extraCou
       },
     }),
     getCheckInLeadHours(),
-    prisma.user.findUnique({ where: { id: viewer.id }, select: { boardVisible: true } }),
+    viewer.boardVisible === undefined
+      ? prisma.user.findUnique({ where: { id: viewer.id }, select: { boardVisible: true } })
+      : Promise.resolve({ boardVisible: viewer.boardVisible }),
     prisma.friendship.findMany({
       where: { status: "ACCEPTED", OR: [{ requesterId: viewer.id }, { addresseeId: viewer.id }] },
       select: { requesterId: true, addresseeId: true },
@@ -961,25 +989,23 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
     where: courtsOf(clubId, { includeInactive: showAll }),
     orderBy: courtOrder,
   });
-  const reservations = await prisma.courtReservation.findMany({
-    where: {
-      courtId: { in: courts.map((court) => court.id) },
-      deletedAt: null,
-      status: { in: ["PENDING", "APPROVED"] },
-      startDate: { lte: dayDate },
-      endDate: { gte: dayDate },
-    },
-    include: {
-      holder: { select: personSelect },
-      partner: { select: personSelect },
-      checkIns: { where: { date: dayDate } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const bySlot = indexSpans(reservations, [date], (row, _day, hour) => `${row.courtId}|${hour}`);
   const courtIds = courts.map((court) => court.id);
-  const [slotPeople, slotGroups] = await Promise.all([
+  const [reservations, slotPeople, slotGroups] = await Promise.all([
+    prisma.courtReservation.findMany({
+      where: {
+        courtId: { in: courtIds },
+        deletedAt: null,
+        status: { in: ["PENDING", "APPROVED"] },
+        startDate: { lte: dayDate },
+        endDate: { gte: dayDate },
+      },
+      include: {
+        holder: { select: personSelect },
+        partner: { select: personSelect },
+        checkIns: { where: { date: dayDate } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.courtSlotPerson.findMany({
       where: { courtId: { in: courtIds }, date: dayDate },
       select: {
@@ -997,6 +1023,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
       },
     }),
   ]);
+  const bySlot = indexSpans(reservations, [date], (row, _day, hour) => `${row.courtId}|${hour}`);
   const participantsBySlot = new Map<string, { people: NamedPerson[]; groups: { id: string; name: string }[] }>();
   const slotBucket = (key: string) => {
     const found = participantsBySlot.get(key);

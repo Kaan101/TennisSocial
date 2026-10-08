@@ -24,12 +24,23 @@ export type BoardMatch = {
   players: BoardPlayer[];
 };
 
+const LIST_LIMIT = 40;
+
 const matchInclude = {
   players: {
-    include: { user: { include: { profile: true } } },
     orderBy: { side: "asc" as const },
+    select: {
+      userId: true,
+      side: true,
+      user: { select: { profile: { select: { firstName: true, lastName: true } } } },
+    },
   },
 } satisfies Prisma.MatchInclude;
+
+const offerPlayers = {
+  fromUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+  toUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+} as const;
 
 type MatchRow = Prisma.MatchGetPayload<{ include: typeof matchInclude }>;
 
@@ -136,42 +147,103 @@ function fromMatch(match: MatchRow): BoardMatch {
   };
 }
 
-export async function listMatchBoard(clubId: string | undefined): Promise<{ matches: BoardMatch[] }> {
+function addIsoDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, (day ?? 1) + days));
+  return next.toISOString().slice(0, 10);
+}
+
+function weekWindow(weekStart: string): { gte: Date; lt: Date } {
+  return {
+    gte: new Date(`${addIsoDays(weekStart, -1)}T00:00:00+03:00`),
+    lt: new Date(`${addIsoDays(weekStart, 8)}T00:00:00+03:00`),
+  };
+}
+
+function inWeek(date: string, weekStart: string): boolean {
+  return date >= weekStart && date <= addIsoDays(weekStart, 6);
+}
+
+export async function listMatchBoard(clubId: string | undefined, weekStart?: string): Promise<{ matches: BoardMatch[] }> {
   if (clubId) {
     const club = await prisma.club.findUnique({ where: { id: clubId }, select: { id: true } });
     if (!club) throw notFound("Kulüp bulunamadı");
   }
 
-  const [matches, offers] = await Promise.all([
+  const matchWhere = clubId
+    ? boardWhere(clubId)
+    : {
+        deletedAt: null,
+        status: { in: ["SCHEDULED", "COMPLETED"] as ("SCHEDULED" | "COMPLETED")[] },
+        ladderId: null,
+        courtReservation: { is: null },
+      };
+  const offerWhere = {
+    clubId: clubId ?? "",
+    scheduledAt: { not: null },
+    winnerId: null,
+    status: { in: ["SCHEDULED", "ACCEPTED"] as ("SCHEDULED" | "ACCEPTED")[] },
+  };
+  const window = weekStart ? weekWindow(weekStart) : null;
+
+  const [recentMatches, weekMatches, recentOffers, weekOffers] = await Promise.all([
     prisma.match.findMany({
-      where: clubId
-        ? boardWhere(clubId)
-        : {
-            deletedAt: null,
-            status: { in: ["SCHEDULED", "COMPLETED"] },
-            ladderId: null,
-            courtReservation: { is: null },
-          },
+      where: matchWhere,
       include: matchInclude,
+      orderBy: [{ scheduledAt: "desc" }, { id: "desc" }],
+      take: LIST_LIMIT,
     }),
+    window
+      ? prisma.match.findMany({
+          where: { AND: [matchWhere, { scheduledAt: window }] },
+          include: matchInclude,
+        })
+      : Promise.resolve([]),
     clubId
       ? prisma.matchOffer.findMany({
-          where: {
-            clubId,
-            scheduledAt: { not: null },
-            winnerId: null,
-            status: { in: ["SCHEDULED", "ACCEPTED"] },
+          where: offerWhere,
+          select: {
+            id: true,
+            fromUserId: true,
+            toUserId: true,
+            scheduledAt: true,
+            ...offerPlayers,
           },
-          include: {
-            fromUser: { include: { profile: true } },
-            toUser: { include: { profile: true } },
+          orderBy: [{ scheduledAt: "desc" }, { id: "desc" }],
+          take: LIST_LIMIT,
+        })
+      : Promise.resolve([]),
+    clubId && window
+      ? prisma.matchOffer.findMany({
+          where: { ...offerWhere, scheduledAt: window },
+          select: {
+            id: true,
+            fromUserId: true,
+            toUserId: true,
+            scheduledAt: true,
+            ...offerPlayers,
           },
         })
       : Promise.resolve([]),
   ]);
 
-  const rows: BoardMatch[] = matches.map(fromMatch);
-  for (const offer of offers) {
+  const matches = [...recentMatches, ...weekMatches.filter((match) => !weekStart || inWeek(istanbulSlot(match.scheduledAt).date, weekStart))];
+  const seenMatches = new Set<string>();
+  const uniqueMatches = matches.filter((match) => {
+    if (seenMatches.has(match.id)) return false;
+    seenMatches.add(match.id);
+    return true;
+  });
+  const offers = [...recentOffers, ...weekOffers.filter((offer) => offer.scheduledAt && (!weekStart || inWeek(istanbulSlot(offer.scheduledAt).date, weekStart)))];
+  const seenOffers = new Set<string>();
+  const uniqueOffers = offers.filter((offer) => {
+    if (seenOffers.has(offer.id)) return false;
+    seenOffers.add(offer.id);
+    return true;
+  });
+
+  const rows: BoardMatch[] = uniqueMatches.map(fromMatch);
+  for (const offer of uniqueOffers) {
     if (!offer.scheduledAt) continue;
     const slot = istanbulSlot(offer.scheduledAt);
     const players = [

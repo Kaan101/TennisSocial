@@ -122,7 +122,7 @@ export function MaclarView() {
   const anchor = focus ?? istanbulNowParts().day;
   const weekStart = mondayOf(anchor);
   const days = useMemo(() => daysOf(weekStart), [weekStart]);
-  const path = user && ready && clubId ? `/matches/board?club=${encodeURIComponent(clubId)}` : null;
+  const path = user && ready && clubId ? `/matches/board?club=${encodeURIComponent(clubId)}&week=${weekStart}` : null;
   const { data, error, loading, reload } = useResource<{ matches: BoardMatch[] }>(path);
   const matches = data?.matches;
   const cells = useMemo(() => {

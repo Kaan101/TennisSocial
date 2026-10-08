@@ -84,10 +84,18 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get("/me", async (req) => {
-    if (!req.authUser) throw unauthorized();
-    const user = await prisma.user.findUnique({ where: { id: req.authUser.id }, select: authUserSelect });
+    const user = req.authUser;
     if (!user) throw unauthorized();
-    return { user: toAuthUser(user) };
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        photoUrl: user.photoUrl,
+      },
+    };
   });
 
   app.post("/forgot-password", async (req) => {
