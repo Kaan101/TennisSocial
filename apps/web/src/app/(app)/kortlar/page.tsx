@@ -1,11 +1,10 @@
 "use client";
 
-import { istanbulNowParts, type CourtPurpose } from "@club/shared";
+import { WEEKDAYS, istanbulNowParts, type CourtPurpose } from "@club/shared";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { type DayGrid, type DaySlot, type SlotParticipant, CourtDayGrid, clearReservations, groupDaySlots, paintPurpose, restoreSlots } from "@/components/court-day-grid";
 import { type Reservation, shiftDate, weekdayOf } from "@/components/court-ui";
-import { ErrorState, LoadingBlock } from "@/components/states";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useClub } from "@/lib/club";
@@ -25,6 +24,22 @@ function useCurrentDay(): string {
     };
   }, []);
   return day;
+}
+
+function shellDay(date: string): DayGrid {
+  const weekday = weekdayOf(date);
+  const known = WEEKDAYS.find((day) => day.value === weekday);
+  const hours = Array.from({ length: 15 }, (_, index) => `${String(8 + index).padStart(2, "0")}:00`);
+  return {
+    date,
+    weekday,
+    label: known?.label ?? "",
+    short: known?.short ?? "",
+    hours,
+    courts: [],
+    viewer: { canApprove: false, purposes: [] },
+    cells: [],
+  };
 }
 
 function mondayOf(date: string): string {
@@ -178,21 +193,21 @@ export default function CourtsPage() {
     }
   }
 
-  if (!user || (!grid && !failed)) return <LoadingBlock label="Kortlar yükleniyor" />;
-  if (!grid && failed) return <ErrorState message="Gün tablosu yüklenemedi" onRetry={() => setRetry((value) => value + 1)} />;
-  if (!grid) return null;
+  const live = weekDays.find((day) => day.date === shown) ?? (grid?.date === shown ? grid : null);
+  const view = live ?? shellDay(shown);
 
   return (
     <CourtDayGrid
       date={shown}
       today={today}
       week={weekDays}
-      grid={grid}
+      grid={view}
       onDate={showPressedDay}
       focus={focus}
-      failed={failed && grid.date !== shown}
+      failed={failed && !live}
       onRetry={() => setRetry((value) => value + 1)}
       onApply={async (input) => {
+        if (!user) return;
         const target = input.date;
         const snapshot = weekGrids.current.get(target) ?? (gridRef.current?.date === target ? gridRef.current : null);
         if (!snapshot || snapshot.date !== target) return;

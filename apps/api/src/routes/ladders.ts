@@ -158,9 +158,6 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       acceptDays: rows[0]?.acceptDays ?? 7,
       responseHours: rows[0]?.responseHours ?? 48,
     };
-    if (query.clubId) {
-      await syncLadderOffers(query.clubId, acceptDaysByLadder, responseHoursByLadder, defaultTiming);
-    }
     const offers = query.clubId
       ? await prisma.matchOffer.findMany({
           where: { clubId: query.clubId, winnerId: null, status: { in: ["PENDING", "ACCEPTED", "SCHEDULED"] } },
@@ -168,7 +165,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           orderBy: { createdAt: "desc" },
         })
       : [];
-    return {
+    const payload = {
       data: rows.map((row) => {
         const playerIds = new Set(row.players.map((player) => player.userId));
         const rowTiming: LadderTiming = { acceptDays: row.acceptDays, responseHours: row.responseHours };
@@ -189,6 +186,15 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
         };
       }),
     };
+    if (query.clubId) {
+      const clubId = query.clubId;
+      setImmediate(() => {
+        void syncLadderOffers(clubId, acceptDaysByLadder, responseHoursByLadder, defaultTiming).catch((error: unknown) => {
+          req.log.error(error);
+        });
+      });
+    }
+    return payload;
   });
 
   app.post("/api/ladders", async (req, reply) => {

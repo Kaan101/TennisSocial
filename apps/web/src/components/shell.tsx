@@ -51,17 +51,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="grid min-h-dvh place-items-center bg-paper text-sm text-muted" role="status">
-        Kort hazırlanıyor…
-      </div>
-    );
-  }
-  if (!user && !offline) {
+  useEffect(() => {
+    if (loading || user || offline) return;
     router.replace("/login");
-    return null;
-  }
+  }, [loading, user, offline, router]);
 
   const offlineNow = offline || browserOffline;
   const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname === "/maclar" || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar") || pathname.startsWith("/merdiven");
@@ -126,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </p>
       ) : null}
       <main id="icerik" className="px-4 pt-2">
-        {user ? children : (
+        {user || loading || !offlineNow ? children : (
           <div className="rounded-3xl border border-line bg-surface px-5 py-8">
             <h1 className="text-2xl font-semibold">Çevrimdışısın</h1>
             <p className="mt-2 text-sm text-muted">Giriş ve alt menü açık. Maçların ve profilin ancak bağlantı varken yüklenir.</p>

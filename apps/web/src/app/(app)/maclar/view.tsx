@@ -142,10 +142,10 @@ export function MaclarView() {
   const today = istanbulNowParts().day;
   const range = weekRange(days[0]?.date ?? "", days[6]?.date ?? "");
 
-  if (!ready) return <LoadingBlock label="Maçlar yükleniyor" />;
-  if (!clubId) {
+  if (ready && !clubId) {
     return <EmptyState title="Kulüp seçilmedi" body="Maçları görmek için üstten bir kulüp seç." />;
   }
+  const listPending = !ready || loading;
 
   return (
     <div className="grid h-[calc(100dvh-11.5rem)] min-h-0 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 overflow-hidden lg:grid-cols-5 lg:grid-rows-1">
@@ -171,12 +171,12 @@ export function MaclarView() {
           {listed.length > 0 ? <span className="ml-2 font-medium text-muted">{listed.length}</span> : null}
         </h2>
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {loading ? <LoadingBlock label="Maçlar yükleniyor" /> : null}
-          {!loading && error ? <ErrorState message={error} onRetry={() => void reload()} /> : null}
-          {!loading && !error && listed.length === 0 ? (
+          {listPending ? <LoadingBlock label="Maçlar yükleniyor" /> : null}
+          {!listPending && error ? <ErrorState message={error} onRetry={() => void reload()} /> : null}
+          {!listPending && !error && listed.length === 0 ? (
             <EmptyState title="Henüz maç yok" body="Planlanan ve oynanan maçlar burada listelenir." />
           ) : null}
-          {!loading && !error && listed.length > 0 ? (
+          {!listPending && !error && listed.length > 0 ? (
             <ul className="space-y-2" aria-label="Planlı ve oynanan maçlar">
               {listed.map((match) => (
                 <MatchRow key={`${match.source}:${match.id}`} match={match} onRefresh={() => reload()} />

@@ -496,13 +496,14 @@ export function CourtDayGrid({
           <div className="mb-3 flex justify-center">
             <PurposeChips value={mode} onChange={setMode} />
           </div>
-          {failed && !active ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
+          {failed && courts.length === 0 ? <ErrorState message="Gün tablosu yüklenemedi" onRetry={onRetry} /> : null}
           {!failed && !active ? <LoadingBlock label="Gün yükleniyor" /> : null}
-          {active && courts.length === 0 ? (
+          {!failed && active && courts.length === 0 && active.viewer.purposes.length > 0 ? (
             <div className="rounded-3xl border border-dashed border-line bg-surface px-5 py-8 text-center">
               <p className="font-semibold">Bu kulüpte kort yok</p>
             </div>
           ) : null}
+          {!failed && active && courts.length === 0 && active.viewer.purposes.length === 0 ? <HourRail hours={hours} /> : null}
           {active && courts.length > 0 ? (
             <DayTable courts={courts} hours={hours} day={active} picked={picked} onPress={pressDay} />
           ) : null}
@@ -521,6 +522,19 @@ export function CourtDayGrid({
           onSave={() => void save()}
           onSaveParticipants={onSaveParticipants}
         />
+      </div>
+    </div>
+  );
+}
+
+function HourRail({ hours }: { hours: string[] }) {
+  return (
+    <div className="w-full min-w-0">
+      <div className="grid w-full gap-y-1 lg:gap-y-0.5" style={{ gridTemplateColumns: "3rem" }}>
+        <div className="sticky left-0 z-10 bg-paper pr-1 text-[11px] font-semibold text-[#6b7280]">Saat</div>
+        {hours.map((hour) => (
+          <div key={hour} className="sticky left-0 z-10 flex min-h-9 items-center bg-paper pr-1 text-[11px] text-[#6b7280] lg:h-[1.95rem] lg:min-h-[1.95rem]">{hour}</div>
+        ))}
       </div>
     </div>
   );

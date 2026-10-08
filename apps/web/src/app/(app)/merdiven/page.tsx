@@ -584,10 +584,18 @@ export default function LadderPage() {
     };
   }, [pickerOpen, query]);
 
-  if (!ready || (clubId && ladderLoading)) return <LoadingBlock label="Merdiven yükleniyor" />;
-  if (!clubId) return <EmptyState title="Kulüp yok" body="Üstteki listeden bir kulüp seç." />;
-  if (ladderError || !ladderData) return <ErrorState message={ladderError ?? "Merdiven açılmadı"} onRetry={reloadLadders} />;
-  if (ensureError && ladderData.data.length === 0) {
+  const waiting = !ready || Boolean(clubId && ladderLoading);
+  const rows = (ladderData?.data ?? []).map((ladder) => ({
+    ...ladder,
+    showOfferingPlayer: ladder.showOfferingPlayer ?? true,
+    showChallengeResult: ladder.showChallengeResult ?? true,
+    acceptDays: ladder.acceptDays ?? 7,
+    responseHours: ladder.responseHours ?? 48,
+    maxRankSpan: effectiveLadderMaxRankSpan(ladder.maxRankSpan),
+  }));
+  if (!waiting && !clubId) return <EmptyState title="Kulüp yok" body="Üstteki listeden bir kulüp seç." />;
+  if (!waiting && (ladderError || !ladderData)) return <ErrorState message={ladderError ?? "Merdiven açılmadı"} onRetry={reloadLadders} />;
+  if (!waiting && ensureError && rows.length === 0) {
     return (
       <ErrorState
         message={ensureError}
@@ -599,15 +607,6 @@ export default function LadderPage() {
       />
     );
   }
-
-  const rows = ladderData.data.map((ladder) => ({
-    ...ladder,
-    showOfferingPlayer: ladder.showOfferingPlayer ?? true,
-    showChallengeResult: ladder.showChallengeResult ?? true,
-    acceptDays: ladder.acceptDays ?? 7,
-    responseHours: ladder.responseHours ?? 48,
-    maxRankSpan: effectiveLadderMaxRankSpan(ladder.maxRankSpan),
-  }));
   const target = rows.find((ladder) => ladder.id === (targetId ?? rows[0]?.id)) ?? null;
   const canManageLadder = user?.role === "ADMIN" || user?.role === "CLUB_MANAGER";
   const onTarget = new Set(target?.players.map((player) => player.userId) ?? []);
@@ -800,7 +799,7 @@ export default function LadderPage() {
         </p>
       ) : null}
       {message ? <p className="text-sm">{message}</p> : null}
-      {rows.length === 0 ? <LoadingBlock label="Merdiven hazırlanıyor" /> : null}
+      {ready && !ladderLoading && rows.length === 0 ? <LoadingBlock label="Merdiven hazırlanıyor" /> : null}
       {pickerOpen && target ? (
         <form className="space-y-3 rounded-3xl border border-line bg-surface p-4" onSubmit={(event) => void addSelected(event)}>
           {rows.length > 1 ? (
