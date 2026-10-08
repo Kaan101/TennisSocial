@@ -138,6 +138,8 @@ function findOutgoingChallenge(
 
 const LADDER_ROW_SHELL = "rounded-2xl border px-3 py-2 text-sm";
 const LADDER_DEFI_ACTIONS_INDENT = "pl-[3.25rem]";
+const LADDER_OUTLINE_BTN =
+  "court-press shrink-0 rounded-md border border-line bg-transparent px-2 py-1 text-xs font-semibold disabled:opacity-60";
 
 function findRowDefi(
   offers: LadderOffer[] | undefined,
@@ -163,7 +165,7 @@ function ladderPlayerRowClass(input: {
     input.rowDefi != null
     && input.viewerId != null
     && (input.rowDefi.fromUserId === input.viewerId || input.rowDefi.toUserId === input.viewerId);
-  if (input.rowDefi && viewerInDefi) {
+  if (input.rowDefi && viewerInDefi && input.isViewerRow) {
     return `${LADDER_ROW_SHELL} border-[#15803d] bg-[#15803d]/10`;
   }
   if (input.rowDefi) {
@@ -904,16 +906,16 @@ export default function LadderPage() {
                       && nowMs <= matchStart + RESULT_WINDOW_MS;
                     const showSchedule =
                       incomingChallenge != null
+                      && playerIsViewer(player.userId, viewerId)
                       && player.userId === incomingChallenge.toUserId
                       && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
-                      && !incomingChallenge.scheduledAt
-                      && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
+                      && !incomingChallenge.scheduledAt;
                     const showReschedule =
                       incomingChallenge != null
+                      && playerIsViewer(player.userId, viewerId)
                       && player.userId === incomingChallenge.toUserId
                       && Boolean(incomingChallenge.scheduledAt)
-                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED")
-                      && (viewerId === incomingChallenge.fromUserId || viewerId === incomingChallenge.toUserId);
+                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED");
                     const showForfeit =
                       Boolean(incomingChallenge?.scheduledAt)
                       && playerIsViewer(player.userId, viewerId)
@@ -941,6 +943,21 @@ export default function LadderPage() {
                     const defiOffer = incomingChallenge ?? outgoingChallenge ?? rowDefi;
                     const defiRow = defiOffer != null;
                     const actionOffer = incomingChallenge ?? outgoingChallenge ?? rowDefi;
+                    const showAcceptOnRow = showAccept && isViewerRow;
+                    const showScheduleOnRow = (showSchedule || showReschedule) && isViewerRow;
+                    const showRecipientResultOnRow = showRecipientResult && isViewerRow;
+                    const showForfeitOnRow = showForfeit && isViewerRow;
+                    const showCancelOnRow = cancelOfferRow;
+                    const showDefiActionRow =
+                      isViewerRow
+                      && actionOffer != null
+                      && (
+                        showAcceptOnRow
+                        || showScheduleOnRow
+                        || showRecipientResultOnRow
+                        || showForfeitOnRow
+                        || showCancelOnRow
+                      );
 
                     const rankMoveIcons = (
                       <>
@@ -953,98 +970,99 @@ export default function LadderPage() {
                       </>
                     );
 
-                    const defiActionButtons = actionOffer ? (
-                      <>
-                        {showAccept && incomingChallenge ? (
-                          <button
-                            type="button"
-                            disabled={acceptingId === incomingChallenge.id}
-                            onClick={() => void acceptOffer(incomingChallenge.id)}
-                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                          >
-                            Kabul et
-                          </button>
-                        ) : null}
-                        {(showSchedule || showReschedule) && incomingChallenge ? (
-                          <>
-                            <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
-                              Tarih
-                            </label>
-                            <input
-                              id={`schedule-${incomingChallenge.id}`}
-                              type="datetime-local"
-                              value={
-                                scheduleDraftOfferId === incomingChallenge.id
-                                  ? scheduleDraft
-                                  : datetimeLocalValue(incomingChallenge.scheduledAt)
-                              }
-                              onChange={(event) => {
-                                setScheduleDraftOfferId(incomingChallenge.id);
-                                setScheduleDraft(event.target.value);
-                              }}
-                              className="h-8 shrink-0 rounded-md border border-line px-2 text-xs"
-                            />
+                    const defiActionButtons =
+                      showDefiActionRow && actionOffer ? (
+                        <>
+                          {showAcceptOnRow && incomingChallenge ? (
                             <button
                               type="button"
-                              disabled={
-                                schedulingId === incomingChallenge.id
-                                || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
-                              }
-                              onClick={() => {
-                                const local =
+                              disabled={acceptingId === incomingChallenge.id}
+                              onClick={() => void acceptOffer(incomingChallenge.id)}
+                              className={LADDER_OUTLINE_BTN}
+                            >
+                              Kabul et
+                            </button>
+                          ) : null}
+                          {showScheduleOnRow && incomingChallenge ? (
+                            <>
+                              <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
+                                Tarih
+                              </label>
+                              <input
+                                id={`schedule-${incomingChallenge.id}`}
+                                type="datetime-local"
+                                value={
                                   scheduleDraftOfferId === incomingChallenge.id
                                     ? scheduleDraft
-                                    : datetimeLocalValue(incomingChallenge.scheduledAt);
-                                void scheduleMatch(incomingChallenge.id, local);
-                              }}
-                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                            >
-                              Tarih
-                            </button>
-                          </>
-                        ) : null}
-                        {showRecipientResult && incomingChallenge ? (
-                          <>
+                                    : datetimeLocalValue(incomingChallenge.scheduledAt)
+                                }
+                                onChange={(event) => {
+                                  setScheduleDraftOfferId(incomingChallenge.id);
+                                  setScheduleDraft(event.target.value);
+                                }}
+                                className="h-8 shrink-0 rounded-md border border-line bg-transparent px-2 text-xs"
+                              />
+                              <button
+                                type="button"
+                                disabled={
+                                  schedulingId === incomingChallenge.id
+                                  || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
+                                }
+                                onClick={() => {
+                                  const local =
+                                    scheduleDraftOfferId === incomingChallenge.id
+                                      ? scheduleDraft
+                                      : datetimeLocalValue(incomingChallenge.scheduledAt);
+                                  void scheduleMatch(incomingChallenge.id, local);
+                                }}
+                                className={LADDER_OUTLINE_BTN}
+                              >
+                                Tarih
+                              </button>
+                            </>
+                          ) : null}
+                          {showRecipientResultOnRow && incomingChallenge ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={resultingId === incomingChallenge.id}
+                                onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
+                                className={LADDER_OUTLINE_BTN}
+                              >
+                                Kazandı
+                              </button>
+                              <button
+                                type="button"
+                                disabled={resultingId === incomingChallenge.id}
+                                onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
+                                className={LADDER_OUTLINE_BTN}
+                              >
+                                Kaybetti
+                              </button>
+                            </>
+                          ) : null}
+                          {showForfeitOnRow && incomingChallenge ? (
                             <button
                               type="button"
                               disabled={resultingId === incomingChallenge.id}
-                              onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
-                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              onClick={() => void recordForfeit(incomingChallenge.id)}
+                              className={LADDER_OUTLINE_BTN}
                             >
-                              Kazandı
+                              Hükmen
                             </button>
+                          ) : null}
+                          {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
                             <button
                               type="button"
-                              disabled={resultingId === incomingChallenge.id}
-                              onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
-                              className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                              disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
+                              onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
+                              className={LADDER_OUTLINE_BTN}
                             >
-                              Kaybetti
+                              İptal
                             </button>
-                          </>
-                        ) : null}
-                        {showForfeit && incomingChallenge ? (
-                          <button
-                            type="button"
-                            disabled={resultingId === incomingChallenge.id}
-                            onClick={() => void recordForfeit(incomingChallenge.id)}
-                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                          >
-                            Hükmen
-                          </button>
-                        ) : null}
-                        {cancelOfferRow && (outgoingChallenge ?? incomingChallenge) ? (
-                          <button
-                            type="button"
-                            disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
-                            onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
-                            className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
-                          >
-                            İptal
-                          </button>
-                        ) : null}
-                      </>
-                    ) : null;
+                          ) : null}
+                        </>
+                      ) : null;
 
                     return (
                       <li
@@ -1080,9 +1098,11 @@ export default function LadderPage() {
                               </p>
                               {rankMoveIcons}
                             </div>
-                            <div className={`flex flex-wrap items-center gap-1 ${LADDER_DEFI_ACTIONS_INDENT}`}>
-                              {defiActionButtons}
-                            </div>
+                            {showDefiActionRow ? (
+                              <div className={`flex flex-nowrap items-center gap-2 overflow-x-auto ${LADDER_DEFI_ACTIONS_INDENT}`}>
+                                {defiActionButtons}
+                              </div>
+                            ) : null}
                           </>
                         ) : (
                           <>
