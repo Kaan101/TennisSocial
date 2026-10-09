@@ -708,13 +708,27 @@ model Ladder {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  players     LadderPlayer[]
-  history     LadderHistory[]
-  challenges  Challenge[]
-  matches     Match[]
-  matchOffers MatchOffer[]
+  players         LadderPlayer[]
+  history         LadderHistory[]
+  challenges      Challenge[]
+  matches         Match[]
+  matchOffers     MatchOffer[]
+  rematchLocks    LadderRematchLock[]
 
   @@index([clubId])
+}
+
+/// Challenger cannot Teklif locked opponents until they finish a defi vs rank+1.
+model LadderRematchLock {
+  id                 String   @id @default(cuid())
+  ladderId           String
+  challengerUserId   String
+  lockedOpponentId   String
+  ladder             Ladder   @relation(fields: [ladderId], references: [id], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+
+  @@unique([ladderId, challengerUserId, lockedOpponentId])
+  @@index([ladderId, challengerUserId])
 }
 
 model LadderPlayer {

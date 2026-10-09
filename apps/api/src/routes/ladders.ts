@@ -15,6 +15,7 @@ import {
 } from "@club/shared";
 import { assertRole, requireUser } from "../lib/authz";
 import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
+import { assertRematchNotLocked, listRematchLockedOpponentIds } from "../services/ladderRematchLock";
 import {
   applyFinalizedOfferResultTx,
   assertSingleActiveOffer,
@@ -142,7 +143,7 @@ function presentOffer(
 
 export async function ladderRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/ladders", async (req) => {
-    requireUser(req);
+    const viewer = requireUser(req);
     const query = parse(ladderListSchema, req.query);
     const rows = await prisma.ladder.findMany({
       where: { deletedAt: null, ...(query.clubId ? { clubId: query.clubId } : {}) },
@@ -202,6 +203,17 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           orderBy: { createdAt: "desc" },
         })
       : [];
+    const rematchLocksByLadder = new Map<string, string[]>();
+    await Promise.all(
+      rows.map(async (row) => {
+        const playerIds = new Set(row.players.map((p) => p.userId));
+        if (!playerIds.has(viewer.id)) {
+          rematchLocksByLadder.set(row.id, []);
+          return;
+        }
+        rematchLocksByLadder.set(row.id, await listRematchLockedOpponentIds(row.id, viewer.id));
+      }),
+    );
     const payload = {
       data: rows.map((row) => {
         const playerIds = new Set(row.players.map((player) => player.userId));
@@ -215,6 +227,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           ...ladderSettings(row),
           playerCount: row.players.length,
           players: row.players.map(presentPlayer),
+          rematchLockedOpponentIds: rematchLocksByLadder.get(row.id) ?? [],
           offers: offers
             .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))
             .filter((offer) => playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId))
@@ -430,6 +443,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     const result = await prisma.$transaction(async (tx) => {
       await lockKey(tx, `offer:${viewer.id}:${body.toUserId}:${body.clubId}`);
       if (ladderId) {
+        await assertRematchNotLocked(tx, { ladderId, challengerUserId: viewer.id, opponentUserId: body.toUserId });
         await assertSingleActiveOffer(tx, { ladderId, userId: viewer.id, timing: offerTiming });
         await assertSingleActiveOffer(tx, { ladderId, userId: body.toUserId, timing: offerTiming });
       }

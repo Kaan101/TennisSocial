@@ -58,6 +58,7 @@ type Ladder = {
   playerCount: number;
   players: LadderPlayer[];
   offers: LadderOffer[];
+  rematchLockedOpponentIds?: string[];
 } & LadderSettings;
 
 function resolveViewerSeat(players: LadderPlayer[], user: AuthUser | null | undefined): LadderPlayer | undefined {
@@ -922,7 +923,8 @@ export default function LadderPage() {
                       && matchStart !== null
                       && nowMs >= matchStart
                       && !incomingChallenge?.proposedWinnerId;
-                    const canOffer =
+                    const rematchLocked = (ladder.rematchLockedOpponentIds ?? []).includes(player.userId);
+                    const canOfferBase =
                       viewerId !== null
                       && myRank !== undefined
                       && !mySeat?.passive
@@ -932,6 +934,7 @@ export default function LadderPage() {
                       && !player.passive
                       && !pairOffer
                       && !recipientHasOpenDefi(ladder.offers, player.userId, responseHours);
+                    const canOffer = canOfferBase && !rematchLocked;
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
                     const rowDefi = findRowDefi(ladder.offers, player.userId, responseHours);
                     const cancelOfferRow =
@@ -1119,10 +1122,10 @@ export default function LadderPage() {
                               ) : null}
                             </span>
                             {rankMoveIcons}
-                            {canOffer ? (
+                            {canOfferBase ? (
                               <button
                                 type="button"
-                                disabled={offeringId === player.userId}
+                                disabled={offeringId === player.userId || rematchLocked}
                                 onClick={() => void offerMatch(ladder.id, player, viewerId)}
                                 className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
                               >

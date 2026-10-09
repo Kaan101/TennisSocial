@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../lib/errors";
 import { applyOfferWinnerTx } from "./ladders";
+import { applyRematchLockRulesTx } from "./ladderRematchLock";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -160,6 +161,7 @@ export async function applyFinalizedOfferResultTx(
   if (!offer.proposedWinnerId || offer.winnerId) return;
   const ladderId = offer.ladderId;
   if (!ladderId) return;
+  await applyRematchLockRulesTx(tx, { ...offer, proposedWinnerId: offer.proposedWinnerId });
   await applyOfferWinnerTx(tx, {
     ladderId,
     offer: { fromUserId: offer.fromUserId, toUserId: offer.toUserId },
