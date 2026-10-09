@@ -19,7 +19,7 @@ import { prisma } from "../lib/prisma";
 import { imageStorage } from "../lib/storage";
 import { availabilityWeek, copyAvailabilityMonth, paintAvailabilityCell } from "../services/availability-calendar";
 import { areFriends } from "../services/friends";
-import { toUserDetail, userInclude } from "../services/present";
+import { toUserDetail, userDetailSelect, userInclude } from "../services/present";
 
 async function loadUser(id: string) {
   const user = await prisma.user.findFirst({
@@ -72,9 +72,13 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/api/users/:id", async (req) => {
     const viewer = requireUser(req);
-    const { id } = req.params as { id: string };
-    const user = await loadUser(id);
-    const friend = await areFriends(viewer.id, user.id);
+    const { id: param } = req.params as { id: string };
+    const id = param === "me" ? viewer.id : param;
+    const [user, friend] = await Promise.all([
+      prisma.user.findFirst({ where: { id, deletedAt: null }, select: userDetailSelect }),
+      areFriends(viewer.id, id),
+    ]);
+    if (!user?.profile) throw notFound("Üye bulunamadı");
     const { detail, overrideFields } = await toUserDetail(user, viewer, friend);
     if (overrideFields.length && viewer.id !== user.id) {
       await writeAudit({

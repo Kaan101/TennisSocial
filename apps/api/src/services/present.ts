@@ -37,8 +37,10 @@ function num(value: { toNumber?: () => number } | number | null | undefined): nu
   return Number(value);
 }
 
-function skillOf(user: UserWithRelations, skill: SkillName): number | null {
-  const row = user.tennisProfile?.skills.find((item) => item.skill === skill);
+type SkillValue = { skill: SkillName; value: { toNumber?: () => number } | number };
+
+function skillOf(skills: SkillValue[] | undefined, skill: SkillName): number | null {
+  const row = skills?.find((item) => item.skill === skill);
   return row ? Number(row.value) : null;
 }
 
@@ -71,8 +73,8 @@ export function availableToday(user: UserWithRelations, day?: string, weekday?: 
   );
 }
 
-function radarOf(user: UserWithRelations): RadarPoint[] {
-  const pick = (skill: SkillName) => skillOf(user, skill) ?? 0;
+function radarOf(skills: SkillValue[] | undefined): RadarPoint[] {
+  const pick = (skill: SkillName) => skillOf(skills, skill) ?? 0;
   const movementValues = [pick("FOOTWORK"), pick("SPEED"), pick("STAMINA")].filter((value) => value > 0);
   const movement = movementValues.length
     ? Math.round((movementValues.reduce((sum, value) => sum + value, 0) / movementValues.length) * 10) / 10
@@ -110,9 +112,9 @@ export function toPlayerCard(user: UserWithRelations, viewer: Viewer, isFriend: 
     tennisType: profile?.tennisType ?? "DIGER",
     ageGroup: profile?.ageGroup ?? "AGE_18_35",
     personProfile: profile?.personProfile ?? "OYUNCU",
-    forehand: tennisAllowed ? skillOf(user, "FOREHAND") : null,
-    backhand: tennisAllowed ? skillOf(user, "BACKHAND") : null,
-    serve: tennisAllowed ? skillOf(user, "SERVE") : null,
+    forehand: tennisAllowed ? skillOf(user.tennisProfile?.skills, "FOREHAND") : null,
+    backhand: tennisAllowed ? skillOf(user.tennisProfile?.skills, "BACKHAND") : null,
+    serve: tennisAllowed ? skillOf(user.tennisProfile?.skills, "SERVE") : null,
     primaryRacket: primary && tennisAllowed ? { brand: primary.brand, model: primary.model } : null,
     canChallenge: viewer.id !== user.id && status !== "PAUSED",
     canCall: phone.allowed && Boolean(profile?.phone),
@@ -123,11 +125,91 @@ export function toPlayerCard(user: UserWithRelations, viewer: Viewer, isFriend: 
   };
 }
 
+export const userDetailSelect = {
+  id: true,
+  role: true,
+  email: true,
+  profile: {
+    select: {
+      firstName: true,
+      lastName: true,
+      photoUrl: true,
+      birthYear: true,
+      gender: true,
+      phone: true,
+      whatsapp: true,
+      address: true,
+      district: true,
+      city: true,
+      clubJoinDate: true,
+      bio: true,
+      playerStatus: true,
+      tennisType: true,
+      ageGroup: true,
+      personProfile: true,
+      statusNote: true,
+      statusStart: true,
+      statusEnd: true,
+      createdAt: true,
+    },
+  },
+  privacy: {
+    select: {
+      phoneVisibility: true,
+      whatsappVisibility: true,
+      emailVisibility: true,
+      addressVisibility: true,
+      birthYearVisibility: true,
+      availabilityVisibility: true,
+      matchHistoryVisibility: true,
+      tennisProfileVisibility: true,
+      activityVisibility: true,
+    },
+  },
+  tennisProfile: {
+    select: {
+      overallLevel: true,
+      ntrp: true,
+      dominantHand: true,
+      backhandType: true,
+      preferredCourt: true,
+      playPreference: true,
+      preferredPlayTimes: true,
+      tennisStartYear: true,
+      skills: { select: { skill: true, value: true } },
+    },
+  },
+  rackets: {
+    where: { deletedAt: null },
+    orderBy: { isPrimary: "desc" as const },
+    select: {
+      id: true,
+      brand: true,
+      model: true,
+      headSize: true,
+      weight: true,
+      stringName: true,
+      tension: true,
+      gripSize: true,
+      isPrimary: true,
+    },
+  },
+} satisfies Prisma.UserSelect;
+
+export type UserDetailRecord = Prisma.UserGetPayload<{ select: typeof userDetailSelect }>;
+
 export async function loadMatchStats(userId: string, viewerId?: string): Promise<NonNullable<UserDetail["stats"]>> {
   const matches = await prisma.match.findMany({
-    where: { deletedAt: null, status: "COMPLETED", players: { some: { userId } } },
-    include: { players: { include: { user: { include: { profile: true } } } } },
+    where: { deletedAt: null, status: "COMPLETED", winnerSide: { not: null }, players: { some: { userId } } },
     orderBy: { scheduledAt: "desc" },
+    select: {
+      id: true,
+      scheduledAt: true,
+      score: true,
+      winnerSide: true,
+      format: true,
+      players: { select: { userId: true, side: true } },
+    },
   });
   let wins = 0;
   let losses = 0;
@@ -138,7 +220,14 @@ export async function loadMatchStats(userId: string, viewerId?: string): Promise
   let h2hPlayed = 0;
   let h2hWins = 0;
   let h2hLosses = 0;
-  const lastFive: NonNullable<UserDetail["stats"]>["lastFive"] = [];
+  const recent: {
+    id: string;
+    scheduledAt: string;
+    score: string | null;
+    won: boolean;
+    opponentIds: string[];
+    format: (typeof matches)[number]["format"];
+  }[] = [];
   for (const match of matches) {
     const me = match.players.find((player) => player.userId === userId);
     if (!me || !match.winnerSide) continue;
@@ -156,19 +245,35 @@ export async function loadMatchStats(userId: string, viewerId?: string): Promise
       if (won) h2hWins += 1;
       else h2hLosses += 1;
     }
-    if (lastFive.length < 5) {
-      lastFive.push({
+    if (recent.length < 5) {
+      recent.push({
         id: match.id,
         scheduledAt: match.scheduledAt.toISOString(),
         score: match.score,
         won,
-        opponents: match.players
-          .filter((player) => player.side !== me.side)
-          .map((player) => `${player.user.profile?.firstName ?? ""} ${player.user.profile?.lastName ?? ""}`.trim()),
+        opponentIds: match.players.filter((player) => player.side !== me.side).map((player) => player.userId),
         format: match.format,
       });
     }
   }
+  const opponentIds = [...new Set(recent.flatMap((match) => match.opponentIds))];
+  const people = opponentIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: opponentIds } },
+        select: { id: true, profile: { select: { firstName: true, lastName: true } } },
+      })
+    : [];
+  const nameOf = new Map(
+    people.map((person) => [person.id, `${person.profile?.firstName ?? ""} ${person.profile?.lastName ?? ""}`.trim()]),
+  );
+  const lastFive = recent.map((match) => ({
+    id: match.id,
+    scheduledAt: match.scheduledAt,
+    score: match.score,
+    won: match.won,
+    opponents: match.opponentIds.map((id) => nameOf.get(id) ?? ""),
+    format: match.format,
+  }));
   const total = wins + losses;
   return {
     matches: total,
@@ -185,7 +290,7 @@ export async function loadMatchStats(userId: string, viewerId?: string): Promise
 }
 
 export async function toUserDetail(
-  user: UserWithRelations,
+  user: UserDetailRecord,
   viewer: Viewer,
   isFriend: boolean,
 ): Promise<{ detail: UserDetail; overrideFields: string[] }> {
@@ -270,7 +375,7 @@ export async function toUserDetail(
                 value: Number(skill.value),
               }))
               .sort((a, b) => a.label.localeCompare(b.label, "tr")),
-            radar: radarOf(user),
+            radar: radarOf(user.tennisProfile?.skills),
           }
         : null,
     rackets: showTennis

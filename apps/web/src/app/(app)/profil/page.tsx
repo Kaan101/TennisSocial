@@ -18,7 +18,7 @@ import { AvailabilityCalendar } from "@/components/availability-calendar";
 import { MatchStats } from "@/components/match-stats";
 import { Avatar } from "@/components/player-card";
 import { SkillRadar } from "@/components/radar";
-import { ErrorState, LoadingBlock } from "@/components/states";
+import { ErrorState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { api } from "@/lib/api";
@@ -26,12 +26,13 @@ import { useAuth } from "@/lib/auth";
 import { useResource } from "@/lib/use-resource";
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const { data, error, loading, reload } = useResource<UserDetail>(user ? `/users/${user.id}` : null);
+  const { data, error, loading, reload } = useResource<UserDetail>("/users/me");
   const [message, setMessage] = useState<string | null>(null);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
+  const failed = Boolean(error) && !loading && !authLoading && Boolean(user);
 
   useEffect(() => {
     if (!data) return;
@@ -54,14 +55,12 @@ export default function ProfilePage() {
     });
   }, [data]);
 
-  if (!user || loading) return <LoadingBlock />;
-  if (error || !data) return <ErrorState message={error ?? "Profil açılmadı"} onRetry={reload} />;
-
   async function save(event: React.FormEvent) {
     event.preventDefault();
+    if (!data) return;
     setMessage(null);
     try {
-      await api(`/users/${user!.id}`, {
+      await api(`/users/${data.id}`, {
         method: "PATCH",
         body: JSON.stringify({
           ...form,
@@ -84,24 +83,25 @@ export default function ProfilePage() {
   }
 
   async function upload(file: File) {
+    if (!data) return;
     const body = new FormData();
     body.set("file", file);
-    await api(`/users/${user!.id}/photo`, { method: "POST", body });
+    await api(`/users/${data.id}/photo`, { method: "POST", body });
     await reload();
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-4">
-        <Avatar first={data.profile.firstName} last={data.profile.lastName} photo={data.profile.photoUrl} className="h-16 w-16" />
+        <Avatar first={data?.profile.firstName} last={data?.profile.lastName} photo={data?.profile.photoUrl} className="h-16 w-16" />
         <div>
-          <h1 className="text-2xl font-semibold">{data.profile.firstName}</h1>
-          <p className="text-sm text-muted">{data.profile.statusMessage}</p>
+          <h1 className="text-2xl font-semibold">{data?.profile.firstName || "Profil"}</h1>
+          <p className="min-h-5 text-sm text-muted">{data?.profile.statusMessage ?? ""}</p>
         </div>
       </div>
       <label className="text-sm font-semibold text-court">
         Fotoğraf yükle
-        <input className="mt-1 block text-ink" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => {
+        <input className="mt-1 block text-ink" type="file" accept="image/jpeg,image/png,image/webp" disabled={!data} onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) void upload(file);
         }} />
@@ -120,14 +120,16 @@ export default function ProfilePage() {
         <Link href="/gruplar" className="rounded-2xl bg-surface p-3 font-semibold">Gruplar</Link>
         <Link href="/merdiven" className="rounded-2xl bg-surface p-3 font-semibold">Merdiven</Link>
         <Link href="/duyurular" className="rounded-2xl bg-surface p-3 font-semibold">Duyurular</Link>
-        {user.role === "ADMIN" || user.role === "CLUB_MANAGER" ? (
+        {user && (user.role === "ADMIN" || user.role === "CLUB_MANAGER") ? (
           <Link href="/analiz" className="rounded-2xl bg-surface p-3 font-semibold">Kulüp özeti</Link>
         ) : null}
       </div>
       {availabilityOpen ? <AvailabilityCalendar flow heading={false} shortDays /> : null}
-      {data.tennis ? <div className="rounded-3xl bg-surface p-2"><SkillRadar series={[{ name: data.profile.firstName, color: "#0f6e49", data: data.tennis.radar }]} /></div> : null}
-      {data.stats ? <MatchStats stats={data.stats} /> : null}
+      {data?.tennis ? <div className="rounded-3xl bg-surface p-2"><SkillRadar series={[{ name: data.profile.firstName, color: "#0f6e49", data: data.tennis.radar }]} /></div> : null}
+      {data?.stats ? <MatchStats stats={data.stats} /> : null}
+      {failed ? <ErrorState message={error ?? "Profil açılmadı"} onRetry={reload} /> : null}
       <form onSubmit={save} className="space-y-3">
+        <fieldset disabled={!data} className="m-0 min-w-0 space-y-3 border-0 p-0">
         <div className="grid grid-cols-2 gap-2">
           <div><Label htmlFor="firstName">Ad</Label><Input id="firstName" value={form.firstName ?? ""} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
           <div><Label htmlFor="lastName">Soyad</Label><Input id="lastName" value={form.lastName ?? ""} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
@@ -176,6 +178,7 @@ export default function ProfilePage() {
         </div>
         {message ? <p className="text-sm">{message}</p> : null}
         <Button type="submit" className="w-full">Kaydet</Button>
+        </fieldset>
       </form>
       <button
         type="button"
