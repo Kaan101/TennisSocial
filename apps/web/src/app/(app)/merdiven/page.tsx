@@ -1,8 +1,8 @@
 "use client";
 
-import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan } from "@club/shared";
-import type { AuthUser, PlayerCard } from "@club/types";
-import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
+import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan, telLink, waLink } from "@club/shared";
+import type { AuthUser, PlayerCard, UserDetail } from "@club/types";
+import { ArrowDown, ArrowUp, ChevronDown, MessageCircle, Phone } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
@@ -138,9 +138,22 @@ function findOutgoingChallenge(
 }
 
 const LADDER_ROW_SHELL = "rounded-2xl border px-3 py-2 text-sm";
-const LADDER_DEFI_ACTIONS_INDENT = "pl-[3.25rem]";
 const LADDER_OUTLINE_BTN =
-  "court-press shrink-0 rounded-md border border-line bg-transparent px-2 py-1 text-xs font-semibold disabled:opacity-60";
+  "court-press inline-flex max-w-full items-center justify-center gap-1 rounded-md border border-line bg-transparent px-2 py-1 text-xs font-semibold disabled:opacity-60";
+const LADDER_ROW_PANEL = "flex min-w-0 max-w-full flex-wrap gap-2 border-t border-line/80 pt-2";
+
+function ladderPlayerContactLinks(detail: UserDetail): { callHref: string | null; messageHref: string | null } {
+  const callHref = detail.permissions.canCall && detail.profile.phone ? telLink(detail.profile.phone) : null;
+  const phone = detail.permissions.canCall && detail.profile.phone ? detail.profile.phone : null;
+  const whatsapp = detail.permissions.canWhatsapp && detail.profile.whatsapp ? detail.profile.whatsapp : null;
+  const messageNumber = phone ? (whatsapp ?? phone) : whatsapp;
+  const messageHref = messageNumber ? waLink(messageNumber, detail.profile.firstName) : null;
+  return { callHref, messageHref };
+}
+
+function ladderPlayerRowKey(ladderId: string, userId: string): string {
+  return `${ladderId}:${userId}`;
+}
 
 function findRowDefi(
   offers: LadderOffer[] | undefined,
@@ -554,6 +567,42 @@ export default function LadderPage() {
   const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [openPlayerRowKey, setOpenPlayerRowKey] = useState<string | null>(null);
+  const [contactByUserId, setContactByUserId] = useState<
+    Record<string, { callHref: string | null; messageHref: string | null }>
+  >({});
+
+  function togglePlayerRow(ladderId: string, userId: string) {
+    const key = ladderPlayerRowKey(ladderId, userId);
+    setOpenPlayerRowKey((current) => (current === key ? null : key));
+  }
+
+  const contactLoaded = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!openPlayerRowKey) return;
+    const userId = openPlayerRowKey.split(":").slice(1).join(":");
+    if (!userId || contactLoaded.current.has(userId)) return;
+    contactLoaded.current.add(userId);
+    let cancel = false;
+    api<UserDetail>(`/users/${userId}`)
+      .then((detail) => {
+        if (cancel) return;
+        setContactByUserId((current) => ({
+          ...current,
+          [userId]: ladderPlayerContactLinks(detail),
+        }));
+      })
+      .catch(() => {
+        if (cancel) return;
+        setContactByUserId((current) => ({
+          ...current,
+          [userId]: { callHref: null, messageHref: null },
+        }));
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [openPlayerRowKey]);
 
   useEffect(() => {
     ensured.current = null;
@@ -876,10 +925,13 @@ export default function LadderPage() {
               <ChevronDown className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
             </button>
             {open ? (
-              <div className="space-y-2 px-3 pb-3">
+              <div className="min-w-0 space-y-2 overflow-x-hidden px-3 pb-3">
                 {ladder.players.length === 0 ? <EmptyState title="Oyuncu yok" body="Ekle ile oyuncu seç." /> : null}
-                <ol className="space-y-2">
+                <ol className="min-w-0 space-y-2">
                   {ladder.players.map((player) => {
+                    const rowKey = ladderPlayerRowKey(ladder.id, player.userId);
+                    const rowOpen = openPlayerRowKey === rowKey;
+                    const contactLinks = contactByUserId[player.userId];
                     const withinSpan =
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
@@ -934,7 +986,6 @@ export default function LadderPage() {
                       && !player.passive
                       && !pairOffer
                       && !recipientHasOpenDefi(ladder.offers, player.userId, responseHours);
-                    const canOffer = canOfferBase && !rematchLocked;
                     const isViewerRow = playerIsViewer(player.userId, viewerId);
                     const rowDefi = findRowDefi(ladder.offers, player.userId, responseHours);
                     const cancelOfferRow =
@@ -973,123 +1024,33 @@ export default function LadderPage() {
                       </>
                     );
 
-                    const defiActionButtons =
-                      showDefiActionRow && actionOffer ? (
-                        <>
-                          {showAcceptOnRow && incomingChallenge ? (
-                            <button
-                              type="button"
-                              disabled={acceptingId === incomingChallenge.id}
-                              onClick={() => void acceptOffer(incomingChallenge.id)}
-                              className={LADDER_OUTLINE_BTN}
-                            >
-                              Kabul et
-                            </button>
-                          ) : null}
-                          {showScheduleOnRow && incomingChallenge ? (
-                            <>
-                              <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
-                                Tarih
-                              </label>
-                              <input
-                                id={`schedule-${incomingChallenge.id}`}
-                                type="datetime-local"
-                                value={
-                                  scheduleDraftOfferId === incomingChallenge.id
-                                    ? scheduleDraft
-                                    : datetimeLocalValue(incomingChallenge.scheduledAt)
-                                }
-                                onChange={(event) => {
-                                  setScheduleDraftOfferId(incomingChallenge.id);
-                                  setScheduleDraft(event.target.value);
-                                }}
-                                className="h-8 shrink-0 rounded-md border border-line bg-transparent px-2 text-xs"
-                              />
-                              <button
-                                type="button"
-                                disabled={
-                                  schedulingId === incomingChallenge.id
-                                  || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
-                                }
-                                onClick={() => {
-                                  const local =
-                                    scheduleDraftOfferId === incomingChallenge.id
-                                      ? scheduleDraft
-                                      : datetimeLocalValue(incomingChallenge.scheduledAt);
-                                  void scheduleMatch(incomingChallenge.id, local);
-                                }}
-                                className={LADDER_OUTLINE_BTN}
-                              >
-                                Tarih
-                              </button>
-                            </>
-                          ) : null}
-                          {showRecipientResultOnRow && incomingChallenge ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={resultingId === incomingChallenge.id}
-                                onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
-                                className={LADDER_OUTLINE_BTN}
-                              >
-                                Kazandı
-                              </button>
-                              <button
-                                type="button"
-                                disabled={resultingId === incomingChallenge.id}
-                                onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
-                                className={LADDER_OUTLINE_BTN}
-                              >
-                                Kaybetti
-                              </button>
-                            </>
-                          ) : null}
-                          {showForfeitOnRow && incomingChallenge ? (
-                            <button
-                              type="button"
-                              disabled={resultingId === incomingChallenge.id}
-                              onClick={() => void recordForfeit(incomingChallenge.id)}
-                              className={LADDER_OUTLINE_BTN}
-                            >
-                              Hükmen
-                            </button>
-                          ) : null}
-                          {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
-                            <button
-                              type="button"
-                              disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
-                              onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
-                              className={LADDER_OUTLINE_BTN}
-                            >
-                              İptal
-                            </button>
-                          ) : null}
-                        </>
-                      ) : null;
+                    const panelHasDefiActions = showDefiActionRow && actionOffer != null;
+                    const panelHasOffer = canOfferBase;
 
                     return (
                       <li
                         key={player.userId}
-                        className={
-                          defiRow
-                            ? `${ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })} flex flex-col gap-2`
-                            : `${ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })} flex items-center gap-3`
-                        }
+                        className={`${ladderPlayerRowClass({ isViewerRow, rowDefi, viewerId })} min-w-0 max-w-full`}
                       >
-                        {defiRow && defiOffer ? (
-                          <>
-                            <div className="flex min-w-0 items-center gap-3">
-                              <Avatar
-                                first={player.firstName}
-                                last={player.lastName}
-                                photo={player.photoUrl}
-                                className="h-10 w-10 shrink-0 text-xs"
-                              />
-                              <p className="min-w-0 flex-1 truncate font-medium leading-snug">
-                                {player.rank}. {player.name}
-                                {player.passive ? (
-                                  <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
-                                ) : null}
+                        <button
+                          type="button"
+                          aria-expanded={rowOpen}
+                          onClick={() => togglePlayerRow(ladder.id, player.userId)}
+                          className="flex w-full min-w-0 items-center gap-3 text-left"
+                        >
+                          <Avatar
+                            first={player.firstName}
+                            last={player.lastName}
+                            photo={player.photoUrl}
+                            className="h-10 w-10 shrink-0 text-xs"
+                          />
+                          <span className="min-w-0 flex-1 truncate font-medium leading-snug">
+                            {player.rank}. {player.name}
+                            {player.passive ? (
+                              <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
+                            ) : null}
+                            {defiRow && defiOffer ? (
+                              <>
                                 {" · "}
                                 {defiCounterpartyName(defiOffer, player.userId)}
                                 {defiOffer.scheduledAt ? (
@@ -1098,42 +1059,133 @@ export default function LadderPage() {
                                     {formatDefiScheduledAt(defiOffer.scheduledAt)}
                                   </>
                                 ) : null}
-                              </p>
-                              {rankMoveIcons}
-                            </div>
-                            {showDefiActionRow ? (
-                              <div className={`flex flex-nowrap items-center gap-2 overflow-x-auto ${LADDER_DEFI_ACTIONS_INDENT}`}>
-                                {defiActionButtons}
-                              </div>
+                              </>
                             ) : null}
-                          </>
-                        ) : (
-                          <>
-                            <Avatar
-                              first={player.firstName}
-                              last={player.lastName}
-                              photo={player.photoUrl}
-                              className="h-10 w-10 shrink-0 text-xs"
-                            />
-                            <span className="min-w-0 flex-1 truncate font-medium">
-                              {player.rank}. {player.name}
-                              {player.passive ? (
-                                <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
-                              ) : null}
-                            </span>
-                            {rankMoveIcons}
-                            {canOfferBase ? (
+                          </span>
+                          {rankMoveIcons}
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-muted transition-transform ${rowOpen ? "rotate-180" : ""}`}
+                            aria-hidden
+                          />
+                        </button>
+                        {rowOpen ? (
+                          <div className={LADDER_ROW_PANEL}>
+                            {panelHasOffer ? (
                               <button
                                 type="button"
                                 disabled={offeringId === player.userId || rematchLocked}
                                 onClick={() => void offerMatch(ladder.id, player, viewerId)}
-                                className="court-press shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold disabled:opacity-60"
+                                className={LADDER_OUTLINE_BTN}
                               >
                                 Teklif
                               </button>
                             ) : null}
-                          </>
-                        )}
+                            {panelHasDefiActions && actionOffer ? (
+                              <>
+                                {showAcceptOnRow && incomingChallenge ? (
+                                  <button
+                                    type="button"
+                                    disabled={acceptingId === incomingChallenge.id}
+                                    onClick={() => void acceptOffer(incomingChallenge.id)}
+                                    className={LADDER_OUTLINE_BTN}
+                                  >
+                                    Kabul et
+                                  </button>
+                                ) : null}
+                                {showScheduleOnRow && incomingChallenge ? (
+                                  <>
+                                    <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
+                                      Tarih
+                                    </label>
+                                    <input
+                                      id={`schedule-${incomingChallenge.id}`}
+                                      type="datetime-local"
+                                      value={
+                                        scheduleDraftOfferId === incomingChallenge.id
+                                          ? scheduleDraft
+                                          : datetimeLocalValue(incomingChallenge.scheduledAt)
+                                      }
+                                      onChange={(event) => {
+                                        setScheduleDraftOfferId(incomingChallenge.id);
+                                        setScheduleDraft(event.target.value);
+                                      }}
+                                      className="h-8 min-w-0 max-w-full basis-full rounded-md border border-line bg-transparent px-2 text-xs sm:basis-auto sm:max-w-[12rem]"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        schedulingId === incomingChallenge.id
+                                        || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
+                                      }
+                                      onClick={() => {
+                                        const local =
+                                          scheduleDraftOfferId === incomingChallenge.id
+                                            ? scheduleDraft
+                                            : datetimeLocalValue(incomingChallenge.scheduledAt);
+                                        void scheduleMatch(incomingChallenge.id, local);
+                                      }}
+                                      className={LADDER_OUTLINE_BTN}
+                                    >
+                                      Tarih
+                                    </button>
+                                  </>
+                                ) : null}
+                                {showRecipientResultOnRow && incomingChallenge ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      disabled={resultingId === incomingChallenge.id}
+                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
+                                      className={LADDER_OUTLINE_BTN}
+                                    >
+                                      Kazandı
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={resultingId === incomingChallenge.id}
+                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
+                                      className={LADDER_OUTLINE_BTN}
+                                    >
+                                      Kaybetti
+                                    </button>
+                                  </>
+                                ) : null}
+                                {showForfeitOnRow && incomingChallenge ? (
+                                  <button
+                                    type="button"
+                                    disabled={resultingId === incomingChallenge.id}
+                                    onClick={() => void recordForfeit(incomingChallenge.id)}
+                                    className={LADDER_OUTLINE_BTN}
+                                  >
+                                    Hükmen
+                                  </button>
+                                ) : null}
+                                {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
+                                  <button
+                                    type="button"
+                                    disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
+                                    onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
+                                    className={LADDER_OUTLINE_BTN}
+                                  >
+                                    İptal
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
+                            {contactLinks?.callHref ? (
+                              <a href={contactLinks.callHref} className={LADDER_OUTLINE_BTN}>
+                                <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                Ara
+                              </a>
+                            ) : null}
+                            {contactLinks?.messageHref ? (
+                              <a href={contactLinks.messageHref} className={LADDER_OUTLINE_BTN}>
+                                <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                Mesaj
+                              </a>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </li>
                     );
                     
