@@ -139,8 +139,15 @@ function findOutgoingChallenge(
 
 const LADDER_ROW_SHELL = "rounded-2xl border px-3 py-2 text-sm";
 const LADDER_OUTLINE_BTN =
-  "court-press inline-flex max-w-full items-center justify-center gap-1 rounded-md border border-line bg-transparent px-2 py-1 text-xs font-semibold disabled:opacity-60";
-const LADDER_ROW_PANEL = "flex min-w-0 max-w-full flex-wrap gap-2 border-t border-line/80 pt-2";
+  "court-press inline-flex max-w-full items-center justify-center gap-1 rounded-md border-2 border-line/80 bg-transparent px-2 py-1 text-xs font-semibold disabled:opacity-60";
+const LADDER_ARA_BTN =
+  "court-press inline-flex max-w-full items-center justify-center gap-1 rounded-md border-2 border-[#2563eb] bg-transparent px-2 py-1 text-xs font-semibold text-[#2563eb]";
+const LADDER_MESAJ_BTN =
+  "court-press inline-flex max-w-full items-center justify-center gap-1 rounded-md border-2 border-[#15803d] bg-transparent px-2 py-1 text-xs font-semibold text-[#15803d]";
+const LADDER_ROW_PANEL = "flex min-w-0 max-w-full flex-col gap-2 border-t border-line/80 pt-2";
+const LADDER_PANEL_ROW = "flex min-w-0 max-w-full flex-wrap items-center gap-2";
+const LADDER_DATE_INPUT =
+  "h-8 min-w-0 max-w-full flex-1 rounded-md border-2 border-line/80 bg-transparent px-2 text-xs sm:max-w-[12rem] sm:flex-none";
 
 function ladderPlayerContactLinks(detail: UserDetail): { callHref: string | null; messageHref: string | null } {
   const callHref = detail.permissions.canCall && detail.profile.phone ? telLink(detail.profile.phone) : null;
@@ -1026,6 +1033,15 @@ export default function LadderPage() {
 
                     const panelHasDefiActions = showDefiActionRow && actionOffer != null;
                     const panelHasOffer = canOfferBase;
+                    const showScheduleRow =
+                      panelHasDefiActions
+                      && incomingChallenge != null
+                      && (showScheduleOnRow || showCancelOnRow);
+                    const showResultRow =
+                      panelHasDefiActions
+                      && incomingChallenge != null
+                      && (showRecipientResultOnRow || showForfeitOnRow);
+                    const showContactRow = Boolean(contactLinks?.callHref || contactLinks?.messageHref);
 
                     return (
                       <li
@@ -1070,19 +1086,19 @@ export default function LadderPage() {
                         </button>
                         {rowOpen ? (
                           <div className={LADDER_ROW_PANEL}>
-                            {panelHasOffer ? (
-                              <button
-                                type="button"
-                                disabled={offeringId === player.userId || rematchLocked}
-                                onClick={() => void offerMatch(ladder.id, player, viewerId)}
-                                className={LADDER_OUTLINE_BTN}
-                              >
-                                Teklif
-                              </button>
-                            ) : null}
-                            {panelHasDefiActions && actionOffer ? (
-                              <>
-                                {showAcceptOnRow && incomingChallenge ? (
+                            {panelHasOffer || (panelHasDefiActions && showAcceptOnRow && incomingChallenge) ? (
+                              <div className={LADDER_PANEL_ROW}>
+                                {panelHasOffer ? (
+                                  <button
+                                    type="button"
+                                    disabled={offeringId === player.userId || rematchLocked}
+                                    onClick={() => void offerMatch(ladder.id, player, viewerId)}
+                                    className={LADDER_OUTLINE_BTN}
+                                  >
+                                    Teklif
+                                  </button>
+                                ) : null}
+                                {panelHasDefiActions && showAcceptOnRow && incomingChallenge ? (
                                   <button
                                     type="button"
                                     disabled={acceptingId === incomingChallenge.id}
@@ -1092,7 +1108,11 @@ export default function LadderPage() {
                                     Kabul et
                                   </button>
                                 ) : null}
-                                {showScheduleOnRow && incomingChallenge ? (
+                              </div>
+                            ) : null}
+                            {showScheduleRow && incomingChallenge ? (
+                              <div className={LADDER_PANEL_ROW}>
+                                {showScheduleOnRow ? (
                                   <>
                                     <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
                                       Tarih
@@ -1109,7 +1129,7 @@ export default function LadderPage() {
                                         setScheduleDraftOfferId(incomingChallenge.id);
                                         setScheduleDraft(event.target.value);
                                       }}
-                                      className="h-8 min-w-0 max-w-full basis-full rounded-md border border-line bg-transparent px-2 text-xs sm:basis-auto sm:max-w-[12rem]"
+                                      className={LADDER_DATE_INPUT}
                                     />
                                     <button
                                       type="button"
@@ -1130,36 +1150,6 @@ export default function LadderPage() {
                                     </button>
                                   </>
                                 ) : null}
-                                {showRecipientResultOnRow && incomingChallenge ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      disabled={resultingId === incomingChallenge.id}
-                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
-                                      className={LADDER_OUTLINE_BTN}
-                                    >
-                                      Kazandı
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={resultingId === incomingChallenge.id}
-                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
-                                      className={LADDER_OUTLINE_BTN}
-                                    >
-                                      Kaybetti
-                                    </button>
-                                  </>
-                                ) : null}
-                                {showForfeitOnRow && incomingChallenge ? (
-                                  <button
-                                    type="button"
-                                    disabled={resultingId === incomingChallenge.id}
-                                    onClick={() => void recordForfeit(incomingChallenge.id)}
-                                    className={LADDER_OUTLINE_BTN}
-                                  >
-                                    Hükmen
-                                  </button>
-                                ) : null}
                                 {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
                                   <button
                                     type="button"
@@ -1170,19 +1160,59 @@ export default function LadderPage() {
                                     İptal
                                   </button>
                                 ) : null}
-                              </>
+                              </div>
                             ) : null}
-                            {contactLinks?.callHref ? (
-                              <a href={contactLinks.callHref} className={LADDER_OUTLINE_BTN}>
-                                <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                Ara
-                              </a>
-                            ) : null}
-                            {contactLinks?.messageHref ? (
-                              <a href={contactLinks.messageHref} className={LADDER_OUTLINE_BTN}>
-                                <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                Mesaj
-                              </a>
+                            {showResultRow || showContactRow ? (
+                              <div className={`${LADDER_PANEL_ROW} justify-between gap-y-2`}>
+                                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                  {showRecipientResultOnRow && incomingChallenge ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        disabled={resultingId === incomingChallenge.id}
+                                        onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
+                                        className={LADDER_OUTLINE_BTN}
+                                      >
+                                        Kazandı
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={resultingId === incomingChallenge.id}
+                                        onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
+                                        className={LADDER_OUTLINE_BTN}
+                                      >
+                                        Kaybetti
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  {showForfeitOnRow && incomingChallenge ? (
+                                    <button
+                                      type="button"
+                                      disabled={resultingId === incomingChallenge.id}
+                                      onClick={() => void recordForfeit(incomingChallenge.id)}
+                                      className={LADDER_OUTLINE_BTN}
+                                    >
+                                      Hükmen
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {showContactRow ? (
+                                  <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                    {contactLinks?.callHref ? (
+                                      <a href={contactLinks.callHref} className={LADDER_ARA_BTN}>
+                                        <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                        Ara
+                                      </a>
+                                    ) : null}
+                                    {contactLinks?.messageHref ? (
+                                      <a href={contactLinks.messageHref} className={LADDER_MESAJ_BTN}>
+                                        <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                        Mesaj
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
                         ) : null}
