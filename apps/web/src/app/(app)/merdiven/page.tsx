@@ -621,7 +621,13 @@ function LadderSide({
 export default function LadderPage() {
   const { user } = useAuth();
   const { clubId, ready } = useClub();
-  const { data: ladderData, error: ladderError, loading: ladderLoading, reload: reloadLadders } = useResource<{ data: Ladder[] }>(clubId ? `/ladders?clubId=${encodeURIComponent(clubId)}` : null);
+  const {
+    data: ladderData,
+    error: ladderError,
+    loading: ladderLoading,
+    reload: reloadLadders,
+    setData: setLadderData,
+  } = useResource<{ data: Ladder[] }>(clubId ? `/ladders?clubId=${encodeURIComponent(clubId)}` : null);
   const ensured = useRef<string | null>(null);
   const [ensureTick, setEnsureTick] = useState(0);
   const [ensureError, setEnsureError] = useState<string | null>(null);
@@ -663,6 +669,12 @@ export default function LadderPage() {
     setScheduleFormOfferId(null);
     setScheduleDraft("");
     setScheduleDraftOfferId(null);
+  }
+
+  async function refreshLaddersFromServer() {
+    if (!clubId) return;
+    const fresh = await api<{ data: Ladder[] }>(`/ladders?clubId=${encodeURIComponent(clubId)}`);
+    setLadderData(fresh);
   }
 
   useEffect(() => {
@@ -821,11 +833,6 @@ export default function LadderPage() {
       winnerId === offer.fromUserId
         ? applyLadderChallengeShiftClient(players, offer.fromUserId, offer.toUserId)
         : players;
-    const nextOffers = offers.map((o) =>
-      o.id === offer.id
-        ? { ...o, proposedWinnerId: winnerId, winnerId, status: o.status }
-        : o,
-    );
     const resultLabel = busyAction === "won" ? "Kazandı" : "Kaybetti";
 
     flushSync(() => {
@@ -834,7 +841,7 @@ export default function LadderPage() {
         ...current,
         [ladderId]: {
           players: shiftedPlayers,
-          offers: nextOffers,
+          offers,
           resultRowUserId,
           resultLabel,
         },
@@ -844,13 +851,13 @@ export default function LadderPage() {
     setMessage(null);
     try {
       await api(`/match-offers/${offer.id}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
-      setMessage("Sonuç kaydedildi, sıralama güncellendi.");
-      await reloadLadders();
+      await refreshLaddersFromServer();
       setOptimisticLadders((current) => {
         const next = { ...current };
         delete next[ladderId];
         return next;
       });
+      setMessage("Sonuç kaydedildi, sıralama güncellendi.");
     } catch (err) {
       flushSync(() => {
         setOptimisticLadders((current) => {
@@ -1263,7 +1270,7 @@ export default function LadderPage() {
                                 {showScheduleOnRow ? (
                                   scheduleFormOfferId === incomingChallenge.id ? (
                                     <form
-                                      className={`${LADDER_PANEL_ROW} w-full items-center`}
+                                      className="flex w-full min-w-0 flex-col gap-2"
                                       onSubmit={(event) => {
                                         event.preventDefault();
                                         event.stopPropagation();
@@ -1271,6 +1278,27 @@ export default function LadderPage() {
                                       }}
                                       onClick={(event) => event.stopPropagation()}
                                     >
+                                      <div className={LADDER_PANEL_ROW}>
+                                        <button
+                                          type="submit"
+                                          disabled={scheduleBusy || !scheduleDraft}
+                                          aria-busy={scheduleBusy}
+                                          className={ladderActionButtonClass(LADDER_OUTLINE_BTN, scheduleBusy)}
+                                        >
+                                          <LadderActionBusyContent busy={scheduleBusy}>Tamam</LadderActionBusyContent>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={scheduleBusy}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            closeScheduleForm();
+                                          }}
+                                          className={LADDER_OUTLINE_BTN}
+                                        >
+                                          İptal
+                                        </button>
+                                      </div>
                                       <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
                                         Maç tarihi
                                       </label>
@@ -1282,27 +1310,8 @@ export default function LadderPage() {
                                           setScheduleDraftOfferId(incomingChallenge.id);
                                           setScheduleDraft(event.target.value);
                                         }}
-                                        className={LADDER_DATE_INPUT}
+                                        className={`${LADDER_DATE_INPUT} w-full sm:max-w-none`}
                                       />
-                                      <button
-                                        type="submit"
-                                        disabled={scheduleBusy || !scheduleDraft}
-                                        aria-busy={scheduleBusy}
-                                        className={ladderActionButtonClass(LADDER_OUTLINE_BTN, scheduleBusy)}
-                                      >
-                                        <LadderActionBusyContent busy={scheduleBusy}>Tamam</LadderActionBusyContent>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={scheduleBusy}
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          closeScheduleForm();
-                                        }}
-                                        className={LADDER_OUTLINE_BTN}
-                                      >
-                                        İptal
-                                      </button>
                                     </form>
                                   ) : (
                                     <button
