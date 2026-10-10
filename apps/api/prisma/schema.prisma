@@ -146,6 +146,12 @@ enum PersonProfile {
   DIGER
 }
 
+enum LadderContactVisibility {
+  ALWAYS
+  DEFI_ONLY
+  MESSAGE_ONLY
+}
+
 enum MatchFormat {
   SINGLE
   DOUBLE
@@ -334,7 +340,8 @@ model Profile {
   playerStatus  PlayerStatus  @default(ACTIVE)
   tennisType    TennisType    @default(DIGER)
   ageGroup      AgeGroup      @default(AGE_18_35)
-  personProfile PersonProfile @default(OYUNCU)
+  personProfile            PersonProfile            @default(OYUNCU)
+  ladderContactVisibility  LadderContactVisibility  @default(ALWAYS)
   statusNote    String?
   statusStart   DateTime?    @db.Date
   statusEnd     DateTime?    @db.Date

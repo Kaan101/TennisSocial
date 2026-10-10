@@ -77,7 +77,14 @@ function presentPlayer(player: {
   points: number;
   lastMove: "UP" | "DOWN" | null;
   passiveUntil: Date | null;
-  user: { profile: { firstName: string; lastName: string; photoUrl: string | null } | null };
+  user: {
+    profile: {
+      firstName: string;
+      lastName: string;
+      photoUrl: string | null;
+      ladderContactVisibility: "ALWAYS" | "DEFI_ONLY" | "MESSAGE_ONLY";
+    } | null;
+  };
 }) {
   return {
     userId: player.userId,
@@ -87,6 +94,7 @@ function presentPlayer(player: {
     firstName: player.user.profile?.firstName ?? "",
     lastName: player.user.profile?.lastName ?? "",
     photoUrl: player.user.profile?.photoUrl ?? null,
+    ladderContactVisibility: player.user.profile?.ladderContactVisibility ?? "ALWAYS",
     lastMove: player.lastMove,
     passiveUntil: player.passiveUntil?.toISOString() ?? null,
     passive: isLadderPlayerPassive(player),
@@ -166,7 +174,13 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
             points: true,
             lastMove: true,
             passiveUntil: true,
-            user: { select: { profile: { select: { firstName: true, lastName: true, photoUrl: true } } } },
+            user: {
+              select: {
+                profile: {
+                  select: { firstName: true, lastName: true, photoUrl: true, ladderContactVisibility: true },
+                },
+              },
+            },
           },
         },
       },

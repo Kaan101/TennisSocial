@@ -13,7 +13,10 @@ import type {
   SkillName,
   TennisType,
   Visibility,
+  LadderContactVisibility,
 } from "@club/shared";
+
+export type { LadderContactVisibility } from "@club/shared";
 
 export type PageMeta = {
   page: number;
@@ -90,6 +93,7 @@ export type UserDetail = {
     statusNote: string | null;
     statusStart: string | null;
     statusEnd: string | null;
+    ladderContactVisibility: LadderContactVisibility;
   };
   permissions: {
     canEdit: boolean;

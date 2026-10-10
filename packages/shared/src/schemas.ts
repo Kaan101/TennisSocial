@@ -21,6 +21,7 @@ import {
   TENNIS_TYPES,
   AGE_GROUPS,
   PERSON_PROFILES,
+  LADDER_CONTACT_VISIBILITIES,
   COURT_KINDS,
   COURT_PURPOSES,
   RESERVATION_STATUSES,
@@ -89,6 +90,7 @@ export const profileUpdateSchema = z.object({
   statusStart: dateSchema.nullable().optional(),
   statusEnd: dateSchema.nullable().optional(),
   clubJoinDate: dateSchema.optional(),
+  ladderContactVisibility: z.enum(LADDER_CONTACT_VISIBILITIES).optional(),
 });
 
 export const roleChangeSchema = z.object({

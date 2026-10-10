@@ -7,6 +7,8 @@ import {
   PERSON_PROFILE_LABELS,
   PLAYER_STATUSES,
   STATUS_LABELS,
+  LADDER_CONTACT_VISIBILITIES,
+  LADDER_CONTACT_VISIBILITY_LABELS,
   TENNIS_TYPES,
   TENNIS_TYPE_LABELS,
 } from "@club/shared";
@@ -52,6 +54,7 @@ export default function ProfilePage() {
       personProfile: data.profile.personProfile,
       statusNote: data.profile.statusNote ?? "",
       statusEnd: data.profile.statusEnd ?? "",
+      ladderContactVisibility: data.profile.ladderContactVisibility ?? "ALWAYS",
     });
   }, [data]);
 
@@ -137,6 +140,23 @@ export default function ProfilePage() {
         <div><Label htmlFor="birthYear">Doğum yılı</Label><Input id="birthYear" inputMode="numeric" value={form.birthYear ?? ""} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} /></div>
         <div><Label htmlFor="phone">Telefon</Label><Input id="phone" value={form.phone ?? ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
         <div><Label htmlFor="whatsapp">WhatsApp</Label><Input id="whatsapp" value={form.whatsapp ?? ""} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} /></div>
+        <div>
+          <Label htmlFor="ladderContactVisibility">Merdivende iletişim</Label>
+          <Select
+            id="ladderContactVisibility"
+            value={form.ladderContactVisibility ?? "ALWAYS"}
+            onChange={(e) => setForm({ ...form, ladderContactVisibility: e.target.value })}
+          >
+            {LADDER_CONTACT_VISIBILITIES.map((mode) => (
+              <option key={mode} value={mode}>
+                {LADDER_CONTACT_VISIBILITY_LABELS[mode]}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-xs text-muted">
+            Başkaları senin satırını Merdiven&apos;de açınca Ara ve Mesaj butonlarını bu kurala göre görür.
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <div><Label htmlFor="district">Semt</Label><Input id="district" value={form.district ?? ""} onChange={(e) => setForm({ ...form, district: e.target.value })} /></div>
           <div><Label htmlFor="city">Şehir</Label><Input id="city" value={form.city ?? ""} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>

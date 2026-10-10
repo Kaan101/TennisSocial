@@ -150,6 +150,7 @@ export const userDetailSelect = {
       statusNote: true,
       statusStart: true,
       statusEnd: true,
+      ladderContactVisibility: true,
       createdAt: true,
     },
   },
@@ -343,6 +344,7 @@ export async function toUserDetail(
       statusNote: profile.statusNote,
       statusStart: dateOnly(profile.statusStart),
       statusEnd: dateOnly(profile.statusEnd),
+      ladderContactVisibility: profile.ladderContactVisibility,
     },
     permissions: {
       canEdit,

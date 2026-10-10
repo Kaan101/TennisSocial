@@ -1,4 +1,21 @@
+import type { LadderContactVisibility } from "./constants";
+
 export const DEFAULT_LADDER_MAX_RANK_SPAN = 3;
+
+/** Merdiven accordion: which contact buttons others see for this row player. */
+export function ladderMerdivenContactSlots(
+  visibility: LadderContactVisibility,
+  playerInOpenDefi: boolean,
+): { showCall: boolean; showMessage: boolean } {
+  if (visibility === "MESSAGE_ONLY") {
+    return { showCall: false, showMessage: true };
+  }
+  if (visibility === "DEFI_ONLY") {
+    if (!playerInOpenDefi) return { showCall: false, showMessage: false };
+    return { showCall: true, showMessage: true };
+  }
+  return { showCall: true, showMessage: true };
+}
 
 /** Ayarlar value when missing/invalid; otherwise the saved ladder setting. */
 export function effectiveLadderMaxRankSpan(value: unknown): number {

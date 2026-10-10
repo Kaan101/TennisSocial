@@ -119,6 +119,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         statusStart: body.statusStart === undefined ? undefined : body.statusStart ? parseDateOnly(body.statusStart) : null,
         statusEnd: body.statusEnd === undefined ? undefined : body.statusEnd ? parseDateOnly(body.statusEnd) : null,
         clubJoinDate: body.clubJoinDate ? parseDateOnly(body.clubJoinDate) : undefined,
+        ladderContactVisibility: body.ladderContactVisibility,
       },
     });
     if (viewer.id !== id) {

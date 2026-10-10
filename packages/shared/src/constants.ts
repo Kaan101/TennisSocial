@@ -23,6 +23,16 @@ export type PlayerStatus = (typeof PLAYER_STATUSES)[number];
 export const VISIBILITIES = ["PUBLIC", "MEMBERS", "FRIENDS", "HIDDEN"] as const;
 export type Visibility = (typeof VISIBILITIES)[number];
 
+/** How others see Ara/Mesaj on Merdiven for this profile owner. */
+export const LADDER_CONTACT_VISIBILITIES = ["ALWAYS", "DEFI_ONLY", "MESSAGE_ONLY"] as const;
+export type LadderContactVisibility = (typeof LADDER_CONTACT_VISIBILITIES)[number];
+
+export const LADDER_CONTACT_VISIBILITY_LABELS: Record<LadderContactVisibility, string> = {
+  ALWAYS: "Her zaman",
+  DEFI_ONLY: "Yalnızca defide",
+  MESSAGE_ONLY: "Yalnızca Mesaj",
+};
+
 export const DOMINANT_HANDS = ["RIGHT", "LEFT"] as const;
 export type DominantHand = (typeof DOMINANT_HANDS)[number];
 

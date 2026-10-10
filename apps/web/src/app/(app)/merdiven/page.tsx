@@ -1,6 +1,13 @@
 "use client";
 
-import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan, telLink, waLink } from "@club/shared";
+import {
+  effectiveLadderMaxRankSpan,
+  isWithinLadderChallengeSpan,
+  ladderMerdivenContactSlots,
+  telLink,
+  waLink,
+  type LadderContactVisibility,
+} from "@club/shared";
 import type { AuthUser, PlayerCard, UserDetail } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown, Loader2, MessageCircle, Phone } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -22,6 +29,7 @@ type LadderPlayer = {
   lastMove: "UP" | "DOWN" | null;
   passive?: boolean;
   passiveUntil?: string | null;
+  ladderContactVisibility?: LadderContactVisibility;
 };
 type LadderOffer = {
   id: string;
@@ -1075,6 +1083,15 @@ export default function LadderPage() {
                       && (showRecipientResultOnRow || showForfeitOnRow);
                     const callHref = contactLinks?.callHref ?? null;
                     const messageHref = contactLinks?.messageHref ?? null;
+                    const contactSlots = ladderMerdivenContactSlots(
+                      player.ladderContactVisibility ?? "ALWAYS",
+                      rowDefi != null,
+                    );
+                    const showCallButton = contactSlots.showCall;
+                    const showMessageButton = contactSlots.showMessage;
+                    const showContactButtons = showCallButton || showMessageButton;
+                    const showBottomRow =
+                      (showRecipientResultOnRow || showForfeitOnRow) || showContactButtons;
                     const offerBusy = offeringId === player.userId;
                     const acceptBusy = incomingChallenge != null && acceptingId === incomingChallenge.id;
                     const scheduleBusy = incomingChallenge != null && schedulingId === incomingChallenge.id;
@@ -1210,6 +1227,7 @@ export default function LadderPage() {
                                 ) : null}
                               </div>
                             ) : null}
+                            {showBottomRow ? (
                             <div className={`${LADDER_PANEL_ROW} justify-between gap-y-2`}>
                               <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 {showRecipientResultOnRow && incomingChallenge ? (
@@ -1246,41 +1264,48 @@ export default function LadderPage() {
                                   </button>
                                 ) : null}
                               </div>
-                              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                <button
-                                  type="button"
-                                  disabled={!callHref || callBusy}
-                                  aria-busy={callBusy}
-                                  onClick={() => {
-                                    if (callHref) openContactLink(player.userId, "call", callHref);
-                                  }}
-                                  className={ladderActionButtonClass(`${LADDER_ARA_BTN} disabled:cursor-not-allowed disabled:opacity-45`, callBusy)}
-                                >
-                                  <LadderActionBusyContent busy={callBusy}>
-                                    <>
-                                      <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                      Ara
-                                    </>
-                                  </LadderActionBusyContent>
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={!messageHref || messageBusy}
-                                  aria-busy={messageBusy}
-                                  onClick={() => {
-                                    if (messageHref) openContactLink(player.userId, "message", messageHref);
-                                  }}
-                                  className={ladderActionButtonClass(`${LADDER_MESAJ_BTN} disabled:cursor-not-allowed disabled:opacity-45`, messageBusy)}
-                                >
-                                  <LadderActionBusyContent busy={messageBusy}>
-                                    <>
-                                      <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                      Mesaj
-                                    </>
-                                  </LadderActionBusyContent>
-                                </button>
-                              </div>
+                              {showContactButtons ? (
+                                <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                  {showCallButton ? (
+                                    <button
+                                      type="button"
+                                      disabled={!callHref || callBusy}
+                                      aria-busy={callBusy}
+                                      onClick={() => {
+                                        if (callHref) openContactLink(player.userId, "call", callHref);
+                                      }}
+                                      className={ladderActionButtonClass(`${LADDER_ARA_BTN} disabled:cursor-not-allowed disabled:opacity-45`, callBusy)}
+                                    >
+                                      <LadderActionBusyContent busy={callBusy}>
+                                        <>
+                                          <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                          Ara
+                                        </>
+                                      </LadderActionBusyContent>
+                                    </button>
+                                  ) : null}
+                                  {showMessageButton ? (
+                                    <button
+                                      type="button"
+                                      disabled={!messageHref || messageBusy}
+                                      aria-busy={messageBusy}
+                                      onClick={() => {
+                                        if (messageHref) openContactLink(player.userId, "message", messageHref);
+                                      }}
+                                      className={ladderActionButtonClass(`${LADDER_MESAJ_BTN} disabled:cursor-not-allowed disabled:opacity-45`, messageBusy)}
+                                    >
+                                      <LadderActionBusyContent busy={messageBusy}>
+                                        <>
+                                          <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                          Mesaj
+                                        </>
+                                      </LadderActionBusyContent>
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </li>
