@@ -643,6 +643,7 @@ export default function LadderPage() {
   const [optimisticLadders, setOptimisticLadders] = useState<Record<string, LadderOptimisticResult>>({});
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
+  const [scheduleFormOfferId, setScheduleFormOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [openPlayerRowKey, setOpenPlayerRowKey] = useState<string | null>(null);
@@ -650,6 +651,18 @@ export default function LadderPage() {
   function togglePlayerRow(ladderId: string, userId: string) {
     const key = ladderPlayerRowKey(ladderId, userId);
     setOpenPlayerRowKey((current) => (current === key ? null : key));
+  }
+
+  function openScheduleForm(offerId: string, scheduledAt: string | null | undefined) {
+    setScheduleFormOfferId(offerId);
+    setScheduleDraftOfferId(offerId);
+    setScheduleDraft(datetimeLocalValue(scheduledAt));
+  }
+
+  function closeScheduleForm() {
+    setScheduleFormOfferId(null);
+    setScheduleDraft("");
+    setScheduleDraftOfferId(null);
   }
 
   useEffect(() => {
@@ -890,8 +903,7 @@ export default function LadderPage() {
         body: JSON.stringify({ scheduledAt: new Date(scheduledAtLocal).toISOString() }),
       });
       setMessage("Maç tarihi kaydedildi.");
-      setScheduleDraft("");
-      setScheduleDraftOfferId(null);
+      closeScheduleForm();
       await reloadLadders();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Maç tarihi kaydedilemedi");
@@ -1249,43 +1261,63 @@ export default function LadderPage() {
                             {showScheduleRow && incomingChallenge ? (
                               <div className={LADDER_PANEL_ROW}>
                                 {showScheduleOnRow ? (
-                                  <>
-                                    <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
-                                      Tarih
-                                    </label>
-                                    <input
-                                      id={`schedule-${incomingChallenge.id}`}
-                                      type="datetime-local"
-                                      value={
-                                        scheduleDraftOfferId === incomingChallenge.id
-                                          ? scheduleDraft
-                                          : datetimeLocalValue(incomingChallenge.scheduledAt)
-                                      }
-                                      onChange={(event) => {
-                                        setScheduleDraftOfferId(incomingChallenge.id);
-                                        setScheduleDraft(event.target.value);
+                                  scheduleFormOfferId === incomingChallenge.id ? (
+                                    <form
+                                      className={`${LADDER_PANEL_ROW} w-full items-center`}
+                                      onSubmit={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void scheduleMatch(incomingChallenge.id, scheduleDraft);
                                       }}
-                                      className={LADDER_DATE_INPUT}
-                                    />
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <label className="sr-only" htmlFor={`schedule-${incomingChallenge.id}`}>
+                                        Maç tarihi
+                                      </label>
+                                      <input
+                                        id={`schedule-${incomingChallenge.id}`}
+                                        type="datetime-local"
+                                        value={scheduleDraft}
+                                        onChange={(event) => {
+                                          setScheduleDraftOfferId(incomingChallenge.id);
+                                          setScheduleDraft(event.target.value);
+                                        }}
+                                        className={LADDER_DATE_INPUT}
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={scheduleBusy || !scheduleDraft}
+                                        aria-busy={scheduleBusy}
+                                        className={ladderActionButtonClass(LADDER_OUTLINE_BTN, scheduleBusy)}
+                                      >
+                                        <LadderActionBusyContent busy={scheduleBusy}>Tamam</LadderActionBusyContent>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={scheduleBusy}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          closeScheduleForm();
+                                        }}
+                                        className={LADDER_OUTLINE_BTN}
+                                      >
+                                        İptal
+                                      </button>
+                                    </form>
+                                  ) : (
                                     <button
                                       type="button"
-                                      disabled={
-                                        scheduleBusy
-                                        || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
-                                      }
-                                      aria-busy={scheduleBusy}
-                                      onClick={() => {
-                                        const local =
-                                          scheduleDraftOfferId === incomingChallenge.id
-                                            ? scheduleDraft
-                                            : datetimeLocalValue(incomingChallenge.scheduledAt);
-                                        void scheduleMatch(incomingChallenge.id, local);
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openScheduleForm(incomingChallenge.id, incomingChallenge.scheduledAt);
                                       }}
-                                      className={ladderActionButtonClass(LADDER_OUTLINE_BTN, scheduleBusy)}
+                                      className={`${LADDER_OUTLINE_BTN} ${LADDER_DATE_INPUT} min-h-8 justify-start text-left font-normal`}
                                     >
-                                      <LadderActionBusyContent busy={scheduleBusy}>Tarih</LadderActionBusyContent>
+                                      {incomingChallenge.scheduledAt
+                                        ? formatDefiScheduledAt(incomingChallenge.scheduledAt)
+                                        : "Tarih belirle"}
                                     </button>
-                                  </>
+                                  )
                                 ) : null}
                                 {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
                                   <button
