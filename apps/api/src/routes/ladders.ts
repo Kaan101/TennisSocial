@@ -33,6 +33,8 @@ import {
 } from "../services/matchOfferFlow";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
+import { areFriends } from "../services/friends";
+import { presentLadderPlayerContact } from "../services/present";
 
 // hashtext returns integer. pg_advisory_xact_lock(integer) does not exist, so the
 // old call threw and the API answered 500 before the player row was written.
@@ -78,13 +80,21 @@ function presentPlayer(player: {
   lastMove: "UP" | "DOWN" | null;
   passiveUntil: Date | null;
   user: {
+    id: string;
     profile: {
       firstName: string;
       lastName: string;
       photoUrl: string | null;
+      phone: string | null;
+      whatsapp: string | null;
       ladderContactVisibility: "ALWAYS" | "DEFI_ONLY" | "MESSAGE_ONLY";
     } | null;
+    privacy: {
+      phoneVisibility: "PUBLIC" | "MEMBERS" | "FRIENDS" | "HIDDEN";
+      whatsappVisibility: "PUBLIC" | "MEMBERS" | "FRIENDS" | "HIDDEN";
+    } | null;
   };
+  contact: { canCall: boolean; canWhatsapp: boolean; phone: string | null; whatsapp: string | null };
 }) {
   return {
     userId: player.userId,
@@ -95,6 +105,10 @@ function presentPlayer(player: {
     lastName: player.user.profile?.lastName ?? "",
     photoUrl: player.user.profile?.photoUrl ?? null,
     ladderContactVisibility: player.user.profile?.ladderContactVisibility ?? "ALWAYS",
+    canCall: player.contact.canCall,
+    canWhatsapp: player.contact.canWhatsapp,
+    phone: player.contact.phone,
+    whatsapp: player.contact.whatsapp,
     lastMove: player.lastMove,
     passiveUntil: player.passiveUntil?.toISOString() ?? null,
     passive: isLadderPlayerPassive(player),
@@ -176,8 +190,19 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
             passiveUntil: true,
             user: {
               select: {
+                id: true,
                 profile: {
-                  select: { firstName: true, lastName: true, photoUrl: true, ladderContactVisibility: true },
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    photoUrl: true,
+                    phone: true,
+                    whatsapp: true,
+                    ladderContactVisibility: true,
+                  },
+                },
+                privacy: {
+                  select: { phoneVisibility: true, whatsappVisibility: true },
                 },
               },
             },
@@ -228,6 +253,15 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
         rematchLocksByLadder.set(row.id, await listRematchLockedOpponentIds(row.id, viewer.id));
       }),
     );
+    const ladderPlayerUserIds = [
+      ...new Set(rows.flatMap((row) => row.players.map((player) => player.userId))),
+    ].filter((userId) => userId !== viewer.id);
+    const friendUserIds = new Set<string>();
+    await Promise.all(
+      ladderPlayerUserIds.map(async (userId) => {
+        if (await areFriends(viewer.id, userId)) friendUserIds.add(userId);
+      }),
+    );
     const payload = {
       data: rows.map((row) => {
         const playerIds = new Set(row.players.map((player) => player.userId));
@@ -240,7 +274,16 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           clubName: row.club?.name ?? null,
           ...ladderSettings(row),
           playerCount: row.players.length,
-          players: row.players.map(presentPlayer),
+          players: row.players.map((player) =>
+            presentPlayer({
+              ...player,
+              contact: presentLadderPlayerContact(
+                viewer,
+                player.user,
+                friendUserIds.has(player.userId),
+              ),
+            }),
+          ),
           rematchLockedOpponentIds: rematchLocksByLadder.get(row.id) ?? [],
           offers: offers
             .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))

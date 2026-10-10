@@ -89,6 +89,33 @@ function radarOf(skills: SkillValue[] | undefined): RadarPoint[] {
   ];
 }
 
+export function presentLadderPlayerContact(
+  viewer: Viewer,
+  user: {
+    id: string;
+    profile: {
+      firstName: string;
+      phone: string | null;
+      whatsapp: string | null;
+    } | null;
+    privacy: {
+      phoneVisibility: "PUBLIC" | "MEMBERS" | "FRIENDS" | "HIDDEN";
+      whatsappVisibility: "PUBLIC" | "MEMBERS" | "FRIENDS" | "HIDDEN";
+    } | null;
+  },
+  isFriend: boolean,
+): { canCall: boolean; canWhatsapp: boolean; phone: string | null; whatsapp: string | null } {
+  const profile = user.profile;
+  const phoneGate = canViewField(user.privacy?.phoneVisibility ?? "MEMBERS", viewer, user.id, isFriend);
+  const whatsappGate = canViewField(user.privacy?.whatsappVisibility ?? "MEMBERS", viewer, user.id, isFriend);
+  return {
+    canCall: phoneGate.allowed && Boolean(profile?.phone),
+    canWhatsapp: whatsappGate.allowed && Boolean(profile?.whatsapp),
+    phone: phoneGate.allowed ? (profile?.phone ?? null) : null,
+    whatsapp: whatsappGate.allowed ? (profile?.whatsapp ?? null) : null,
+  };
+}
+
 export function toPlayerCard(user: UserWithRelations, viewer: Viewer, isFriend: boolean): PlayerCard {
   const profile = user.profile;
   const privacy = user.privacy;

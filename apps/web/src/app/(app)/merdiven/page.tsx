@@ -8,7 +8,7 @@ import {
   waLink,
   type LadderContactVisibility,
 } from "@club/shared";
-import type { AuthUser, PlayerCard, UserDetail } from "@club/types";
+import type { AuthUser, PlayerCard } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown, Loader2, MessageCircle, Phone } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
@@ -31,6 +31,10 @@ type LadderPlayer = {
   passive?: boolean;
   passiveUntil?: string | null;
   ladderContactVisibility?: LadderContactVisibility;
+  canCall?: boolean;
+  canWhatsapp?: boolean;
+  phone?: string | null;
+  whatsapp?: string | null;
 };
 type LadderOffer = {
   id: string;
@@ -176,12 +180,12 @@ function LadderActionBusyContent({ busy, children }: { busy: boolean; children: 
   );
 }
 
-function ladderPlayerContactLinks(detail: UserDetail): { callHref: string | null; messageHref: string | null } {
-  const callHref = detail.permissions.canCall && detail.profile.phone ? telLink(detail.profile.phone) : null;
-  const phone = detail.permissions.canCall && detail.profile.phone ? detail.profile.phone : null;
-  const whatsapp = detail.permissions.canWhatsapp && detail.profile.whatsapp ? detail.profile.whatsapp : null;
+function ladderContactHrefsFromPlayer(player: LadderPlayer): { callHref: string | null; messageHref: string | null } {
+  const callHref = player.canCall && player.phone ? telLink(player.phone) : null;
+  const phone = player.canCall && player.phone ? player.phone : null;
+  const whatsapp = player.canWhatsapp && player.whatsapp ? player.whatsapp : null;
   const messageNumber = phone ? (whatsapp ?? phone) : whatsapp;
-  const messageHref = messageNumber ? waLink(messageNumber, detail.profile.firstName) : null;
+  const messageHref = messageNumber ? waLink(messageNumber, player.firstName) : null;
   return { callHref, messageHref };
 }
 
@@ -642,41 +646,11 @@ export default function LadderPage() {
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [openPlayerRowKey, setOpenPlayerRowKey] = useState<string | null>(null);
-  const [contactByUserId, setContactByUserId] = useState<
-    Record<string, { callHref: string | null; messageHref: string | null }>
-  >({});
 
   function togglePlayerRow(ladderId: string, userId: string) {
     const key = ladderPlayerRowKey(ladderId, userId);
     setOpenPlayerRowKey((current) => (current === key ? null : key));
   }
-
-  const contactLoaded = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!openPlayerRowKey) return;
-    const userId = openPlayerRowKey.split(":").slice(1).join(":");
-    if (!userId || contactLoaded.current.has(userId)) return;
-    contactLoaded.current.add(userId);
-    let cancel = false;
-    api<UserDetail>(`/users/${userId}`)
-      .then((detail) => {
-        if (cancel) return;
-        setContactByUserId((current) => ({
-          ...current,
-          [userId]: ladderPlayerContactLinks(detail),
-        }));
-      })
-      .catch(() => {
-        if (cancel) return;
-        setContactByUserId((current) => ({
-          ...current,
-          [userId]: { callHref: null, messageHref: null },
-        }));
-      });
-    return () => {
-      cancel = true;
-    };
-  }, [openPlayerRowKey]);
 
   useEffect(() => {
     ensured.current = null;
@@ -824,11 +798,12 @@ export default function LadderPage() {
     busyAction: "won" | "lost",
     resultRowUserId: string,
   ) {
+    const patch = optimisticLadders[ladderId];
     const ladderRow = ladderData?.data.find((row) => row.id === ladderId);
     if (!ladderRow) return;
 
-    const players = ladderRow.players.map((p) => ({ ...p }));
-    const offers = (ladderRow.offers ?? []).map((o) => ({ ...o }));
+    const players = (patch?.players ?? ladderRow.players).map((p) => ({ ...p }));
+    const offers = (patch?.offers ?? ladderRow.offers ?? []).map((o) => ({ ...o }));
     const shiftedPlayers =
       winnerId === offer.fromUserId
         ? applyLadderChallengeShiftClient(players, offer.fromUserId, offer.toUserId)
@@ -858,6 +833,11 @@ export default function LadderPage() {
       await api(`/match-offers/${offer.id}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
       setMessage("Sonuç kaydedildi, sıralama güncellendi.");
       await reloadLadders();
+      setOptimisticLadders((current) => {
+        const next = { ...current };
+        delete next[ladderId];
+        return next;
+      });
     } catch (err) {
       flushSync(() => {
         setOptimisticLadders((current) => {
@@ -869,12 +849,6 @@ export default function LadderPage() {
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
     } finally {
       setResultingAction(null);
-      setOptimisticLadders((current) => {
-        if (!current[ladderId]) return current;
-        const next = { ...current };
-        delete next[ladderId];
-        return next;
-      });
     }
   }
 
@@ -1068,7 +1042,7 @@ export default function LadderPage() {
                   {ladder.players.map((player) => {
                     const rowKey = ladderPlayerRowKey(ladder.id, player.userId);
                     const rowOpen = openPlayerRowKey === rowKey;
-                    const contactLinks = contactByUserId[player.userId];
+                    const { callHref, messageHref } = ladderContactHrefsFromPlayer(player);
                     const optimisticResult =
                       optimisticLadders[ladder.id]?.resultRowUserId === player.userId
                         ? optimisticLadders[ladder.id]?.resultLabel
@@ -1175,14 +1149,12 @@ export default function LadderPage() {
                       panelHasDefiActions
                       && incomingChallenge != null
                       && (showRecipientResultOnRow || showForfeitOnRow);
-                    const callHref = contactLinks?.callHref ?? null;
-                    const messageHref = contactLinks?.messageHref ?? null;
                     const contactSlots = ladderMerdivenContactSlots(
                       player.ladderContactVisibility ?? "ALWAYS",
                       rowDefi != null,
                     );
-                    const showCallButton = contactSlots.showCall;
-                    const showMessageButton = contactSlots.showMessage;
+                    const showCallButton = !isViewerRow && contactSlots.showCall;
+                    const showMessageButton = !isViewerRow && contactSlots.showMessage;
                     const showContactButtons = showCallButton || showMessageButton;
                     const showBottomRow =
                       (showRecipientResultOnRow || showForfeitOnRow) || showContactButtons;
@@ -1243,7 +1215,11 @@ export default function LadderPage() {
                           />
                         </button>
                         {rowOpen ? (
-                          <div className={LADDER_ROW_PANEL}>
+                          <div
+                            className={LADDER_ROW_PANEL}
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
                             {panelHasOffer || (panelHasDefiActions && showAcceptOnRow && incomingChallenge) ? (
                               <div className={LADDER_PANEL_ROW}>
                                 {panelHasOffer ? (
@@ -1333,15 +1309,16 @@ export default function LadderPage() {
                                       type="button"
                                       disabled={resultOfferBusy}
                                       aria-busy={wonBusy}
-                                      onClick={() =>
+                                      onClick={(event) => {
+                                        event.stopPropagation();
                                         void proposeResult(
                                           ladder.id,
                                           incomingChallenge,
                                           incomingChallenge.toUserId,
                                           "won",
                                           player.userId,
-                                        )
-                                      }
+                                        );
+                                      }}
                                       className={ladderActionButtonClass(LADDER_OUTLINE_BTN, wonBusy)}
                                     >
                                       <LadderActionBusyContent busy={wonBusy}>Kazandı</LadderActionBusyContent>
@@ -1350,15 +1327,16 @@ export default function LadderPage() {
                                       type="button"
                                       disabled={resultOfferBusy}
                                       aria-busy={lostBusy}
-                                      onClick={() =>
+                                      onClick={(event) => {
+                                        event.stopPropagation();
                                         void proposeResult(
                                           ladder.id,
                                           incomingChallenge,
                                           incomingChallenge.fromUserId,
                                           "lost",
                                           player.userId,
-                                        )
-                                      }
+                                        );
+                                      }}
                                       className={ladderActionButtonClass(LADDER_OUTLINE_BTN, lostBusy)}
                                     >
                                       <LadderActionBusyContent busy={lostBusy}>Kaybetti</LadderActionBusyContent>
