@@ -2,8 +2,8 @@
 
 import { effectiveLadderMaxRankSpan, isWithinLadderChallengeSpan, telLink, waLink } from "@club/shared";
 import type { AuthUser, PlayerCard, UserDetail } from "@club/types";
-import { ArrowDown, ArrowUp, ChevronDown, MessageCircle, Phone } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ChevronDown, Loader2, MessageCircle, Phone } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { Input } from "@/components/ui/input";
@@ -148,6 +148,24 @@ const LADDER_ROW_PANEL = "flex min-w-0 max-w-full flex-col gap-2 border-t border
 const LADDER_PANEL_ROW = "flex min-w-0 max-w-full flex-wrap items-center gap-2";
 const LADDER_DATE_INPUT =
   "h-8 min-w-0 max-w-full flex-1 rounded-md border-2 border-line/80 bg-transparent px-2 text-xs sm:max-w-[12rem] sm:flex-none";
+const LADDER_BTN_BUSY =
+  "cursor-wait border-dashed bg-paper/80 ring-2 ring-court/35 disabled:opacity-100";
+
+type LadderResultBusyAction = "won" | "lost" | "forfeit";
+
+function ladderActionButtonClass(base: string, busy: boolean): string {
+  return busy ? `${base} ${LADDER_BTN_BUSY}` : base;
+}
+
+function LadderActionBusyContent({ busy, children }: { busy: boolean; children: ReactNode }) {
+  if (!busy) return <>{children}</>;
+  return (
+    <>
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+      <span aria-live="polite">…</span>
+    </>
+  );
+}
 
 function ladderPlayerContactLinks(detail: UserDetail): { callHref: string | null; messageHref: string | null } {
   const callHref = detail.permissions.canCall && detail.profile.phone ? telLink(detail.profile.phone) : null;
@@ -570,6 +588,10 @@ export default function LadderPage() {
   const [offeringId, setOfferingId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [resultingId, setResultingId] = useState<string | null>(null);
+  const [resultingAction, setResultingAction] = useState<{ offerId: string; action: LadderResultBusyAction } | null>(
+    null,
+  );
+  const [contactBusy, setContactBusy] = useState<{ userId: string; action: "call" | "message" } | null>(null);
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
@@ -744,8 +766,8 @@ export default function LadderPage() {
     }
   }
 
-  async function proposeResult(offerId: string, winnerId: string) {
-    setResultingId(offerId);
+  async function proposeResult(offerId: string, winnerId: string, busyAction: "won" | "lost") {
+    setResultingAction({ offerId, action: busyAction });
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
@@ -754,7 +776,7 @@ export default function LadderPage() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
     } finally {
-      setResultingId(null);
+      setResultingAction(null);
     }
   }
 
@@ -821,7 +843,7 @@ export default function LadderPage() {
   }
 
   async function recordForfeit(offerId: string) {
-    setResultingId(offerId);
+    setResultingAction({ offerId, action: "forfeit" });
     setMessage(null);
     try {
       await api(`/match-offers/${offerId}/forfeit`, { method: "POST", body: JSON.stringify({}) });
@@ -830,8 +852,18 @@ export default function LadderPage() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Hükmen sonuç kaydedilemedi");
     } finally {
-      setResultingId(null);
+      setResultingAction(null);
     }
+  }
+
+  function openContactLink(userId: string, action: "call" | "message", href: string) {
+    setContactBusy({ userId, action });
+    window.location.assign(href);
+    window.setTimeout(() => {
+      setContactBusy((current) =>
+        current?.userId === userId && current.action === action ? null : current,
+      );
+    }, 5000);
   }
 
   return (
@@ -1041,7 +1073,19 @@ export default function LadderPage() {
                       panelHasDefiActions
                       && incomingChallenge != null
                       && (showRecipientResultOnRow || showForfeitOnRow);
-                    const showContactRow = Boolean(contactLinks?.callHref || contactLinks?.messageHref);
+                    const callHref = contactLinks?.callHref ?? null;
+                    const messageHref = contactLinks?.messageHref ?? null;
+                    const offerBusy = offeringId === player.userId;
+                    const acceptBusy = incomingChallenge != null && acceptingId === incomingChallenge.id;
+                    const scheduleBusy = incomingChallenge != null && schedulingId === incomingChallenge.id;
+                    const cancelOfferId = (outgoingChallenge ?? incomingChallenge)?.id ?? null;
+                    const cancelBusy = cancelOfferId != null && cancellingId === cancelOfferId;
+                    const resultOfferBusy = incomingChallenge != null && resultingAction?.offerId === incomingChallenge.id;
+                    const wonBusy = resultOfferBusy && resultingAction?.action === "won";
+                    const lostBusy = resultOfferBusy && resultingAction?.action === "lost";
+                    const forfeitBusy = resultOfferBusy && resultingAction?.action === "forfeit";
+                    const callBusy = contactBusy?.userId === player.userId && contactBusy.action === "call";
+                    const messageBusy = contactBusy?.userId === player.userId && contactBusy.action === "message";
 
                     return (
                       <li
@@ -1091,21 +1135,23 @@ export default function LadderPage() {
                                 {panelHasOffer ? (
                                   <button
                                     type="button"
-                                    disabled={offeringId === player.userId || rematchLocked}
+                                    disabled={offerBusy || rematchLocked}
+                                    aria-busy={offerBusy}
                                     onClick={() => void offerMatch(ladder.id, player, viewerId)}
-                                    className={LADDER_OUTLINE_BTN}
+                                    className={ladderActionButtonClass(LADDER_OUTLINE_BTN, offerBusy)}
                                   >
-                                    Teklif
+                                    <LadderActionBusyContent busy={offerBusy}>Teklif</LadderActionBusyContent>
                                   </button>
                                 ) : null}
                                 {panelHasDefiActions && showAcceptOnRow && incomingChallenge ? (
                                   <button
                                     type="button"
-                                    disabled={acceptingId === incomingChallenge.id}
+                                    disabled={acceptBusy}
+                                    aria-busy={acceptBusy}
                                     onClick={() => void acceptOffer(incomingChallenge.id)}
-                                    className={LADDER_OUTLINE_BTN}
+                                    className={ladderActionButtonClass(LADDER_OUTLINE_BTN, acceptBusy)}
                                   >
-                                    Kabul et
+                                    <LadderActionBusyContent busy={acceptBusy}>Kabul et</LadderActionBusyContent>
                                   </button>
                                 ) : null}
                               </div>
@@ -1134,9 +1180,10 @@ export default function LadderPage() {
                                     <button
                                       type="button"
                                       disabled={
-                                        schedulingId === incomingChallenge.id
+                                        scheduleBusy
                                         || !(scheduleDraftOfferId === incomingChallenge.id ? scheduleDraft : incomingChallenge.scheduledAt)
                                       }
+                                      aria-busy={scheduleBusy}
                                       onClick={() => {
                                         const local =
                                           scheduleDraftOfferId === incomingChallenge.id
@@ -1144,76 +1191,96 @@ export default function LadderPage() {
                                             : datetimeLocalValue(incomingChallenge.scheduledAt);
                                         void scheduleMatch(incomingChallenge.id, local);
                                       }}
-                                      className={LADDER_OUTLINE_BTN}
+                                      className={ladderActionButtonClass(LADDER_OUTLINE_BTN, scheduleBusy)}
                                     >
-                                      Tarih
+                                      <LadderActionBusyContent busy={scheduleBusy}>Tarih</LadderActionBusyContent>
                                     </button>
                                   </>
                                 ) : null}
                                 {showCancelOnRow && (outgoingChallenge ?? incomingChallenge) ? (
                                   <button
                                     type="button"
-                                    disabled={cancellingId === (outgoingChallenge ?? incomingChallenge)!.id}
+                                    disabled={cancelBusy}
+                                    aria-busy={cancelBusy}
                                     onClick={() => void cancelOffer((outgoingChallenge ?? incomingChallenge)!.id)}
-                                    className={LADDER_OUTLINE_BTN}
+                                    className={ladderActionButtonClass(LADDER_OUTLINE_BTN, cancelBusy)}
                                   >
-                                    İptal
+                                    <LadderActionBusyContent busy={cancelBusy}>İptal</LadderActionBusyContent>
                                   </button>
                                 ) : null}
                               </div>
                             ) : null}
-                            {showResultRow || showContactRow ? (
-                              <div className={`${LADDER_PANEL_ROW} justify-between gap-y-2`}>
-                                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                  {showRecipientResultOnRow && incomingChallenge ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        disabled={resultingId === incomingChallenge.id}
-                                        onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId)}
-                                        className={LADDER_OUTLINE_BTN}
-                                      >
-                                        Kazandı
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={resultingId === incomingChallenge.id}
-                                        onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId)}
-                                        className={LADDER_OUTLINE_BTN}
-                                      >
-                                        Kaybetti
-                                      </button>
-                                    </>
-                                  ) : null}
-                                  {showForfeitOnRow && incomingChallenge ? (
+                            <div className={`${LADDER_PANEL_ROW} justify-between gap-y-2`}>
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                {showRecipientResultOnRow && incomingChallenge ? (
+                                  <>
                                     <button
                                       type="button"
-                                      disabled={resultingId === incomingChallenge.id}
-                                      onClick={() => void recordForfeit(incomingChallenge.id)}
-                                      className={LADDER_OUTLINE_BTN}
+                                      disabled={resultOfferBusy}
+                                      aria-busy={wonBusy}
+                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId, "won")}
+                                      className={ladderActionButtonClass(LADDER_OUTLINE_BTN, wonBusy)}
                                     >
-                                      Hükmen
+                                      <LadderActionBusyContent busy={wonBusy}>Kazandı</LadderActionBusyContent>
                                     </button>
-                                  ) : null}
-                                </div>
-                                {showContactRow ? (
-                                  <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                    {contactLinks?.callHref ? (
-                                      <a href={contactLinks.callHref} className={LADDER_ARA_BTN}>
-                                        <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                        Ara
-                                      </a>
-                                    ) : null}
-                                    {contactLinks?.messageHref ? (
-                                      <a href={contactLinks.messageHref} className={LADDER_MESAJ_BTN}>
-                                        <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                        Mesaj
-                                      </a>
-                                    ) : null}
-                                  </div>
+                                    <button
+                                      type="button"
+                                      disabled={resultOfferBusy}
+                                      aria-busy={lostBusy}
+                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId, "lost")}
+                                      className={ladderActionButtonClass(LADDER_OUTLINE_BTN, lostBusy)}
+                                    >
+                                      <LadderActionBusyContent busy={lostBusy}>Kaybetti</LadderActionBusyContent>
+                                    </button>
+                                  </>
+                                ) : null}
+                                {showForfeitOnRow && incomingChallenge ? (
+                                  <button
+                                    type="button"
+                                    disabled={resultOfferBusy}
+                                    aria-busy={forfeitBusy}
+                                    onClick={() => void recordForfeit(incomingChallenge.id)}
+                                    className={ladderActionButtonClass(LADDER_OUTLINE_BTN, forfeitBusy)}
+                                  >
+                                    <LadderActionBusyContent busy={forfeitBusy}>Hükmen</LadderActionBusyContent>
+                                  </button>
                                 ) : null}
                               </div>
-                            ) : null}
+                              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={!callHref || callBusy}
+                                  aria-busy={callBusy}
+                                  onClick={() => {
+                                    if (callHref) openContactLink(player.userId, "call", callHref);
+                                  }}
+                                  className={ladderActionButtonClass(`${LADDER_ARA_BTN} disabled:cursor-not-allowed disabled:opacity-45`, callBusy)}
+                                >
+                                  <LadderActionBusyContent busy={callBusy}>
+                                    <>
+                                      <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                      Ara
+                                    </>
+                                  </LadderActionBusyContent>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!messageHref || messageBusy}
+                                  aria-busy={messageBusy}
+                                  onClick={() => {
+                                    if (messageHref) openContactLink(player.userId, "message", messageHref);
+                                  }}
+                                  className={ladderActionButtonClass(`${LADDER_MESAJ_BTN} disabled:cursor-not-allowed disabled:opacity-45`, messageBusy)}
+                                >
+                                  <LadderActionBusyContent busy={messageBusy}>
+                                    <>
+                                      <MessageCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                      Mesaj
+                                    </>
+                                  </LadderActionBusyContent>
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         ) : null}
                       </li>
