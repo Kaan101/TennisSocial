@@ -11,6 +11,7 @@ import {
 import type { AuthUser, PlayerCard, UserDetail } from "@club/types";
 import { ArrowDown, ArrowUp, ChevronDown, Loader2, MessageCircle, Phone } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { Avatar } from "@/components/player-card";
 import { EmptyState, ErrorState, LoadingBlock, PageHeader } from "@/components/states";
 import { Input } from "@/components/ui/input";
@@ -186,6 +187,41 @@ function ladderPlayerContactLinks(detail: UserDetail): { callHref: string | null
 
 function ladderPlayerRowKey(ladderId: string, userId: string): string {
   return `${ladderId}:${userId}`;
+}
+
+type LadderOptimisticResult = {
+  players: LadderPlayer[];
+  offers: LadderOffer[];
+  resultRowUserId: string;
+  resultLabel: "Kazandı" | "Kaybetti";
+};
+
+/** Mirrors server applyLadderChallengeShiftTx when the challenger (lower rank) wins. */
+function applyLadderChallengeShiftClient(
+  players: LadderPlayer[],
+  challengerId: string,
+  recipientId: string,
+): LadderPlayer[] {
+  const challenger = players.find((p) => p.userId === challengerId);
+  const recipient = players.find((p) => p.userId === recipientId);
+  if (!challenger || !recipient || challenger.rank <= recipient.rank) {
+    return players.map((p) => ({ ...p }));
+  }
+  const fromRank = challenger.rank;
+  const toRank = recipient.rank;
+  const next = players.map((p) => {
+    if (p.userId === challengerId) {
+      return { ...p, rank: toRank, lastMove: "UP" as const };
+    }
+    if (p.userId === recipientId) {
+      return { ...p, rank: toRank + 1, lastMove: "DOWN" as const };
+    }
+    if (p.rank >= toRank && p.rank < fromRank) {
+      return { ...p, rank: p.rank + 1, lastMove: "DOWN" as const };
+    }
+    return { ...p };
+  });
+  return [...next].sort((a, b) => a.rank - b.rank);
 }
 
 function findRowDefi(
@@ -600,6 +636,7 @@ export default function LadderPage() {
     null,
   );
   const [contactBusy, setContactBusy] = useState<{ userId: string; action: "call" | "message" } | null>(null);
+  const [optimisticLadders, setOptimisticLadders] = useState<Record<string, LadderOptimisticResult>>({});
   const [scheduleDraft, setScheduleDraft] = useState("");
   const [scheduleDraftOfferId, setScheduleDraftOfferId] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
@@ -674,14 +711,20 @@ export default function LadderPage() {
   }, [pickerOpen, query]);
 
   const waiting = !ready || Boolean(clubId && ladderLoading);
-  const rows = (ladderData?.data ?? []).map((ladder) => ({
-    ...ladder,
-    showOfferingPlayer: ladder.showOfferingPlayer ?? true,
-    showChallengeResult: ladder.showChallengeResult ?? true,
-    acceptDays: ladder.acceptDays ?? 7,
-    responseHours: ladder.responseHours ?? 48,
-    maxRankSpan: effectiveLadderMaxRankSpan(ladder.maxRankSpan),
-  }));
+  const rows = (ladderData?.data ?? []).map((ladder) => {
+    const patch = optimisticLadders[ladder.id];
+    const base = patch
+      ? { ...ladder, players: patch.players, offers: patch.offers }
+      : ladder;
+    return {
+      ...base,
+      showOfferingPlayer: base.showOfferingPlayer ?? true,
+      showChallengeResult: base.showChallengeResult ?? true,
+      acceptDays: base.acceptDays ?? 7,
+      responseHours: base.responseHours ?? 48,
+      maxRankSpan: effectiveLadderMaxRankSpan(base.maxRankSpan),
+    };
+  });
   if (!waiting && !clubId) return <EmptyState title="Kulüp yok" body="Üstteki listeden bir kulüp seç." />;
   if (!waiting && (ladderError || !ladderData)) return <ErrorState message={ladderError ?? "Merdiven açılmadı"} onRetry={reloadLadders} />;
   if (!waiting && ensureError && rows.length === 0) {
@@ -774,17 +817,64 @@ export default function LadderPage() {
     }
   }
 
-  async function proposeResult(offerId: string, winnerId: string, busyAction: "won" | "lost") {
-    setResultingAction({ offerId, action: busyAction });
+  async function proposeResult(
+    ladderId: string,
+    offer: LadderOffer,
+    winnerId: string,
+    busyAction: "won" | "lost",
+    resultRowUserId: string,
+  ) {
+    const ladderRow = ladderData?.data.find((row) => row.id === ladderId);
+    if (!ladderRow) return;
+
+    const players = ladderRow.players.map((p) => ({ ...p }));
+    const offers = (ladderRow.offers ?? []).map((o) => ({ ...o }));
+    const shiftedPlayers =
+      winnerId === offer.fromUserId
+        ? applyLadderChallengeShiftClient(players, offer.fromUserId, offer.toUserId)
+        : players;
+    const nextOffers = offers.map((o) =>
+      o.id === offer.id
+        ? { ...o, proposedWinnerId: winnerId, winnerId, status: o.status }
+        : o,
+    );
+    const resultLabel = busyAction === "won" ? "Kazandı" : "Kaybetti";
+
+    flushSync(() => {
+      setResultingAction({ offerId: offer.id, action: busyAction });
+      setOptimisticLadders((current) => ({
+        ...current,
+        [ladderId]: {
+          players: shiftedPlayers,
+          offers: nextOffers,
+          resultRowUserId,
+          resultLabel,
+        },
+      }));
+    });
+
     setMessage(null);
     try {
-      await api(`/match-offers/${offerId}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
+      await api(`/match-offers/${offer.id}/result`, { method: "POST", body: JSON.stringify({ winnerId }) });
       setMessage("Sonuç kaydedildi, sıralama güncellendi.");
       await reloadLadders();
     } catch (err) {
+      flushSync(() => {
+        setOptimisticLadders((current) => {
+          const next = { ...current };
+          delete next[ladderId];
+          return next;
+        });
+      });
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
     } finally {
       setResultingAction(null);
+      setOptimisticLadders((current) => {
+        if (!current[ladderId]) return current;
+        const next = { ...current };
+        delete next[ladderId];
+        return next;
+      });
     }
   }
 
@@ -979,6 +1069,10 @@ export default function LadderPage() {
                     const rowKey = ladderPlayerRowKey(ladder.id, player.userId);
                     const rowOpen = openPlayerRowKey === rowKey;
                     const contactLinks = contactByUserId[player.userId];
+                    const optimisticResult =
+                      optimisticLadders[ladder.id]?.resultRowUserId === player.userId
+                        ? optimisticLadders[ladder.id]?.resultLabel
+                        : null;
                     const withinSpan =
                       myRank !== undefined
                       && withinRankSpan(myRank, player.rank, maxRankSpan);
@@ -1126,6 +1220,9 @@ export default function LadderPage() {
                             {player.passive ? (
                               <span className="ml-2 text-xs font-normal text-muted">Pasif</span>
                             ) : null}
+                            {optimisticResult ? (
+                              <span className="ml-2 text-xs font-semibold text-[#15803d]">{optimisticResult}</span>
+                            ) : null}
                             {defiRow && defiOffer ? (
                               <>
                                 {" · "}
@@ -1236,7 +1333,15 @@ export default function LadderPage() {
                                       type="button"
                                       disabled={resultOfferBusy}
                                       aria-busy={wonBusy}
-                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.toUserId, "won")}
+                                      onClick={() =>
+                                        void proposeResult(
+                                          ladder.id,
+                                          incomingChallenge,
+                                          incomingChallenge.toUserId,
+                                          "won",
+                                          player.userId,
+                                        )
+                                      }
                                       className={ladderActionButtonClass(LADDER_OUTLINE_BTN, wonBusy)}
                                     >
                                       <LadderActionBusyContent busy={wonBusy}>Kazandı</LadderActionBusyContent>
@@ -1245,7 +1350,15 @@ export default function LadderPage() {
                                       type="button"
                                       disabled={resultOfferBusy}
                                       aria-busy={lostBusy}
-                                      onClick={() => void proposeResult(incomingChallenge.id, incomingChallenge.fromUserId, "lost")}
+                                      onClick={() =>
+                                        void proposeResult(
+                                          ladder.id,
+                                          incomingChallenge,
+                                          incomingChallenge.fromUserId,
+                                          "lost",
+                                          player.userId,
+                                        )
+                                      }
                                       className={ladderActionButtonClass(LADDER_OUTLINE_BTN, lostBusy)}
                                     >
                                       <LadderActionBusyContent busy={lostBusy}>Kaybetti</LadderActionBusyContent>
