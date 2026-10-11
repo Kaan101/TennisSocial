@@ -6,6 +6,7 @@ import type {
   OverallLevel,
   PlayerStatus,
   PlayPreference,
+  AccountRole,
   Role,
   SetFormat,
   AgeGroup,
@@ -33,6 +34,7 @@ export type AuthUser = {
   id: string;
   email: string;
   role: Role;
+  accountRole: AccountRole;
   firstName: string;
   lastName: string;
   photoUrl: string | null;

@@ -11,6 +11,8 @@ import { sessionAuthUser, sessionUserSelect } from "./lib/authz";
 import { AppError } from "./lib/errors";
 import { prisma } from "./lib/prisma";
 import { verifyAccessToken } from "./lib/tokens";
+import { promoteConfiguredAdmins } from "./services/promoteAdmins";
+import { refreshFlowLimits } from "./services/matchOfferFlow";
 import { activityRoutes } from "./routes/activity";
 import { analyticsRoutes } from "./routes/analytics";
 import { announcementRoutes } from "./routes/announcements";
@@ -18,6 +20,7 @@ import { calendarRoutes } from "./routes/calendar";
 import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { challengeRoutes } from "./routes/challenges";
+import { adminRoutes } from "./routes/admin";
 import { courtRoutes } from "./routes/courts";
 import { friendRoutes } from "./routes/friends";
 import { groupRoutes } from "./routes/groups";
@@ -117,6 +120,10 @@ export async function createApp(options?: { logger?: boolean }): Promise<Fastify
   await app.register(calendarRoutes);
   await app.register(auditRoutes);
   await app.register(courtRoutes);
+  await app.register(adminRoutes);
+
+  await promoteConfiguredAdmins();
+  await refreshFlowLimits();
 
   await mkdir(config.uploadDir, { recursive: true });
   await app.register(fastifyStatic, { root: config.uploadDir, prefix: "/uploads/" });

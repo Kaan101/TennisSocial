@@ -40,7 +40,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     assertRole(viewer, ["CLUB_MANAGER"]);
     const query = parse(paginationSchema, req.query);
-    const where = { deletedAt: null };
+    const where = { deletedAt: null, blockedAt: null };
     const [total, rows] = await Promise.all([
       prisma.user.count({ where }),
       prisma.user.findMany({
@@ -79,6 +79,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       areFriends(viewer.id, id),
     ]);
     if (!user?.profile) throw notFound("Üye bulunamadı");
+    if (user.blockedAt && viewer.id !== user.id && viewer.accountRole !== "ADMIN") throw notFound("Üye bulunamadı");
     const { detail, overrideFields } = await toUserDetail(user, viewer, friend);
     if (overrideFields.length && viewer.id !== user.id) {
       await writeAudit({

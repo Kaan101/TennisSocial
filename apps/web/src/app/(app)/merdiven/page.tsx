@@ -55,6 +55,8 @@ type LadderOffer = {
   forfeit?: boolean;
   acceptDays: number;
   acceptRemaining?: { days: number; hours: number };
+  matchWindowDays?: number;
+  scheduleHours?: number;
 };
 type LadderSettings = {
   showOfferingPlayer: boolean;
@@ -278,17 +280,17 @@ function datetimeLocalValue(iso: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const MATCH_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
-const SCHEDULE_DEADLINE_MS = 72 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function offerStillActiveOnClient(offer: LadderOffer, responseHours: number): boolean {
+  const matchWindowMs = (offer.matchWindowDays ?? 10) * DAY_MS;
+  const scheduleMs = (offer.scheduleHours ?? 72) * HOUR_MS;
   if (offer.winnerId) return false;
   if (offer.proposedWinnerId && !offer.disputedAt) return false;
   if (!ACTIVE_CHALLENGE_STATUSES.has(offer.status)) return false;
   const createdAt = offer.createdAt ? new Date(offer.createdAt).getTime() : null;
-  if (createdAt !== null && createdAt + MATCH_WINDOW_MS <= Date.now()) return false;
+  if (createdAt !== null && createdAt + matchWindowMs <= Date.now()) return false;
   if (offer.status === "PENDING" && createdAt !== null) {
     return createdAt + responseHours * HOUR_MS > Date.now();
   }
@@ -298,13 +300,13 @@ function offerStillActiveOnClient(offer: LadderOffer, responseHours: number): bo
       const scheduleBy =
         offer.scheduleDeadlineAt != null
           ? new Date(offer.scheduleDeadlineAt).getTime()
-          : acceptedMs + SCHEDULE_DEADLINE_MS;
+          : acceptedMs + scheduleMs;
       if (scheduleBy <= Date.now()) return false;
     }
     return acceptedMs + offer.acceptDays * DAY_MS > Date.now();
   }
   if (offer.status === "SCHEDULED" && createdAt !== null) {
-    return createdAt + MATCH_WINDOW_MS > Date.now();
+    return createdAt + matchWindowMs > Date.now();
   }
   return false;
 }

@@ -40,7 +40,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         visibility: group.visibility,
         tennisType: group.tennisType,
         ageGroup: group.ageGroup,
-        memberCount: group.members.length,
+        memberCount: group.members.filter((member) => member.user.blockedAt == null).length,
         joined: group.members.some((member) => member.userId === viewer.id),
         managed: group.members.some((member) => member.userId === viewer.id && member.role === "MANAGER"),
       })),
@@ -104,7 +104,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
       ageGroup: group.ageGroup,
       joined: Boolean(member),
       managed: member?.role === "MANAGER" || viewer.role === "ADMIN" || viewer.role === "CLUB_MANAGER",
-      members: group.members.map((item) => ({
+      members: group.members.filter((item) => item.user.blockedAt == null).map((item) => ({
         userId: item.userId,
         role: item.role,
         name: `${item.user.profile?.firstName ?? ""} ${item.user.profile?.lastName ?? ""}`.trim(),
@@ -125,7 +125,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
         scheduledAt: match.scheduledAt.toISOString(),
         status: match.status,
         score: match.score,
-        players: match.players.map((player) => ({
+        players: match.players.filter((player) => player.user.blockedAt == null).map((player) => ({
           name: `${player.user.profile?.firstName ?? ""} ${player.user.profile?.lastName ?? ""}`.trim(),
           side: player.side,
         })),
@@ -189,7 +189,7 @@ export async function groupRoutes(app: FastifyInstance): Promise<void> {
     const { id } = req.params as { id: string };
     await assertCanManageGroup(viewer, id);
     const body = parse(groupMemberSchema, req.body);
-    const user = await prisma.user.findFirst({ where: { id: body.userId, deletedAt: null } });
+    const user = await prisma.user.findFirst({ where: { id: body.userId, deletedAt: null, blockedAt: null } });
     if (!user) throw notFound("Üye bulunamadı");
     const member = await prisma.groupMember.upsert({
       where: { groupId_userId: { groupId: id, userId: body.userId } },

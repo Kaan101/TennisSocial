@@ -38,6 +38,11 @@ function fullName(user: { profile: { firstName: string; lastName: string } | nul
   return `${user.profile.firstName} ${user.profile.lastName}`.trim();
 }
 
+function listedUser<T extends { blockedAt: Date | null }>(user: T | null): T | null {
+  if (!user || user.blockedAt) return null;
+  return user;
+}
+
 function sideName(
   user: { profile: { firstName: string; lastName: string } | null } | null,
   partner: { profile: { firstName: string; lastName: string } | null } | null,
@@ -198,7 +203,7 @@ export async function tournamentRoutes(app: FastifyInstance): Promise<void> {
       qualifiersPerGroup: tournament.qualifiersPerGroup,
       canManage,
       myStatus: mine?.status ?? null,
-      players: tournament.players.map((player) => ({
+      players: tournament.players.filter((player) => player.user.blockedAt == null).map((player) => ({
         userId: player.userId,
         seed: player.seed,
         status: player.status,
@@ -217,8 +222,8 @@ export async function tournamentRoutes(app: FastifyInstance): Promise<void> {
           roundLabel: roundLabel(match.round, maxByStage.get(`${match.stage}:${match.groupKey}`) ?? match.round, match.stage),
           playerAId: match.playerAId,
           playerBId: match.playerBId,
-          sideA: sideName(match.playerA, match.playerAPartner),
-          sideB: sideName(match.playerB, match.playerBPartner),
+          sideA: sideName(listedUser(match.playerA), listedUser(match.playerAPartner)),
+          sideB: sideName(listedUser(match.playerB), listedUser(match.playerBPartner)),
           winnerId: match.winnerId,
           score: match.score,
           court: match.court,

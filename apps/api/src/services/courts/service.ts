@@ -37,6 +37,7 @@ export type CourtViewer = { id: string; role: Role; boardVisible?: boolean };
 function boardUsersWhere(viewer: CourtViewer, clubId?: string): Prisma.UserWhereInput {
   const person = {
     deletedAt: null,
+    blockedAt: null,
     profile: { is: { deletedAt: null, playerStatus: { in: ["ACTIVE", "LIMITED"] } } },
   };
   if (!clubId) {
@@ -110,6 +111,7 @@ export async function ensureClubCourts(_db: Db = prisma): Promise<void> {
 const personSelect = {
   id: true,
   boardVisible: true,
+  blockedAt: true,
   profile: { select: { firstName: true, lastName: true } },
 } satisfies Prisma.UserSelect;
 
@@ -559,7 +561,10 @@ function namesFor(
   viewer: CourtViewer,
   row: ApprovedRow,
 ): { id: string; firstName: string; lastName: string }[] | null {
-  const people = [toPerson(row.holder), row.partner ? toPerson(row.partner) : null].filter((person): person is Person => Boolean(person));
+  const people = [row.holder, row.partner]
+    .filter((person): person is NonNullable<typeof row.partner> => Boolean(person))
+    .filter((person) => person.blockedAt == null || person.id === viewer.id)
+    .map((person) => toPerson(person));
   if (row.purpose === "MAINTENANCE") return [];
   const participantIds = people.map((person) => person.id);
   const privileged = viewer.role === "ADMIN" || viewer.role === "CLUB_MANAGER" || participantIds.includes(viewer.id);
@@ -910,7 +915,7 @@ export function presentSlotParticipants(people: NamedPerson[], groups: { id: str
 export async function participantOptions(_viewer: CourtViewer) {
   const [users, groups] = await Promise.all([
     prisma.user.findMany({
-      where: { deletedAt: null, profile: { isNot: null } },
+      where: { deletedAt: null, blockedAt: null, profile: { isNot: null } },
       select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } },
     }),
     prisma.group.findMany({
@@ -943,7 +948,7 @@ export async function saveSlotParticipants(
     userIds.length === 0
       ? Promise.resolve([])
       : prisma.user.findMany({
-          where: { id: { in: userIds }, deletedAt: null },
+          where: { id: { in: userIds }, deletedAt: null, blockedAt: null },
           select: { id: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } },
         }),
     groupIds.length === 0
@@ -1011,7 +1016,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
       select: {
         courtId: true,
         startTime: true,
-        user: { select: { id: true, deletedAt: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } } },
+        user: { select: { id: true, deletedAt: true, blockedAt: true, profile: { select: { firstName: true, lastName: true, personProfile: true, photoUrl: true } } } },
       },
     }),
     prisma.courtSlotGroup.findMany({
@@ -1033,7 +1038,7 @@ export async function dayGridFor(viewer: CourtViewer, dateInput?: string, clubId
     return next;
   };
   for (const row of slotPeople) {
-    if (row.user.deletedAt) continue;
+    if (row.user.deletedAt || row.user.blockedAt) continue;
     slotBucket(`${row.courtId}|${row.startTime}`).people.push(row.user);
   }
   for (const row of slotGroups) {

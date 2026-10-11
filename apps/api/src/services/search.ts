@@ -26,7 +26,7 @@ export async function searchPlayers(
   query: PlayerSearchInput,
 ): Promise<{ data: PlayerCard[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }> {
   const parsed = parseSearchQuery(query.q);
-  const and: Prisma.UserWhereInput[] = [{ deletedAt: null }, { profile: { is: { deletedAt: null } } }];
+  const and: Prisma.UserWhereInput[] = [{ deletedAt: null, blockedAt: null }, { profile: { is: { deletedAt: null } } }];
   const profile: Prisma.ProfileWhereInput = { deletedAt: null };
   if (query.district) profile.district = { equals: query.district, mode: "insensitive" };
   if (query.activeOnly) profile.playerStatus = "ACTIVE";

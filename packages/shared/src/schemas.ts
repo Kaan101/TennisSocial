@@ -415,6 +415,13 @@ export const checkInLeadSchema = z.object({
   hours: z.number().int().min(0).max(72),
 });
 
+export const adminParametersSchema = z.object({
+  matchWindowDays: z.number().int().min(1).max(90).optional(),
+  scheduleHours: z.number().int().min(1).max(336).optional(),
+  cooldownDays: z.number().int().min(1).max(90).optional(),
+  checkInLeadHours: z.number().int().min(0).max(72).optional(),
+});
+
 export const slotOfferSchema = z.object({
   toUserId: z.string().min(1),
   date: dateSchema,

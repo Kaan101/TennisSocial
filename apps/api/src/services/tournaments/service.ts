@@ -75,6 +75,8 @@ export async function openTournamentNotifications(tournamentId: string, name: st
 }
 
 export async function registerPlayer(tournamentId: string, userId: string): Promise<{ status: "REGISTERED" | "WAITING_LIST" }> {
+  const account = await prisma.user.findFirst({ where: { id: userId, deletedAt: null }, select: { blockedAt: true } });
+  if (!account || account.blockedAt) throw notFound("Oyuncu bulunamadı");
   const tournament = await loadTournament(tournamentId);
   if (tournament.status !== "REGISTRATION_OPEN") throw new AppError(409, "CONFLICT", "Kayıtlar kapalı");
   if (tournament.registrationDeadline && tournament.registrationDeadline.getTime() < Date.now()) {

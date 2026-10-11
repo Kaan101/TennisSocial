@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ChallengeStatus } from "@prisma/client";
 import { combineIstanbul, dateOnly } from "../lib/dates";
 import { AppError, forbidden, notFound, parse } from "../lib/errors";
-import { requireUser } from "../lib/authz";
+import { assertNotBlocked, requireUser } from "../lib/authz";
 import { prisma } from "../lib/prisma";
 import { assertLadderChallenge } from "../services/ladders";
 import { notify } from "../services/notify";
@@ -159,12 +159,13 @@ export async function challengeRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/challenges", async (req, reply) => {
     const viewer = requireUser(req);
     const body = parse(challengeCreateSchema, req.body);
+    assertNotBlocked(viewer);
     if (body.recipientId === viewer.id) throw new AppError(400, "VALIDATION_ERROR", "Kendine defi gönderemezsin");
     if (body.format === "DOUBLE" && (!body.challengerPartnerId || !body.recipientPartnerId)) {
       throw new AppError(400, "VALIDATION_ERROR", "Çiftler defisinde iki partner de seçilmeli");
     }
     const ids = [body.recipientId, body.challengerPartnerId, body.recipientPartnerId].filter(Boolean) as string[];
-    const found = await prisma.user.count({ where: { id: { in: ids }, deletedAt: null } });
+    const found = await prisma.user.count({ where: { id: { in: ids }, deletedAt: null, blockedAt: null } });
     if (found !== new Set(ids).size) throw notFound("Oyuncu bulunamadı");
     if (body.ladderId) {
       await assertLadderChallenge({ ladderId: body.ladderId, challengerId: viewer.id, recipientId: body.recipientId });

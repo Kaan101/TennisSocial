@@ -156,6 +156,7 @@ export const userDetailSelect = {
   id: true,
   role: true,
   email: true,
+  blockedAt: true,
   profile: {
     select: {
       firstName: true,
@@ -287,7 +288,7 @@ export async function loadMatchStats(userId: string, viewerId?: string): Promise
   const opponentIds = [...new Set(recent.flatMap((match) => match.opponentIds))];
   const people = opponentIds.length
     ? await prisma.user.findMany({
-        where: { id: { in: opponentIds } },
+        where: { id: { in: opponentIds }, blockedAt: null },
         select: { id: true, profile: { select: { firstName: true, lastName: true } } },
       })
     : [];
@@ -457,12 +458,14 @@ export function toMatchSummary(match: MatchWithPlayers, viewerId: string, viewer
     winnerSide: match.winnerSide,
     note: match.note,
     status: match.status,
-    players: match.players.map((player) => ({
-      userId: player.userId,
-      name: `${player.user.profile?.firstName ?? ""} ${player.user.profile?.lastName ?? ""}`.trim(),
-      side: player.side,
-      photoUrl: player.user.profile?.photoUrl ?? null,
-    })),
+    players: match.players
+      .filter((player) => player.user.blockedAt == null || player.userId === viewerId)
+      .map((player) => ({
+        userId: player.userId,
+        name: `${player.user.profile?.firstName ?? ""} ${player.user.profile?.lastName ?? ""}`.trim(),
+        side: player.side,
+        photoUrl: player.user.profile?.photoUrl ?? null,
+      })),
     canRecordResult: match.status === "SCHEDULED" && (participant || staff),
   };
 }

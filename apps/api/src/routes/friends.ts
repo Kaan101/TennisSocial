@@ -18,15 +18,16 @@ export async function friendRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { updatedAt: "desc" },
     });
     return {
-      data: rows.map((row) => {
+      data: rows.flatMap((row) => {
         const other = row.requesterId === viewer.id ? row.addressee : row.requester;
-        return {
+        if (other.blockedAt) return [];
+        return [{
           id: row.id,
           status: row.status,
           userId: other.id,
           name: `${other.profile?.firstName ?? ""} ${other.profile?.lastName ?? ""}`.trim(),
           direction: row.requesterId === viewer.id ? "outgoing" : "incoming",
-        };
+        }];
       }),
     };
   });
@@ -35,7 +36,7 @@ export async function friendRoutes(app: FastifyInstance): Promise<void> {
     const viewer = requireUser(req);
     const body = parse(friendRequestSchema, req.body);
     if (body.userId === viewer.id) throw new AppError(400, "VALIDATION_ERROR", "Kendini ekleyemezsin");
-    const other = await prisma.user.findFirst({ where: { id: body.userId, deletedAt: null } });
+    const other = await prisma.user.findFirst({ where: { id: body.userId, deletedAt: null, blockedAt: null } });
     if (!other) throw notFound("Üye bulunamadı");
     const existing = await prisma.friendship.findFirst({
       where: {

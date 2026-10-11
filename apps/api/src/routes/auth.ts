@@ -10,6 +10,7 @@ const authUserSelect = {
   id: true,
   email: true,
   role: true,
+  accountRole: true,
   profile: { select: { firstName: true, lastName: true, photoUrl: true } },
 } as const;
 
@@ -17,12 +18,14 @@ function toAuthUser(user: {
   id: string;
   email: string;
   role: string;
+  accountRole: "USER" | "OFFICIAL" | "ADMIN";
   profile: { firstName: string; lastName: string; photoUrl: string | null } | null;
 }) {
   return {
     id: user.id,
     email: user.email,
     role: user.role,
+    accountRole: user.accountRole,
     firstName: user.profile?.firstName ?? "",
     lastName: user.profile?.lastName ?? "",
     photoUrl: user.profile?.photoUrl ?? null,
@@ -91,6 +94,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         id: user.id,
         email: user.email,
         role: user.role,
+        accountRole: user.accountRole,
         firstName: user.firstName,
         lastName: user.lastName,
         photoUrl: user.photoUrl,

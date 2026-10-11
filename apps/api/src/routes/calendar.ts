@@ -19,7 +19,7 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
     const ics = buildIcs(
       matches.map((match) => {
         const others = match.players
-          .filter((player) => player.userId !== viewer.id)
+          .filter((player) => player.userId !== viewer.id && player.user.blockedAt == null)
           .map((player) => `${player.user.profile?.firstName ?? ""} ${player.user.profile?.lastName ?? ""}`.trim())
           .filter(Boolean);
         const start = match.scheduledAt;

@@ -10,6 +10,39 @@ const SCHEDULE_HOURS = 72;
 const RESULT_CONFIRM_HOURS = 24;
 const COOLDOWN_DAYS = 7;
 const MATCH_WINDOW_DAYS = 10;
+const POSTPONE_MIN_HOURS = 24;
+
+type FlowLimits = { matchWindowDays: number; scheduleHours: number; cooldownDays: number };
+
+let activeFlow: FlowLimits = {
+  matchWindowDays: MATCH_WINDOW_DAYS,
+  scheduleHours: SCHEDULE_HOURS,
+  cooldownDays: COOLDOWN_DAYS,
+};
+
+function readLimit(raw: string | undefined, min: number, max: number, fallback: number): number {
+  if (raw == null) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) return fallback;
+  return value;
+}
+
+export function currentFlowLimits(): FlowLimits {
+  return activeFlow;
+}
+
+export async function refreshFlowLimits(): Promise<FlowLimits> {
+  const rows = await prisma.systemParameter.findMany({
+    where: { key: { in: ["matchWindowDays", "scheduleHours", "cooldownDays"] } },
+  });
+  const stored = new Map(rows.map((row) => [row.key, row.value]));
+  activeFlow = {
+    matchWindowDays: readLimit(stored.get("matchWindowDays"), 1, 90, MATCH_WINDOW_DAYS),
+    scheduleHours: readLimit(stored.get("scheduleHours"), 1, 336, SCHEDULE_HOURS),
+    cooldownDays: readLimit(stored.get("cooldownDays"), 1, 90, COOLDOWN_DAYS),
+  };
+  return activeFlow;
+}
 
 export type LadderTiming = { acceptDays: number; responseHours: number };
 
@@ -42,7 +75,7 @@ export function offerStillActive(
   if (offer.winnerId) return false;
   if (offer.proposedWinnerId && !offer.disputedAt) return false;
   if (offer.status === "REJECTED") return false;
-  if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS <= Date.now()) return false;
+  if (offer.createdAt.getTime() + activeFlow.matchWindowDays * DAY_MS <= Date.now()) return false;
   if (offer.status === "PENDING") {
     return offer.createdAt.getTime() + timing.responseHours * HOUR_MS > Date.now();
   }
@@ -54,14 +87,14 @@ export function offerStillActive(
     return offer.acceptedAt.getTime() + timing.acceptDays * DAY_MS > Date.now();
   }
   if (offer.status === "SCHEDULED") {
-    return offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS > Date.now();
+    return offer.createdAt.getTime() + activeFlow.matchWindowDays * DAY_MS > Date.now();
   }
   return false;
 }
 
 export function scheduleDeadline(acceptedAt: Date | null): Date | null {
   if (!acceptedAt) return null;
-  return new Date(acceptedAt.getTime() + SCHEDULE_HOURS * HOUR_MS);
+  return new Date(acceptedAt.getTime() + activeFlow.scheduleHours * HOUR_MS);
 }
 
 export async function syncLadderOffers(
@@ -187,7 +220,7 @@ export async function assertNoRecentRematch(
   tx: Prisma.TransactionClient,
   input: { ladderId: string; firstId: string; secondId: string },
 ): Promise<void> {
-  const since = new Date(Date.now() - COOLDOWN_DAYS * DAY_MS);
+  const since = new Date(Date.now() - activeFlow.cooldownDays * DAY_MS);
   const recent = await tx.matchOffer.findFirst({
     where: {
       ladderId: input.ladderId,
@@ -200,7 +233,7 @@ export async function assertNoRecentRematch(
     },
   });
   if (recent) {
-    throw new AppError(400, "VALIDATION_ERROR", "Aynı rakibe 7 gün dolmadan yeni defi gönderilemez");
+    throw new AppError(400, "VALIDATION_ERROR", `Aynı rakibe ${activeFlow.cooldownDays} gün dolmadan yeni defi gönderilemez`);
   }
 }
 

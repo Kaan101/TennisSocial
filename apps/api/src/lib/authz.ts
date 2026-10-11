@@ -1,4 +1,4 @@
-import type { Role } from "@club/shared";
+import type { AccountRole, Role } from "@club/shared";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { forbidden, unauthorized } from "./errors";
 import { prisma } from "./prisma";
@@ -7,6 +7,8 @@ export const sessionUserSelect = {
   id: true,
   email: true,
   role: true,
+  accountRole: true,
+  blockedAt: true,
   deletedAt: true,
   boardVisible: true,
   profile: { select: { firstName: true, lastName: true, photoUrl: true } },
@@ -15,17 +17,21 @@ export const sessionUserSelect = {
 export type AuthUser = {
   id: string;
   role: Role;
+  accountRole: AccountRole;
   email: string;
   firstName: string;
   lastName: string;
   photoUrl: string | null;
   boardVisible: boolean;
+  blockedAt: Date | null;
 };
 
 export function sessionAuthUser(user: {
   id: string;
   email: string;
   role: Role;
+  accountRole: AccountRole;
+  blockedAt: Date | null;
   boardVisible: boolean;
   profile: { firstName: string; lastName: string; photoUrl: string | null } | null;
 }): AuthUser {
@@ -33,6 +39,8 @@ export function sessionAuthUser(user: {
     id: user.id,
     email: user.email,
     role: user.role,
+    accountRole: user.accountRole,
+    blockedAt: user.blockedAt,
     boardVisible: user.boardVisible,
     firstName: user.profile?.firstName ?? "",
     lastName: user.profile?.lastName ?? "",
@@ -48,6 +56,14 @@ export function requireUser(req: FastifyRequest): AuthUser {
 export function assertRole(user: AuthUser, roles: Role[]): void {
   if (user.role === "ADMIN") return;
   if (!roles.includes(user.role)) throw forbidden();
+}
+
+export function assertAccountAdmin(user: AuthUser): void {
+  if (user.accountRole !== "ADMIN") throw forbidden("Bu işlem yalnızca yöneticiye açık");
+}
+
+export function assertNotBlocked(user: AuthUser): void {
+  if (user.blockedAt) throw forbidden("Bloke hesap bu işlemi yapamaz");
 }
 
 export function assertSelfOrRole(user: AuthUser, userId: string, roles: Role[]): void {

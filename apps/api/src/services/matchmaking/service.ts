@@ -60,6 +60,7 @@ export class RuleBasedMatchmaker implements Matchmaker {
     const candidates = await prisma.user.findMany({
       where: {
         deletedAt: null,
+        blockedAt: null,
         id: { not: userId },
         profile: { is: { deletedAt: null, playerStatus: { in: ["ACTIVE", "LIMITED"] } } },
       },

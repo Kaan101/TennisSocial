@@ -57,7 +57,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [loading, user, offline, router]);
 
   const offlineNow = offline || browserOffline;
-  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname === "/maclar" || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar") || pathname.startsWith("/merdiven");
+  const wide = pathname.startsWith("/kortlar") || pathname.startsWith("/takvim") || pathname === "/maclar" || pathname.startsWith("/kulup-tanimi") || pathname.startsWith("/kort-tanimi") || pathname.startsWith("/ayarlar") || pathname.startsWith("/merdiven") || pathname.startsWith("/yonetim");
   const frame = `mx-auto w-[90%] lg:w-full ${wide ? "lg:max-w-6xl" : "lg:max-w-lg"}`;
 
   return (
@@ -147,11 +147,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {open ? <X /> : <Plus />}
       </button>
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur" aria-label="Ana menü">
-        <div className={`${frame} grid grid-cols-3 border-b border-line`}>
+        <div className={`${frame} grid ${user?.accountRole === "ADMIN" ? "grid-cols-4" : "grid-cols-3"} border-b border-line`}>
           {[
             { href: "/merdiven", label: "Merdiven" },
             { href: "/maclar", label: "Maçlar" },
             { href: "/ayarlar", label: "Ayarlar" },
+            ...(user?.accountRole === "ADMIN" ? [{ href: "/yonetim", label: "Yönetim" }] : []),
           ].map((item) => {
             const active = item.href === "/maclar" ? pathname === "/maclar" : pathname.startsWith(item.href);
             return (

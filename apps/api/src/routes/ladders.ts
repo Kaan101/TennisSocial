@@ -13,22 +13,22 @@ import {
   matchOfferScheduleSchema,
   effectiveLadderMaxRankSpan,
 } from "@club/shared";
-import { assertRole, requireUser } from "../lib/authz";
+import { assertNotBlocked, assertRole, requireUser } from "../lib/authz";
 import { applyOfferWinnerTx, assertLadderChallenge, isLadderPlayerPassive } from "../services/ladders";
 import { assertRematchNotLocked, listRematchLockedOpponentIds } from "../services/ladderRematchLock";
 import {
   applyFinalizedOfferResultTx,
   assertSingleActiveOffer,
   canPostpone,
+  currentFlowLimits,
   finalizeConfirmedOffer,
-  MATCH_WINDOW_DAYS,
   offerStillActive,
   offerTimingFor,
+  refreshFlowLimits,
   scheduleDeadline,
   syncLadderOffers,
   DAY_MS,
   HOUR_MS,
-  SCHEDULE_HOURS,
 } from "../services/matchOfferFlow";
 import { AppError, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
@@ -155,6 +155,8 @@ function presentOffer(
     postponeCount: row.postponeCount,
     forfeit: row.forfeit,
     scheduleDeadlineAt: deadline?.toISOString() ?? null,
+    matchWindowDays: currentFlowLimits().matchWindowDays,
+    scheduleHours: currentFlowLimits().scheduleHours,
     acceptDays: timing.acceptDays,
     ...(row.status === "ACCEPTED" && row.acceptedAt
       ? { acceptRemaining: acceptCountdown(row.acceptedAt, timing.acceptDays) }
@@ -163,6 +165,10 @@ function presentOffer(
 }
 
 export async function ladderRoutes(app: FastifyInstance): Promise<void> {
+  app.addHook("preHandler", async () => {
+    await refreshFlowLimits();
+  });
+
   app.get("/api/ladders", async (req) => {
     const viewer = requireUser(req);
     const query = parse(ladderListSchema, req.query);
@@ -190,6 +196,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
             user: {
               select: {
                 id: true,
+                blockedAt: true,
                 profile: {
                   select: {
                     firstName: true,
@@ -235,8 +242,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
             disputedAt: true,
             postponeCount: true,
             forfeit: true,
-            fromUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
-            toUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+            fromUser: { select: { blockedAt: true, profile: { select: { firstName: true, lastName: true } } } },
+            toUser: { select: { blockedAt: true, profile: { select: { firstName: true, lastName: true } } } },
           },
           orderBy: { createdAt: "desc" },
         })
@@ -263,7 +270,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     );
     const payload = {
       data: rows.map((row) => {
-        const playerIds = new Set(row.players.map((player) => player.userId));
+        const visiblePlayers = row.players.filter((player) => player.user.blockedAt == null);
+        const playerIds = new Set(visiblePlayers.map((player) => player.userId));
         const rowTiming: LadderTiming = { acceptDays: row.acceptDays, responseHours: row.responseHours };
         return {
           id: row.id,
@@ -272,8 +280,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           clubId: row.clubId,
           clubName: row.club?.name ?? null,
           ...ladderSettings(row),
-          playerCount: row.players.length,
-          players: row.players.map((player) =>
+          playerCount: visiblePlayers.length,
+          players: visiblePlayers.map((player) =>
             presentPlayer({
               ...player,
               contact: presentLadderPlayerContact(
@@ -285,6 +293,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
           ),
           rematchLockedOpponentIds: rematchLocksByLadder.get(row.id) ?? [],
           offers: offers
+            .filter((offer) => offer.fromUser.blockedAt == null && offer.toUser.blockedAt == null)
             .filter((offer) => (offer.ladderId ? offer.ladderId === row.id : playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId)))
             .filter((offer) => playerIds.has(offer.fromUserId) || playerIds.has(offer.toUserId))
             .filter((offer) => offerStillActive(offer, offerTimingFor(offer, acceptDaysByLadder, responseHoursByLadder, rowTiming)))
@@ -369,7 +378,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       where: { id: body.userId, deletedAt: null, profile: { is: { deletedAt: null } } },
       include: { profile: true },
     });
-    if (!user?.profile) throw notFound("Oyuncu bulunamadı");
+    if (!user?.profile || user.blockedAt) throw notFound("Oyuncu bulunamadı");
     const result = await prisma.$transaction(async (tx) => {
       await lockKey(tx, `ladder:${id}`);
       const existing = await tx.ladderPlayer.findUnique({
@@ -460,6 +469,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/match-offers", async (req, reply) => {
     const viewer = requireUser(req);
     const body = parse(matchOfferCreateSchema, req.body);
+    assertNotBlocked(viewer);
     if (body.toUserId === viewer.id) {
       throw new AppError(400, "VALIDATION_ERROR", "Kendine maç teklif edemezsin");
     }
@@ -469,7 +479,7 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       where: { id: body.toUserId, deletedAt: null },
       include: { profile: true },
     });
-    if (!recipient?.profile || recipient.profile.deletedAt) throw notFound("Oyuncu bulunamadı");
+    if (!recipient?.profile || recipient.profile.deletedAt || recipient.blockedAt) throw notFound("Oyuncu bulunamadı");
     let ladderId: string | null = null;
     let offerTiming: LadderTiming = { acceptDays: 7, responseHours: 48 };
     if (body.ladderId) {
@@ -577,11 +587,11 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (!rescheduling) {
       const deadline = scheduleDeadline(offer.acceptedAt);
       if (!deadline || deadline.getTime() < Date.now()) {
-        throw new AppError(400, "VALIDATION_ERROR", "Maç tarihi için 72 saatlik süre doldu");
+        throw new AppError(400, "VALIDATION_ERROR", `Maç tarihi için ${currentFlowLimits().scheduleHours} saatlik süre doldu`);
       }
     }
-    if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS < Date.parse(body.scheduledAt)) {
-      throw new AppError(400, "VALIDATION_ERROR", "Maç, defi oluşturulduktan en geç 10 gün içinde oynanmalı");
+    if (offer.createdAt.getTime() + currentFlowLimits().matchWindowDays * DAY_MS < Date.parse(body.scheduledAt)) {
+      throw new AppError(400, "VALIDATION_ERROR", `Maç, defi oluşturulduktan en geç ${currentFlowLimits().matchWindowDays} gün içinde oynanmalı`);
     }
     const scheduledAt = new Date(body.scheduledAt);
     const updated = await prisma.matchOffer.update({
@@ -605,8 +615,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(400, "VALIDATION_ERROR", "Erteleme kurallarına uygun değil");
     }
     const scheduledAt = new Date(body.scheduledAt);
-    if (offer.createdAt.getTime() + MATCH_WINDOW_DAYS * DAY_MS < scheduledAt.getTime()) {
-      throw new AppError(400, "VALIDATION_ERROR", "Ertelenen maç 10 gün sınırını aşamaz");
+    if (offer.createdAt.getTime() + currentFlowLimits().matchWindowDays * DAY_MS < scheduledAt.getTime()) {
+      throw new AppError(400, "VALIDATION_ERROR", `Ertelenen maç ${currentFlowLimits().matchWindowDays} gün sınırını aşamaz`);
     }
     const updated = await prisma.matchOffer.update({
       where: { id },

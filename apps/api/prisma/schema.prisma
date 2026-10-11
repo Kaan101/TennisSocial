@@ -15,6 +15,13 @@ enum Role {
   MEMBER
 }
 
+/// Account access. USER is the default player. OFFICIAL is stored only. ADMIN manages players and parameters.
+enum AccountRole {
+  USER
+  OFFICIAL
+  ADMIN
+}
+
 enum Gender {
   FEMALE
   MALE
@@ -263,14 +270,16 @@ enum AuditAction {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
+  id           String      @id @default(cuid())
+  email        String      @unique
   passwordHash String
-  role         Role      @default(MEMBER)
-  boardVisible Boolean   @default(true)
+  role         Role        @default(MEMBER)
+  accountRole  AccountRole @default(USER)
+  blockedAt    DateTime?
+  boardVisible Boolean     @default(true)
   deletedAt    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   profile            Profile?
   tennisProfile      TennisProfile?
@@ -316,6 +325,8 @@ model User {
   matchOffersWon     MatchOffer[]       @relation("MatchOfferWinner")
 
   @@index([role])
+  @@index([accountRole])
+  @@index([blockedAt])
   @@index([deletedAt])
   @@index([deletedAt, boardVisible])
 }

@@ -7,6 +7,16 @@ export const ROLES = [
 ] as const;
 export type Role = (typeof ROLES)[number];
 
+/** Account access stored on the user. OFFICIAL has no extra behavior. */
+export const ACCOUNT_ROLES = ["USER", "OFFICIAL", "ADMIN"] as const;
+export type AccountRole = (typeof ACCOUNT_ROLES)[number];
+
+export const ACCOUNT_ROLE_LABELS: Record<AccountRole, string> = {
+  USER: "Kullanıcı",
+  OFFICIAL: "Yetkili",
+  ADMIN: "Yönetici",
+};
+
 export const GENDERS = ["FEMALE", "MALE", "UNSPECIFIED"] as const;
 export type Gender = (typeof GENDERS)[number];
 

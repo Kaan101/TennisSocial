@@ -32,14 +32,14 @@ const matchInclude = {
     select: {
       userId: true,
       side: true,
-      user: { select: { profile: { select: { firstName: true, lastName: true } } } },
+      user: { select: { blockedAt: true, profile: { select: { firstName: true, lastName: true } } } },
     },
   },
 } satisfies Prisma.MatchInclude;
 
 const offerPlayers = {
-  fromUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
-  toUser: { select: { profile: { select: { firstName: true, lastName: true } } } },
+  fromUser: { select: { blockedAt: true, profile: { select: { firstName: true, lastName: true } } } },
+  toUser: { select: { blockedAt: true, profile: { select: { firstName: true, lastName: true } } } },
 } as const;
 
 type MatchRow = Prisma.MatchGetPayload<{ include: typeof matchInclude }>;
@@ -231,6 +231,7 @@ export async function listMatchBoard(clubId: string | undefined, weekStart?: str
   const seenMatches = new Set<string>();
   const uniqueMatches = matches.filter((match) => {
     if (seenMatches.has(match.id)) return false;
+    if (match.players.some((player) => player.user.blockedAt != null)) return false;
     seenMatches.add(match.id);
     return true;
   });
@@ -238,6 +239,7 @@ export async function listMatchBoard(clubId: string | undefined, weekStart?: str
   const seenOffers = new Set<string>();
   const uniqueOffers = offers.filter((offer) => {
     if (seenOffers.has(offer.id)) return false;
+    if (offer.fromUser.blockedAt != null || offer.toUser.blockedAt != null) return false;
     seenOffers.add(offer.id);
     return true;
   });

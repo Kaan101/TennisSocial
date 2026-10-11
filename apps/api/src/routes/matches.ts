@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { matchCreateSchema, matchResultSchema, paginationSchema } from "@club/shared";
 import { z } from "zod";
 import { writeAudit } from "../lib/audit";
-import { requireUser } from "../lib/authz";
+import { assertNotBlocked, requireUser } from "../lib/authz";
 import { combineIstanbul } from "../lib/dates";
 import { AppError, forbidden, notFound, parse } from "../lib/errors";
 import { prisma } from "../lib/prisma";
@@ -67,7 +67,8 @@ export async function matchRoutes(app: FastifyInstance): Promise<void> {
     if (!ids.includes(viewer.id) && viewer.role === "MEMBER") {
       throw forbidden("Yalnızca kendi maçını oluşturabilirsin");
     }
-    const found = await prisma.user.count({ where: { id: { in: ids }, deletedAt: null } });
+    assertNotBlocked(viewer);
+    const found = await prisma.user.count({ where: { id: { in: ids }, deletedAt: null, blockedAt: null } });
     if (found !== ids.length) throw notFound("Oyuncu bulunamadı");
     const match = await prisma.match.create({
       data: {
