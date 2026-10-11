@@ -28,7 +28,6 @@ import {
   syncLadderOffers,
   DAY_MS,
   HOUR_MS,
-  RESULT_CONFIRM_HOURS,
   SCHEDULE_HOURS,
 } from "../services/matchOfferFlow";
 import { AppError, notFound, parse } from "../lib/errors";
@@ -625,12 +624,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (viewer.id !== offer.toUserId) {
       throw new AppError(403, "FORBIDDEN", "Sonucu yalnızca teklif alan oyuncu girebilir");
     }
-    if (!offer.scheduledAt) throw new AppError(400, "VALIDATION_ERROR", "Önce maç tarihi belirlenmeli");
-    const afterMatch = offer.scheduledAt.getTime();
-    const now = Date.now();
-    if (now < afterMatch) throw new AppError(400, "VALIDATION_ERROR", "Maç saatinden önce sonuç girilemez");
-    if (now > afterMatch + RESULT_CONFIRM_HOURS * HOUR_MS) {
-      throw new AppError(400, "VALIDATION_ERROR", "Sonuç giriş süresi doldu");
+    if (!["ACCEPTED", "SCHEDULED"].includes(offer.status)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Önce teklif kabul edilmeli");
     }
     if (body.winnerId !== offer.fromUserId && body.winnerId !== offer.toUserId) {
       throw new AppError(400, "VALIDATION_ERROR", "Kazanan bu teklifin oyuncusu olmalı");
@@ -706,8 +701,8 @@ export async function ladderRoutes(app: FastifyInstance): Promise<void> {
     if (viewer.id !== offer.toUserId) {
       throw new AppError(403, "FORBIDDEN", "Hükmen sonucu yalnızca teklif alan girebilir");
     }
-    if (!offer.scheduledAt || offer.scheduledAt.getTime() > Date.now()) {
-      throw new AppError(400, "VALIDATION_ERROR", "Maç saati gelmeden hükmen sonuç yazılamaz");
+    if (!["ACCEPTED", "SCHEDULED"].includes(offer.status)) {
+      throw new AppError(400, "VALIDATION_ERROR", "Önce teklif kabul edilmeli");
     }
     await prisma.matchOffer.update({
       where: { id },

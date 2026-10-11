@@ -278,7 +278,6 @@ function datetimeLocalValue(iso: string | null | undefined): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const RESULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MATCH_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
 const SCHEDULE_DEADLINE_MS = 72 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -1089,18 +1088,12 @@ export default function LadderPage() {
                       incomingChallenge?.status === "PENDING"
                       && playerIsViewer(player.userId, viewerId)
                       && incomingChallenge.toUserId === viewerId;
-                    const matchStart = incomingChallenge?.scheduledAt
-                      ? new Date(incomingChallenge.scheduledAt).getTime()
-                      : null;
-                    const nowMs = Date.now();
                     const showRecipientResult =
-                      Boolean(incomingChallenge?.scheduledAt)
+                      incomingChallenge != null
                       && playerIsViewer(player.userId, viewerId)
-                      && incomingChallenge?.toUserId === viewerId
-                      && !incomingChallenge?.proposedWinnerId
-                      && matchStart !== null
-                      && nowMs >= matchStart
-                      && nowMs <= matchStart + RESULT_WINDOW_MS;
+                      && incomingChallenge.toUserId === viewerId
+                      && !incomingChallenge.proposedWinnerId
+                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED");
                     const showSchedule =
                       incomingChallenge != null
                       && playerIsViewer(player.userId, viewerId)
@@ -1114,11 +1107,11 @@ export default function LadderPage() {
                       && Boolean(incomingChallenge.scheduledAt)
                       && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED");
                     const showForfeit =
-                      Boolean(incomingChallenge?.scheduledAt)
+                      incomingChallenge != null
                       && playerIsViewer(player.userId, viewerId)
-                      && matchStart !== null
-                      && nowMs >= matchStart
-                      && !incomingChallenge?.proposedWinnerId;
+                      && incomingChallenge.toUserId === viewerId
+                      && !incomingChallenge.proposedWinnerId
+                      && (incomingChallenge.status === "ACCEPTED" || incomingChallenge.status === "SCHEDULED");
                     const rematchLocked = (ladder.rematchLockedOpponentIds ?? []).includes(player.userId);
                     const canOfferBase =
                       viewerId !== null
