@@ -653,6 +653,7 @@ export default function LadderPage() {
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [openPlayerRowKey, setOpenPlayerRowKey] = useState<string | null>(null);
+  const resultInFlightOfferIds = useRef<Set<string>>(new Set());
 
   function togglePlayerRow(ladderId: string, userId: string) {
     const key = ladderPlayerRowKey(ladderId, userId);
@@ -823,30 +824,38 @@ export default function LadderPage() {
     busyAction: "won" | "lost",
     resultRowUserId: string,
   ) {
+    if (resultInFlightOfferIds.current.has(offer.id)) return;
+
     const patch = optimisticLadders[ladderId];
     const ladderRow = ladderData?.data.find((row) => row.id === ladderId);
-    if (!ladderRow) return;
-
-    const players = (patch?.players ?? ladderRow.players).map((p) => ({ ...p }));
-    const offers = (patch?.offers ?? ladderRow.offers ?? []).map((o) => ({ ...o }));
-    const shiftedPlayers =
-      winnerId === offer.fromUserId
-        ? applyLadderChallengeShiftClient(players, offer.fromUserId, offer.toUserId)
-        : players;
     const resultLabel = busyAction === "won" ? "Kazandı" : "Kaybetti";
 
-    flushSync(() => {
+    resultInFlightOfferIds.current.add(offer.id);
+
+    if (ladderRow) {
+      const players = (patch?.players ?? ladderRow.players).map((p) => ({ ...p }));
+      const offers = (patch?.offers ?? ladderRow.offers ?? []).map((o) => ({ ...o }));
+      const shiftedPlayers =
+        winnerId === offer.fromUserId
+          ? applyLadderChallengeShiftClient(players, offer.fromUserId, offer.toUserId)
+          : players;
+      const closedOffers = offers.filter((o) => o.id !== offer.id);
+
+      flushSync(() => {
+        setResultingAction({ offerId: offer.id, action: busyAction });
+        setOptimisticLadders((current) => ({
+          ...current,
+          [ladderId]: {
+            players: shiftedPlayers,
+            offers: closedOffers,
+            resultRowUserId,
+            resultLabel,
+          },
+        }));
+      });
+    } else {
       setResultingAction({ offerId: offer.id, action: busyAction });
-      setOptimisticLadders((current) => ({
-        ...current,
-        [ladderId]: {
-          players: shiftedPlayers,
-          offers,
-          resultRowUserId,
-          resultLabel,
-        },
-      }));
-    });
+    }
 
     setMessage(null);
     try {
@@ -868,6 +877,7 @@ export default function LadderPage() {
       });
       setMessage(err instanceof Error ? err.message : "Sonuç kaydedilemedi");
     } finally {
+      resultInFlightOfferIds.current.delete(offer.id);
       setResultingAction(null);
     }
   }
@@ -1355,7 +1365,7 @@ export default function LadderPage() {
                                         void proposeResult(
                                           ladder.id,
                                           incomingChallenge,
-                                          incomingChallenge.toUserId,
+                                          viewerId ?? incomingChallenge.toUserId,
                                           "won",
                                           player.userId,
                                         );
